@@ -1,0 +1,13 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+google-generativeai==0.3.0
+google-cloud-texttospeech==2.11.0
+python-dotenv==1.0.0
+pdfplumber==0.10.2
+pydantic==2.4.2
+pytest==7.4.3
+pytest-asyncio
+python-multipart
+youtube-transcript-api
+httpx
+beautifulsoup4
