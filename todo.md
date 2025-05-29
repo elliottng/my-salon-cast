@@ -53,7 +53,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Implement core LLM-driven persona research service (`GeminiService.research_persona_async`)
 - [x] Integrate persona research calls into `PodcastGeneratorService` workflow
 - [x] Utilize `PersonaResearch` data for podcast outline and dialogue generation
-- [ ] Implement LLM-driven detailed podcast outline generation (multi-segment).
+- [x] Implement LLM-driven detailed podcast outline generation (multi-segment).
 - [ ] Refine LLM dialogue writing to iterate through outline segments, producing `DialogueTurn` objects.
 - [ ] Implement audio stitching of multiple `DialogueTurn` audio segments using `pydub`.
 - [ ] Enhance transcript generation by concatenating text from `DialogueTurn` objects.

@@ -2,22 +2,27 @@
 
 import google.generativeai as genai
 import os
-import asyncio
+import json
+import re
 import logging
+import functools
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Union, Tuple
+import asyncio
+
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-import json # For potential JSONDecodeError
-from typing import List, Optional
-from .podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis # Assuming podcast_models.py is in the same app directory
-from pydantic import ValidationError
-from .common_exceptions import LLMProcessingError
-
 from google.api_core.exceptions import (
     DeadlineExceeded,
     ServiceUnavailable,
     ResourceExhausted,
     InternalServerError
 )
+from google.ai.generativelanguage_v1beta.types import GenerationConfig
+from pydantic import ValidationError
+
+from .podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis, OutlineSegment
+from .common_exceptions import LLMProcessingError
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -227,6 +232,300 @@ Ensure the output is a single, valid JSON object only, with no additional text b
             logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {output_for_log}", exc_info=True)
             raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
 
+    def _parse_duration_to_seconds(self, duration_str: str) -> int:
+        """
+        Parse a duration string like "5 minutes" or "2 mins" into seconds.
+        Returns default of 300 seconds (5 minutes) if parsing fails.
+        """
+        try:
+            # Extract numeric part and convert to float
+            numeric_part = float(re.search(r'\d+(?:\.\d+)?', duration_str).group())
+            
+            # Determine the unit (default to minutes)
+            if re.search(r'hour|hr', duration_str, re.IGNORECASE):
+                return int(numeric_part * 3600)  # hours to seconds
+            elif re.search(r'sec|second', duration_str, re.IGNORECASE):
+                return int(numeric_part)  # already in seconds
+            else:  # Default to minutes
+                return int(numeric_part * 60)  # minutes to seconds
+        except (AttributeError, ValueError):
+            logger.warning(f"Could not parse duration: {duration_str}. Using default of 300 seconds.")
+            return 300  # Default to 5 minutes
+    
+    def _validate_and_adjust_segments(self, podcast_outline: PodcastOutline, total_duration_seconds: int) -> PodcastOutline:
+        """
+        Validate and adjust segment durations to match the desired podcast length.
+        Also ensures proper structure with intro, main body segments, and conclusion.
+        """
+        segments = podcast_outline.segments
+        
+        # 1. Check if we have segments
+        if not segments:
+            logger.warning("No segments in podcast outline. Creating basic structure.")
+            return self._create_fallback_outline(podcast_outline.title_suggestion, 
+                                               podcast_outline.summary_suggestion, 
+                                               total_duration_seconds)
+        
+        # 2. Validate segment IDs and ensure they're unique
+        segment_ids = [s.segment_id for s in segments]
+        if len(segment_ids) != len(set(segment_ids)):
+            logger.warning("Duplicate segment IDs found. Assigning new unique IDs.")
+            for i, segment in enumerate(segments):
+                segment.segment_id = f"segment_{i+1}"
+        
+        # 3. Assign durations if missing or zero
+        segments_with_duration = [s for s in segments if s.estimated_duration_seconds and s.estimated_duration_seconds > 0]
+        segments_without_duration = [s for s in segments if not s.estimated_duration_seconds or s.estimated_duration_seconds <= 0]
+        
+        # If no segments have durations, distribute time based on ideal proportions
+        if not segments_with_duration:
+            logger.info("No segments have durations. Distributing time based on ideal proportions.")
+            return self._distribute_time_to_segments(segments, total_duration_seconds)
+        
+        # 4. If some segments have durations but others don't, distribute remaining time
+        if segments_without_duration:
+            total_assigned_duration = sum(s.estimated_duration_seconds for s in segments_with_duration)
+            remaining_duration = max(0, total_duration_seconds - total_assigned_duration)
+            
+            if remaining_duration > 0:
+                per_segment_remaining = remaining_duration // len(segments_without_duration)
+                for segment in segments_without_duration:
+                    segment.estimated_duration_seconds = per_segment_remaining
+            else:
+                # Not enough time left, scale everything down
+                scaling_factor = total_duration_seconds / total_assigned_duration
+                for segment in segments_with_duration:
+                    segment.estimated_duration_seconds = int(segment.estimated_duration_seconds * scaling_factor)
+                for segment in segments_without_duration:
+                    segment.estimated_duration_seconds = 10  # Minimal duration
+        
+        # 5. If total duration doesn't match target, scale proportionally
+        total_segment_duration = sum(s.estimated_duration_seconds for s in segments)
+        if abs(total_segment_duration - total_duration_seconds) > 30:  # Allow 30 second margin
+            scaling_factor = total_duration_seconds / total_segment_duration
+            for segment in segments:
+                segment.estimated_duration_seconds = max(10, int(segment.estimated_duration_seconds * scaling_factor))
+        
+        # 6. Validate structure (intro, body, conclusion)
+        has_intro = any("intro" in s.segment_id.lower() or "introduction" in s.segment_title.lower() for s in segments)
+        has_conclusion = any("conclu" in s.segment_id.lower() or "conclusion" in s.segment_title.lower() 
+                            or "outro" in s.segment_id.lower() or "summary" in s.segment_title.lower() for s in segments)
+        
+        if not (has_intro and has_conclusion):
+            logger.warning("Missing intro or conclusion segments. Restructuring outline.")
+            return self._restructure_outline_segments(podcast_outline, total_duration_seconds)
+        
+        return podcast_outline
+    
+    def _distribute_time_to_segments(self, segments: List[OutlineSegment], total_duration_seconds: int) -> PodcastOutline:
+        """
+        Distribute time to segments based on ideal proportions:
+        - Intro: ~10-15% 
+        - Body: ~70-80%
+        - Conclusion: ~10-15%
+        """
+        intro_segments = []
+        body_segments = []
+        conclusion_segments = []
+        
+        # Categorize segments
+        for segment in segments:
+            if "intro" in segment.segment_id.lower() or "introduction" in segment.segment_title.lower():
+                intro_segments.append(segment)
+            elif "conclu" in segment.segment_id.lower() or "conclusion" in segment.segment_title.lower() \
+                or "outro" in segment.segment_id.lower() or "summary" in segment.segment_title.lower():
+                conclusion_segments.append(segment)
+            else:
+                body_segments.append(segment)
+        
+        # If categorization failed, make a best guess based on position
+        if not intro_segments and not conclusion_segments and len(segments) >= 3:
+            intro_segments = [segments[0]]
+            conclusion_segments = [segments[-1]]
+            body_segments = segments[1:-1]
+        elif not intro_segments and not conclusion_segments and len(segments) == 2:
+            intro_segments = [segments[0]]
+            conclusion_segments = [segments[1]]
+            body_segments = []
+        elif not body_segments:
+            # Create at least one body segment if none exist
+            body_segments = [OutlineSegment(
+                segment_id="body_1",
+                segment_title="Main Discussion",
+                speaker_id="Host",
+                content_cue="Discuss the main points from the source material.",
+                estimated_duration_seconds=0
+            )]
+        
+        # Calculate ideal durations based on proportions
+        intro_duration = int(total_duration_seconds * 0.15)  # 15%
+        conclusion_duration = int(total_duration_seconds * 0.15)  # 15%
+        body_duration = total_duration_seconds - intro_duration - conclusion_duration  # 70%
+        
+        # Distribute durations within each category
+        if intro_segments:
+            per_intro_segment = intro_duration // len(intro_segments)
+            for segment in intro_segments:
+                segment.estimated_duration_seconds = per_intro_segment
+        
+        if body_segments:
+            per_body_segment = body_duration // len(body_segments)
+            for segment in body_segments:
+                segment.estimated_duration_seconds = per_body_segment
+        
+        if conclusion_segments:
+            per_conclusion_segment = conclusion_duration // len(conclusion_segments)
+            for segment in conclusion_segments:
+                segment.estimated_duration_seconds = per_conclusion_segment
+        
+        # Recombine segments in proper order
+        all_segments = intro_segments + body_segments + conclusion_segments
+        
+        # Create updated outline with the same title/summary but adjusted segments
+        return PodcastOutline(
+            title_suggestion=segments[0].segment_title if segments else "Generated Podcast",
+            summary_suggestion="A podcast discussing the provided content.",
+            segments=all_segments
+        )
+    
+    def _restructure_outline_segments(self, podcast_outline: PodcastOutline, total_duration_seconds: int) -> PodcastOutline:
+        """
+        Restructure outline to ensure it has intro, body, and conclusion segments
+        while preserving as much original content as possible.
+        """
+        original_segments = podcast_outline.segments
+        
+        # Check if we can identify intro, body, conclusion based on position
+        if len(original_segments) >= 3:
+            # Assume first segment is intro, last is conclusion, rest are body
+            intro_segment = original_segments[0]
+            intro_segment.segment_id = "intro_1"
+            if "intro" not in intro_segment.segment_title.lower():
+                intro_segment.segment_title = "Introduction: " + intro_segment.segment_title
+            
+            conclusion_segment = original_segments[-1]
+            conclusion_segment.segment_id = "conclusion_1"
+            if "conclu" not in conclusion_segment.segment_title.lower() and "summary" not in conclusion_segment.segment_title.lower():
+                conclusion_segment.segment_title = "Conclusion: " + conclusion_segment.segment_title
+                
+            body_segments = original_segments[1:-1]
+            for i, segment in enumerate(body_segments):
+                segment.segment_id = f"body_{i+1}"
+                
+            # Calculate durations
+            intro_duration = int(total_duration_seconds * 0.15)
+            conclusion_duration = int(total_duration_seconds * 0.15)
+            body_duration = total_duration_seconds - intro_duration - conclusion_duration
+            
+            intro_segment.estimated_duration_seconds = intro_duration
+            conclusion_segment.estimated_duration_seconds = conclusion_duration
+            
+            if body_segments:
+                per_body_segment = body_duration // len(body_segments)
+                for segment in body_segments:
+                    segment.estimated_duration_seconds = per_body_segment
+            
+            restructured_segments = [intro_segment] + body_segments + [conclusion_segment]
+            
+        else:
+            # Not enough segments, need to create a proper structure
+            restructured_segments = []
+            
+            # Create intro segment (preserve original if possible)
+            if original_segments and len(original_segments) > 0:
+                intro_segment = original_segments[0]
+                intro_segment.segment_id = "intro_1"
+                if "intro" not in intro_segment.segment_title.lower():
+                    intro_segment.segment_title = "Introduction: " + intro_segment.segment_title
+            else:
+                intro_segment = OutlineSegment(
+                    segment_id="intro_1",
+                    segment_title="Introduction",
+                    speaker_id="Host",
+                    content_cue="Introduce the topic and speakers.",
+                    estimated_duration_seconds=int(total_duration_seconds * 0.15)
+                )
+            restructured_segments.append(intro_segment)
+            
+            # Create body segment(s)
+            if len(original_segments) > 1:
+                # Use middle segment(s) as body
+                body_segments = original_segments[1:] if len(original_segments) == 2 else original_segments[1:-1]
+                for i, segment in enumerate(body_segments):
+                    segment.segment_id = f"body_{i+1}"
+                restructured_segments.extend(body_segments)
+            else:
+                # Create a new body segment
+                body_segment = OutlineSegment(
+                    segment_id="body_1",
+                    segment_title="Main Discussion",
+                    speaker_id="Host",
+                    content_cue="Discuss the main points from the source material.",
+                    estimated_duration_seconds=int(total_duration_seconds * 0.7)
+                )
+                restructured_segments.append(body_segment)
+            
+            # Create conclusion segment
+            if len(original_segments) > 2:
+                conclusion_segment = original_segments[-1]
+                conclusion_segment.segment_id = "conclusion_1"
+                if "conclu" not in conclusion_segment.segment_title.lower() and "summary" not in conclusion_segment.segment_title.lower():
+                    conclusion_segment.segment_title = "Conclusion: " + conclusion_segment.segment_title
+            else:
+                conclusion_segment = OutlineSegment(
+                    segment_id="conclusion_1",
+                    segment_title="Conclusion",
+                    speaker_id="Host",
+                    content_cue="Summarize the key points and conclude the discussion.",
+                    estimated_duration_seconds=int(total_duration_seconds * 0.15)
+                )
+            restructured_segments.append(conclusion_segment)
+            
+        return PodcastOutline(
+            title_suggestion=podcast_outline.title_suggestion,
+            summary_suggestion=podcast_outline.summary_suggestion,
+            segments=restructured_segments
+        )
+    
+    def _create_fallback_outline(self, title: str, summary: str, total_duration_seconds: int) -> PodcastOutline:
+        """
+        Create a fallback outline with standard intro, body, conclusion structure
+        when the LLM doesn't provide valid segments.
+        """
+        intro_duration = int(total_duration_seconds * 0.15)  # 15%
+        body_duration = int(total_duration_seconds * 0.7)   # 70%
+        conclusion_duration = total_duration_seconds - intro_duration - body_duration  # 15%
+        
+        segments = [
+            OutlineSegment(
+                segment_id="intro_1",
+                segment_title="Introduction",
+                speaker_id="Host",
+                content_cue="Introduce the topic and speakers.",
+                estimated_duration_seconds=intro_duration
+            ),
+            OutlineSegment(
+                segment_id="body_1",
+                segment_title="Main Discussion",
+                speaker_id="Host",
+                content_cue="Discuss the main points from the source material.",
+                estimated_duration_seconds=body_duration
+            ),
+            OutlineSegment(
+                segment_id="conclusion_1",
+                segment_title="Conclusion",
+                speaker_id="Host",
+                content_cue="Summarize the key points and conclude the discussion.",
+                estimated_duration_seconds=conclusion_duration
+            )
+        ]
+        
+        return PodcastOutline(
+            title_suggestion=title if title else "Generated Podcast",
+            summary_suggestion=summary if summary else "A podcast discussing the provided content.",
+            segments=segments
+        )
+    
     async def generate_podcast_outline_async(
         self,
         source_analyses: list[str],
@@ -285,7 +584,7 @@ Ensure the output is a single, valid JSON object only, with no additional text b
             else:
                 formatted_names_prominent_persons_str = "None"
 
-            # PRD 4.2.4 Prompt Template
+            # PRD 4.2.4 Prompt Template with enhanced duration guidance
             prd_outline_prompt_template = """LLM Prompt: Podcast Outline Generation
 Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative podcast outline based on the provided materials.
 
@@ -294,6 +593,7 @@ Overall Podcast Goals:
 Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
 Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents.
 Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints.
+Create Properly Timed Segments: Ensure the podcast fits within the requested duration by creating segments with appropriate estimated_duration_seconds values that sum up to the total requested length.
 
 Inputs Provided to You:
 
@@ -403,13 +703,26 @@ For each segment in the 'segments' list:
                 cleaned_response_text = cleaned_response_text[3:-3].strip()
 
             try:
+                # Parse the desired duration to seconds for time distribution validation
+                total_duration_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
+                logger.info(f"Parsed desired podcast length '{desired_podcast_length_str}' to {total_duration_seconds} seconds")
+                
                 # Clean keys before parsing, as Gemini sometimes adds extra spaces
                 parsed_json_dict = json.loads(cleaned_response_text)
                 parsed_json_dict = GeminiService._clean_keys_recursive(parsed_json_dict) 
 
+                # Create the basic podcast outline from the LLM response
                 podcast_outline = PodcastOutline(**parsed_json_dict)
-                logger.info(f"Successfully generated and validated podcast outline: {podcast_outline.title_suggestion}")
-                return podcast_outline
+                logger.info(f"Successfully generated podcast outline: {podcast_outline.title_suggestion}")
+                
+                # Validate and adjust segment durations and structure
+                validated_podcast_outline = self._validate_and_adjust_segments(podcast_outline, total_duration_seconds)
+                
+                # Log the final segment structure
+                segment_info = [f"{s.segment_id}: {s.estimated_duration_seconds}s" for s in validated_podcast_outline.segments]
+                logger.info(f"Final podcast outline has {len(validated_podcast_outline.segments)} segments: {', '.join(segment_info)}")
+                
+                return validated_podcast_outline
             except json.JSONDecodeError as e:
                 logger.error(f"LLM output for podcast outline was not valid JSON. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
                 raise LLMProcessingError(f"LLM output for podcast outline was not valid JSON: {e}")
