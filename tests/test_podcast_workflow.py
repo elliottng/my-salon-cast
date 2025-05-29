@@ -20,11 +20,82 @@ from app.podcast_models import (
 )
 from app.llm_service import LLMNotInitializedError
 
+
+@pytest.fixture
+def mock_podcast_data():
+    return {
+        "extracted_text": "This is the extracted content from a source.",
+        "source_analysis": {
+            "key_themes": ["theme1"],
+            "facts": ["fact1"],
+            "summary_points": ["point1"],
+            "potential_biases": [],
+            "counter_arguments_or_perspectives": []
+        },
+        "persona_research": {
+            "person_id": "person-a",
+            "name": "Person A",
+            "viewpoints": ["Opinion 1", "Summary of Person A"],
+            "speaking_style": "direct, formal",
+            "key_quotes": []
+        }
+    }
+
+@pytest.fixture
+def mock_podcast_models(mock_podcast_data):
+    return {
+        "outline": PodcastOutline(
+            title_suggestion="E2E Test Podcast Title",
+            summary_suggestion="E2E Test Podcast Summary.",
+            segments=[
+                OutlineSegment(
+                    segment_id="s1",
+                    segment_title="Introduction",
+                    speaker_id="Host",
+                    content_cue="Introduce the main topic.",
+                    estimated_duration_seconds=30
+                ),
+                OutlineSegment(
+                    segment_id="s2",
+                    segment_title="Main Discussion",
+                    speaker_id="Alice",
+                    content_cue="Discuss fact1.",
+                    estimated_duration_seconds=60
+                )
+            ]
+        ),
+        "dialogue_turns": [
+            DialogueTurn(turn_id=1, speaker_id="Host", speaker_gender="Neutral", text="Welcome to our E2E test podcast.", source_mentions=[]),
+            DialogueTurn(turn_id=2, speaker_id="Alice", speaker_gender="Female", text="Let's discuss fact1.", source_mentions=["fact1"])
+        ]
+    }
+
+
 # Mock the actual services that PodcastGeneratorService depends on
 # We need to patch where they are *looked up*, which is in app.podcast_workflow
 @patch('app.podcast_workflow.LLMService', new_callable=MagicMock)
 @patch('app.podcast_workflow.GoogleCloudTtsService', new_callable=MagicMock)
 class TestPodcastGeneratorService:
+
+    def setup_successful_mocks(self, mock_data, mock_models):
+        """Set up mocks for a successful podcast generation flow"""
+        # Mock LLM service methods
+        self.service.llm_service.analyze_source_text_async = AsyncMock(return_value=mock_data["source_analysis"])
+        self.service.llm_service.research_persona_async = AsyncMock(return_value=PersonaResearch(**mock_data["persona_research"]))
+        self.service.llm_service.generate_podcast_outline_async = AsyncMock(return_value=mock_models["outline"])
+        self.service.llm_service.generate_dialogue_async = AsyncMock(return_value=mock_models["dialogue_turns"])
+        
+        # Mock TTS service method
+        self.service.tts_service.text_to_audio_async = AsyncMock(return_value="mock_segment.mp3")
+
+    def verify_json_file_contents(self, file_path, expected_content):
+        """Verify that a JSON file contains the expected content"""
+        assert file_path is not None
+        # Ensure the file exists before trying to open it
+        assert os.path.exists(file_path), f"JSON file not found at {file_path}"
+        with open(file_path, 'r') as f:
+            saved_content = json.load(f)
+            assert saved_content == expected_content
 
     def setup_method(self, method):
         """Setup for each test method."""
@@ -206,158 +277,66 @@ class TestPodcastGeneratorService:
                 assert episode.audio_filepath == "placeholder.mp3" # Check for hardcoded placeholder
 
     @pytest.mark.asyncio
-    async def test_generate_podcast_from_source_e2e_success(self, MockGoogleCloudTtsService, MockLLMService):
+    async def test_generate_podcast_from_source_e2e_success(self, MockGoogleCloudTtsService, MockLLMService, mock_podcast_data, mock_podcast_models):
         """Test a full successful run of generate_podcast_from_source with all mocks."""
         # 1. Setup Mocks
-        mock_extracted_text = "This is the extracted content from a source."
-        mock_source_analysis = {
-            "key_themes": ["theme1"],
-            "facts": ["fact1"],
-            "summary_points": ["point1"],
-            "potential_biases": [],
-            "counter_arguments_or_perspectives": []
-        }
-        mock_persona_research_content = {
-            "person_id": "person-a",
-            "name": "Person A",
-            "viewpoints": ["Opinion 1", "Summary of Person A"],
-            "speaking_style": "direct, formal",
-            "key_quotes": []
-        }
-
-        mock_podcast_outline = PodcastOutline(
-            title_suggestion="E2E Test Podcast Title",
-            summary_suggestion="E2E Test Podcast Summary.",
-            segments=[
-                OutlineSegment(
-                    segment_id="s1",
-                    segment_title="Introduction",
-                    speaker_id="Host",
-                    content_cue="Introduce the main topic.",
-                    estimated_duration_seconds=30
-                ),
-                OutlineSegment(
-                    segment_id="s2",
-                    segment_title="Main Discussion",
-                    speaker_id="Alice",
-                    content_cue="Discuss fact1.",
-                    estimated_duration_seconds=60
-                )
-            ]
-        )
-
-        mock_dialogue_turns = [
-            DialogueTurn(turn_id=1, speaker_id="Host", speaker_gender="Neutral", text="Welcome to our E2E test podcast.", source_mentions=[]),
-            DialogueTurn(turn_id=2, speaker_id="Alice", speaker_gender="Female", text="Let's discuss fact1.", source_mentions=["fact1"])
-        ]
-
-        # Mock content extraction
-        with patch('app.podcast_workflow.extract_content_from_url', AsyncMock(return_value=mock_extracted_text)) as mock_extract_content:
-            # Mock LLMService methods
-            self.service.llm_service.analyze_source_text_async = AsyncMock(return_value=mock_source_analysis)
-            self.service.llm_service.research_persona_async = AsyncMock(return_value=PersonaResearch(**mock_persona_research_content))
-            self.service.llm_service.generate_podcast_outline_async = AsyncMock(return_value=mock_podcast_outline)
-            self.service.llm_service.generate_dialogue_async = AsyncMock(return_value=mock_dialogue_turns)
-
-            # Mock TTSService method
-            self.service.tts_service.text_to_audio_async = AsyncMock(return_value="mock_segment.mp3")
+        self.setup_successful_mocks(mock_podcast_data, mock_podcast_models)
+        
+        with patch('app.podcast_workflow.extract_content_from_url', AsyncMock(return_value=mock_podcast_data["extracted_text"])) as mock_extract_content, \
+             patch('app.podcast_workflow.logger') as mock_logger:
             
-            with patch('app.podcast_workflow.logger') as mock_logger:
-                # 2. Prepare Request
-                request_data = PodcastRequest(
-                    source_url="http://example.com/e2e-test",
-                    prominent_persons=["Person A"],
-                    desired_podcast_length_str="2 minutes"
-                )
+            # 2. Prepare Request
+            request_data = PodcastRequest(
+                source_url="http://example.com/e2e-test",
+                prominent_persons=["Person A"],
+                desired_podcast_length_str="2 minutes"
+            )
 
-                # 3. Execute
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
-                        mock_tempdir_context.return_value.__enter__.return_value = tmpdir
-                        episode = await self.service.generate_podcast_from_source(request_data)
+            # 3. Execute
+            with tempfile.TemporaryDirectory() as tmpdir:
+                with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
+                    mock_tempdir_context.return_value.__enter__.return_value = tmpdir
+                    episode = await self.service.generate_podcast_from_source(request_data)
 
-                        # 4. Assertions
+                    # 4. Assertions - Episode Metadata
+                    assert episode.title == "E2E Test Podcast Title"
+                    assert episode.summary == "E2E Test Podcast Summary."
+                    expected_transcript = "Host: Welcome to our E2E test podcast.\nAlice: Let's discuss fact1."
+                    assert episode.transcript == expected_transcript
+                    assert episode.warnings == []
 
-                        assert episode.title == "E2E Test Podcast Title"
-                        assert episode.summary == "E2E Test Podcast Summary."
-                        expected_transcript = "Host: Welcome to our E2E test podcast.\nAlice: Let's discuss fact1."
-                        assert episode.transcript == expected_transcript
-                        assert episode.warnings == []
-
-                        # Check saved JSON files
-                        assert episode.llm_source_analysis_path is not None
-                        # llm_source_analysis_path is a single string path
-                        with open(episode.llm_source_analysis_path, 'r') as f:
-                            saved_analysis = json.load(f)
-                            assert saved_analysis == mock_source_analysis
-                        
-                        assert episode.llm_persona_research_paths is not None
-                        # Assuming llm_persona_research_paths is a list of paths, and we check the first one
-                        with open(episode.llm_persona_research_paths[0], 'r') as f:
-                            saved_persona = json.load(f)
-                            assert saved_persona == mock_persona_research_content
-
-                        assert episode.llm_podcast_outline_path is not None
-                        with open(episode.llm_podcast_outline_path, 'r') as f:
-                            saved_outline = json.load(f)
-                            assert saved_outline == mock_podcast_outline.model_dump()
-
-                        assert episode.llm_dialogue_turns_path is not None
-                        with open(episode.llm_dialogue_turns_path, 'r') as f:
-                            saved_turns = json.load(f)
-                            assert saved_turns == [turn.model_dump() for turn in mock_dialogue_turns]
-                # If multiple segments are combined, mock the combined audio object's export
-                # For simplicity, let's assume the final path is constructed and export is called on it.
-                # If your service directly calls export on a combined AudioSegment object:
-                mock_combined_audio = MagicMock()
-                # If an empty segment is created and then appended to:
-                # if mock_audio_empty.called: # Check if AudioSegment.empty() was part of the logic
-                #     mock_audio_empty.return_value = mock_combined_audio
-                # else: # Otherwise, assume the first segment becomes the base for combining
-                #     mock_segment_audio.__add__ = MagicMock(return_value=mock_combined_audio) # Mock '+' operator if used
-                
-                mock_combined_audio.export = MagicMock()
-
-                # 4. Assertions
-                mock_extract_content.assert_called_once_with(str(request_data.source_url))
-                self.service.llm_service.analyze_source_text_async.assert_called_once_with(mock_extracted_text)
-                self.service.llm_service.research_persona_async.assert_called_once_with(source_text=mock_extracted_text, person_name="Person A")
-                self.service.llm_service.generate_podcast_outline_async.assert_called_once()
-                self.service.llm_service.generate_dialogue_async.assert_called_once()
-                
-                # Assert TTS calls (one for each dialogue turn)
-                # TODO: Reinstate TTS assertions when TTS audio generation is implemented in podcast_workflow.py
-                # assert self.service.tts_service.text_to_audio_async.call_count == len(mock_dialogue_turns)
-                # self.service.tts_service.text_to_audio_async.assert_any_call(mock_dialogue_turns[0].text, mock_dialogue_turns[0].speaker_gender, mock_dialogue_turns[0].speaker_id, 0)
-                # self.service.tts_service.text_to_audio_async.assert_any_call(mock_dialogue_turns[1].text, mock_dialogue_turns[1].speaker_gender, mock_dialogue_turns[1].speaker_id, 1)
-
-                # Assert final audio export was called (assuming it's on mock_combined_audio)
-                # The exact path for export depends on your implementation
-                # For now, we'll check if export was called on the final combined object if it exists
-                # This part is highly dependent on the actual audio stitching logic in podcast_workflow.py
-                # If the final path is constructed and passed to export, that's easier to check.
-                # For this example, let's assume the final path is in episode.audio_filepath
-                # and that the export method of the combined audio object was called with this path.
-                # This requires more detailed mocking of pydub if it's used directly.
-                # For now, we'll simplify and assume the path is set correctly.
-                # A more robust test would mock the specific pydub calls if they are made inside the service.
-                # If the service just returns a path after TTS service does its work, that's simpler.
-                # Let's assume the tts_service is responsible for the final combined file for now.
-                # And the workflow simply assigns the path.
-                # If the workflow itself does the stitching, this mock needs to be more detailed.
-                # For now, let's assume the `audio_stitching` part of the workflow correctly produces a file, 
-                # and its path is episode.audio_filepath
-                # If the audio stitching is complex, this mock needs to be more detailed.
-                # For now, let's assume the service.tts_service.combine_audio_segments is mocked or handled internally by tts_service
-                # and the final path is set correctly.
-                # The test currently doesn't mock the combination logic, so we'll check the path.
-                # TODO: Reinstate audio_filepath assertions when audio generation/stitching is implemented
-                # assert episode.audio_filepath.endswith(".mp3") # Check if it looks like an mp3 path
-                # assert tmpdir in episode.audio_filepath # Check it's in the temp dir
-
-
-
-
+                    # 5. Assertions - Saved JSON Files
+                    self.verify_json_file_contents(
+                        episode.llm_source_analysis_path, 
+                        mock_podcast_data["source_analysis"]
+                    )
+                    self.verify_json_file_contents(
+                        episode.llm_persona_research_paths[0], 
+                        mock_podcast_data["persona_research"]
+                    )
+                    self.verify_json_file_contents(
+                        episode.llm_podcast_outline_path, 
+                        mock_podcast_models["outline"].model_dump()
+                    )
+                    self.verify_json_file_contents(
+                        episode.llm_dialogue_turns_path, 
+                        [turn.model_dump() for turn in mock_podcast_models["dialogue_turns"]]
+                    )
+            
+            # 6. Assertions - Service Method Calls
+            mock_extract_content.assert_called_once_with(str(request_data.source_url))
+            self.service.llm_service.analyze_source_text_async.assert_called_once_with(mock_podcast_data["extracted_text"])
+            self.service.llm_service.research_persona_async.assert_called_once_with(
+                source_text=mock_podcast_data["extracted_text"], 
+                person_name="Person A"
+            )
+            self.service.llm_service.generate_podcast_outline_async.assert_called_once()
+            self.service.llm_service.generate_dialogue_async.assert_called_once()
+            
+            # TODO: Implement and test audio generation & TTS functionality
+            # Audio file assertions currently disabled; reinstate when implemented:
+            # - TTS service calls for each dialogue turn (check call_count and specific calls)
+            # - Audio filepath verification (should be in temp dir with .mp3 extension)
     @pytest.mark.asyncio
     @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)
     async def test_content_extraction_url_failure(self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService):
@@ -416,41 +395,43 @@ class TestPodcastGeneratorService:
         self.service.llm_service.analyze_source_text_async.assert_called_once_with(extracted_text)
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("llm_response_config, expected_title, expected_transcript_contains", [
+        pytest.param(
+            {"error": "LLM processing failed", "raw_response": "details..."}, 
+            "Generation Incomplete", 
+            "Dialogue generation skipped", # Looser check for transcript
+            id="llm_returns_error_dict"
+        ),
+        pytest.param(
+            {"key_themes": ["theme"], "facts": "not a list"}, # Pydantic error for SourceAnalysis
+            "Generation Incomplete", 
+            "Dialogue generation skipped",
+            id="llm_returns_malformed_pydantic_data"
+        )
+    ])
     @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)
-    async def test_llm_source_analysis_returns_error_dict(self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService):
+    async def test_llm_source_analysis_error_scenarios(
+        self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService, 
+        llm_response_config, expected_title, expected_transcript_contains
+    ):
+        """Test error handling when LLM source analysis returns errors or malformed data."""
         extracted_text = "Some text."
-        llm_error_response = {"error": "LLM processing failed", "raw_response": "details..."}
         mock_extract_url.return_value = extracted_text
-        self.service.llm_service.analyze_source_text_async.return_value = llm_error_response
+        # Ensure analyze_source_text_async is an AsyncMock if not already set up by setup_method for all tests
+        if not isinstance(self.service.llm_service.analyze_source_text_async, AsyncMock):
+            self.service.llm_service.analyze_source_text_async = AsyncMock()
+        self.service.llm_service.analyze_source_text_async.return_value = llm_response_config
 
         request = PodcastRequest(source_url="http://example.com/source")
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir:
-                mock_tempdir.return_value.__enter__.return_value = tmpdir
+            with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
+                mock_tempdir_context.return_value.__enter__.return_value = tmpdir
                 episode = await self.service.generate_podcast_from_source(request)
         
-        # Current logic logs error but continues with placeholder, llm_source_analysis_path should be None
         assert episode.llm_source_analysis_path is None
-        # Check that the placeholder response is still generated (or adapt if behavior changes)
-        assert episode.title == "Generation Incomplete" 
-
-    @pytest.mark.asyncio
-    @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)
-    async def test_llm_source_analysis_pydantic_error(self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService):
-        extracted_text = "Some text."
-        # This dict will cause Pydantic validation error for SourceAnalysis (facts should be List[str])
-        llm_malformed_response = {"key_themes": ["theme"], "facts": "not a list"} 
-        mock_extract_url.return_value = extracted_text
-        self.service.llm_service.analyze_source_text_async.return_value = llm_malformed_response
-
-        request = PodcastRequest(source_url="http://example.com/source")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir:
-                mock_tempdir.return_value.__enter__.return_value = tmpdir
-                episode = await self.service.generate_podcast_from_source(request)
-
-        assert episode.llm_source_analysis_path is None
-        assert episode.title == "Generation Incomplete" # Still returns placeholder for now
+        assert episode.title == expected_title
+        # Check if the transcript contains the expected substring, as exact match might be too brittle
+        assert expected_transcript_contains in episode.transcript
 
 # Note: Need to ensure LLMNotInitializedError and ExtractionError are accessible for these tests.
 # They might need to be defined in app.common_exceptions or similar and imported.
