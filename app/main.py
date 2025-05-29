@@ -1,7 +1,9 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from app.validations import is_valid_pdf, is_valid_url, is_valid_youtube_url
-from app.content_extractor import extract_text_from_pdf, extract_content_from_url, extract_transcript_from_youtube
+from app.content_extractor import extract_text_from_pdf, extract_content_from_url, extract_transcript_from_youtube, ExtractionError
+from app.podcast_workflow import PodcastRequest, PodcastGeneratorService
+from app.podcast_models import PodcastEpisode
 
 app = FastAPI(title="MySalonCast API")
 
@@ -86,3 +88,40 @@ async def process_youtube_endpoint(url: str = Form(...)):
         "transcript_snippet": transcript_snippet,
         "total_transcript_characters": len(transcript)
     }
+
+
+@app.post("/generate/podcast_elements/", response_model=PodcastEpisode)
+async def generate_podcast_elements_endpoint(request: PodcastRequest):
+    """
+    Receives a podcast request, performs content extraction, persona research,
+    and generates a podcast outline.
+    Returns the structured podcast episode data.
+    """
+    try:
+        print(f"Received podcast generation request: {request}")
+        generator_service = PodcastGeneratorService()
+        print("Created PodcastGeneratorService instance")
+        # The service handles the creation of output directories and saving files.
+        podcast_episode = await generator_service.generate_podcast_from_source(request)
+        print("Successfully generated podcast episode")
+        return podcast_episode
+    except ExtractionError as e:
+        error_msg = f"Content extraction failed: {str(e)}"
+        print(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
+    except ValueError as e: # Catches Pydantic validation errors and other ValueErrors
+        error_msg = f"Validation error: {str(e)}"
+        print(error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
+    except AttributeError as e:
+        error_msg = f"Attribute error: {str(e)}. This might be due to a missing attribute or method in the service or models."
+        print(error_msg)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=error_msg)
+    except Exception as e:
+        error_msg = f"An unexpected error occurred during podcast generation: {type(e).__name__} - {str(e)}"
+        print(error_msg)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An unexpected server error occurred: {type(e).__name__}")

@@ -87,10 +87,10 @@ class GeminiService:
                 return "Error: No text content in Gemini response or response was blocked."
 
         except Exception as e:
-            # Log the error for debugging
-            logger.error(f"Error generating text with Gemini after potential retries: {e}", exc_info=True)
-            # Consider more specific error handling based on Gemini API exceptions if available
-            return f"Error: Could not generate text due to: {str(e)}"
+            # This is a general catch-all for any other errors during the API call or response processing.
+            logger.error(f"Unexpected error in generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
+            # Ensure an exception is raised so the caller knows something went wrong.
+            raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
 
     async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> str:
         """
@@ -147,27 +147,66 @@ Please provide your research as a JSON object with the following structure and f
 Ensure the output is a single, valid JSON object only, with no additional text before or after the JSON.
 """
 
+        json_response_str: Optional[str] = None  # Initialize
         try:
+            logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
             json_response_str = await self.generate_text_async(prompt)
-            # The LLM might sometimes wrap the JSON in backticks, try to remove them
-            if json_response_str.startswith("```json\n") and json_response_str.endswith("\n```"):
-                json_response_str = json_response_str[7:-4]
-            elif json_response_str.startswith("```") and json_response_str.endswith("```"):
-                json_response_str = json_response_str[3:-3]
             
-            # It's crucial that the LLM returns a string that PersonaResearch.model_validate_json can parse.
-            persona_profile = PersonaResearch.model_validate_json(json_response_str)
-            return persona_profile
+            logger.debug(f"Raw LLM response for persona research of '{person_name}': {json_response_str}")
+
+            # Strip potential markdown backticks if present
+            if isinstance(json_response_str, str):
+                # More robust stripping
+                temp_str = json_response_str.strip() # Remove leading/trailing whitespace first
+                if temp_str.startswith("```json") and temp_str.endswith("```"):
+                    # Find the first newline after ```json
+                    # The '7' comes from len("```json") + 1 for the newline, or just after ```json
+                    # Correct start index for content after "```json\n" or "```json "
+                    content_start_idx = temp_str.find('\n', 7) # Search after "```json"
+                    if content_start_idx == -1: # if no newline after ```json, maybe it's just ```json{...}```
+                        content_start_idx = 7 # len("```json")
+                    else:
+                        content_start_idx += 1 # move past the newline itself
+                    
+                    # Find the last occurrence of ``` to mark the end of the JSON content
+                    content_end_idx = temp_str.rfind("```")
+                    
+                    if content_start_idx < content_end_idx:
+                        json_content_candidate = temp_str[content_start_idx:content_end_idx]
+                        json_response_str = json_content_candidate.strip() # Clean the extracted content
+                    else: # Fallback if stripping logic is confused, try to use the original temp_str or log error
+                        logger.warning(f"Markdown stripping for '```json...```' might have failed for '{person_name}'. Using temp_str directly after outer strip.")
+                        json_response_str = temp_str # Or consider it an error
+
+                elif temp_str.startswith("```") and temp_str.endswith("```"):
+                    json_content_candidate = temp_str[3:-3]
+                    json_response_str = json_content_candidate.strip()
+                # If no markdown fences, or they were already stripped,
+                # ensure json_response_str is still the potentially valid JSON string
+                else:
+                    json_response_str = temp_str # Use the stripped version if no fences matched
+        
+            # Add a log to see what exactly is being passed to json.loads
+            logger.debug(f"String to be parsed by json.loads for '{person_name}': '{json_response_str}'")
+            parsed_json = json.loads(json_response_str)
+            
+            # Validate with Pydantic model
+            persona_research_data = PersonaResearch(**parsed_json)
+            logger.info(f"Successfully parsed and validated persona research for '{person_name}'.")
+            return persona_research_data
+
         except json.JSONDecodeError as e:
-            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {json_response_str[:500]}...", exc_info=True)
-            # Consider raising a custom error or returning a default/error PersonaResearch object
+            output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
+            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
             raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
-        except ValidationError as e:
-            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {json_response_str[:500]}...", exc_info=True)
-            raise ValueError(f"LLM response for persona '{person_name}' did not match PersonaResearch schema.") from e
-        except Exception as e:
-            logger.error(f"Unexpected error during persona research for '{person_name}': {e}. LLM Output was: {json_response_str[:500]}...", exc_info=True)
-            raise ValueError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
+        except ValidationError as e: 
+            output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
+            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
+            raise ValueError(f"LLM response for persona '{person_name}' did not match expected structure.") from e
+        except Exception as e: # Catches errors from generate_text_async, or other unexpected issues like TypeError if json_response_str was None and json.loads tried it.
+            output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
+            logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {output_for_log}", exc_info=True)
+            raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
 
     async def generate_podcast_outline_async(
         self,
@@ -455,7 +494,11 @@ async def main_test():
         print(analysis_result)
 
         print("\\nTesting persona research...")
-        persona_research_result = await service.research_persona_async(sample_text_for_analysis)
+        sample_person_name = "Dr. Evelyn Reed" # Add a sample person name
+        persona_research_result = await service.research_persona_async(
+            source_text=sample_text_for_analysis,
+            person_name=sample_person_name # Pass the person_name
+        )
         print("Persona Research Result:")
         print(persona_research_result)
 

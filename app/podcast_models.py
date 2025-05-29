@@ -49,3 +49,16 @@ class PodcastOutline(BaseModel):
     summary_suggestion: str = Field(..., description="Suggested brief summary for the podcast episode.")
     segments: List[OutlineSegment] = Field(..., description="List of podcast segments in order.")
 
+
+class PodcastEpisode(BaseModel):
+    title: str
+    summary: str
+    transcript: str
+    audio_filepath: str
+    source_attributions: List[str]
+    warnings: List[str]
+    llm_source_analysis_path: Optional[str] = None
+    llm_persona_research_paths: Optional[List[str]] = None
+    llm_podcast_outline_path: Optional[str] = None
+    llm_dialogue_turns_path: Optional[str] = None
+

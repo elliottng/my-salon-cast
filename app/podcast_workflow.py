@@ -3,19 +3,7 @@ from typing import List, Optional, Any # Added Any for potential complex inputs
 
 # --- Pydantic Models for Workflow Data ---
 # Models like SourceAnalysis, PersonaResearch, etc., are now imported from .podcast_models
-from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline
-
-class PodcastEpisode(BaseModel):
-    title: str
-    summary: str
-    transcript: str
-    audio_filepath: str
-    source_attributions: List[str]
-    warnings: List[str]
-    llm_source_analysis_path: Optional[str] = None
-    llm_persona_research_paths: Optional[List[str]] = None
-    llm_podcast_outline_path: Optional[str] = None
-    llm_dialogue_turns_path: Optional[str] = None
+from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode
 
 # Placeholder for the input data model to generate_podcast_from_source
 # This will likely be defined more concretely when we build the API endpoint (Task 1.8)
