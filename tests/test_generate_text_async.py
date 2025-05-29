@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import json
 from unittest.mock import Mock, patch, AsyncMock # AsyncMock might not be directly used by these specific tests but good for consistency if fixture evolves
 
 from app.llm_service import GeminiService
@@ -145,3 +146,31 @@ async def test_generate_text_async_api_error(gemini_service):
             await gemini_service.generate_text_async(SAMPLE_ANALYSIS_PROMPT)
         mock_generate_content.assert_called_once_with(SAMPLE_ANALYSIS_PROMPT)
         assert "Failed to generate text due to an unexpected error: Simulated API error" in str(excinfo.value)
+
+@pytest.mark.asyncio
+async def test_gta_for_source_analysis(gemini_service):
+    """Tests generate_text_async when called with a prompt similar to analyze_source_text_async."""
+    # SAMPLE_ANALYSIS_PROMPT already uses TEST_ARTICLE_CONTENT and the full default prompt template
+    prompt_to_use = SAMPLE_ANALYSIS_PROMPT
+    
+    expected_data = {
+        "summary_points": ["Mock summary point 1", "Mock summary point 2"],
+        "detailed_analysis": "This is a mock detailed analysis of the article."
+    }
+    expected_json_output = json.dumps(expected_data)
+
+    # Mock the underlying API call's response object
+    mock_api_response_obj = Mock()
+    mock_api_response_obj.parts = [] # Ensure .text is used
+    mock_api_response_obj.text = expected_json_output
+
+    with patch.object(gemini_service.model, 'generate_content', return_value=mock_api_response_obj) as mock_generate_content_actual_api:
+        result_str = await gemini_service.generate_text_async(prompt_to_use)
+        
+        mock_generate_content_actual_api.assert_called_once_with(prompt_to_use)
+        assert result_str == expected_json_output
+        
+        # Verify the result is valid JSON and matches the expected structure
+        loaded_result = json.loads(result_str)
+        assert loaded_result["summary_points"] == expected_data["summary_points"]
+        assert loaded_result["detailed_analysis"] == expected_data["detailed_analysis"]
