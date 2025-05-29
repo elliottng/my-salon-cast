@@ -11,3 +11,4 @@ python-multipart
 youtube-transcript-api
 httpx
 beautifulsoup4
+tenacity>=8.2.0

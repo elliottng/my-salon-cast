@@ -33,7 +33,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Implement method for podcast outline generation (Ref: PRD 4.2.4 detailed prompt)
 - [x] Implement method for dialogue writing
 - Manage API key securely
-- Implement retry logic
+- [x] Implement retry logic
 
 ### Task 1.5: Persona Research Logic (V1 Scope) (P1, M)
 - Design prompts for persona research using Gemini's internal knowledge

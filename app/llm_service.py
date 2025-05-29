@@ -3,7 +3,20 @@
 import google.generativeai as genai
 import os
 import asyncio
+import logging
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from google.api_core.exceptions import (
+    DeadlineExceeded,
+    ServiceUnavailable,
+    ResourceExhausted,
+    InternalServerError
+)
+
+# Configure logger
+logger = logging.getLogger(__name__)
+# Basic configuration, can be adjusted based on project-wide logging setup
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class GeminiService:
     def __init__(self, api_key: str = None):
@@ -24,6 +37,20 @@ class GeminiService:
         # Consider making the model name configurable if needed in the future.
         self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
+    @retry(
+        stop=stop_after_attempt(3),  # Retry up to 3 times (total of 4 attempts)
+        wait=wait_exponential(multiplier=1, min=2, max=10),  # Wait 2s, then 4s, then 8s
+        retry=retry_if_exception_type((
+            DeadlineExceeded,       # e.g., 504 Gateway Timeout
+            ServiceUnavailable,     # e.g., 503 Service Unavailable
+            ResourceExhausted,      # e.g., 429 Rate Limiting / Quota issues
+            InternalServerError     # e.g., 500 Internal Server Error
+        )),
+        before_sleep=lambda retry_state: logger.warning(
+            f"Retrying API call to Gemini due to {retry_state.outcome.exception().__class__.__name__} "
+            f"(Reason: {retry_state.outcome.exception()}). Attempt #{retry_state.attempt_number}"
+        )
+    )
     async def generate_text_async(self, prompt: str) -> str:
         """
         Asynchronously generates text based on the given prompt using the configured Gemini model.
@@ -53,7 +80,7 @@ class GeminiService:
 
         except Exception as e:
             # Log the error for debugging
-            print(f"Error generating text with Gemini: {e}")
+            logger.error(f"Error generating text with Gemini after potential retries: {e}", exc_info=True)
             # Consider more specific error handling based on Gemini API exceptions if available
             return f"Error: Could not generate text due to: {str(e)}"
 
