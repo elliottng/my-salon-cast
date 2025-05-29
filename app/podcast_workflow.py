@@ -9,12 +9,12 @@ from .common_exceptions import LLMProcessingError
 # Placeholder for the input data model to generate_podcast_from_source
 # This will likely be defined more concretely when we build the API endpoint (Task 1.8)
 class PodcastRequest(BaseModel):
-    source_url: Optional[HttpUrl] = None
+    source_urls: List[HttpUrl] = Field(default_factory=list, description="List of URLs to extract content from (maximum 3)")
     source_pdf_path: Optional[str] = None # Assuming a path if a PDF is uploaded
     custom_prompt_for_outline: Optional[str] = None
     prominent_persons: Optional[List[str]] = Field(default=None, description="List of prominent person names for targeted research.")
-    desired_podcast_length_str: Optional[str] = Field(default="5-7 minutes", description="Desired length of the podcast (e.g., '5-7 minutes', '10-15 minutes').")
-    # Add other user inputs, e.g., podcast length preference
+    desired_podcast_length: int = Field(default=5, description="Desired length of the podcast in minutes.")
+    # Add other user inputs if needed
     # For now, let's keep it simple
 
 
@@ -84,29 +84,62 @@ class PodcastGeneratorService:
             logger.info(f"Created temporary directory for podcast job: {tmpdir_path}")
 
             # 2. Content Extraction
-            extracted_text: Optional[str] = None
-            if request_data.source_url:
-                try:
-                    extracted_text = await extract_content_from_url(str(request_data.source_url))
-                    logger.info(f"Successfully extracted text from URL: {request_data.source_url}")
-                except ExtractionError as e:
-                    logger.error(f"Content extraction from URL {request_data.source_url} failed: {e}")
-                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", source_attributions=[], warnings=[f"Failed to extract content from URL: {e}"])
+            extracted_texts: List[str] = []
+            extraction_errors: List[str] = []
+            
+            # Handle multiple URLs
+            if request_data.source_urls:
+                if len(request_data.source_urls) > 3:
+                    logger.warning(f"Too many URLs provided: {len(request_data.source_urls)}. Using only the first 3.")
+                    request_data.source_urls = request_data.source_urls[:3]
+                
+                for url in request_data.source_urls:
+                    try:
+                        text = await extract_content_from_url(str(url))
+                        if text:
+                            extracted_texts.append(text)
+                            logger.info(f"Successfully extracted text from URL: {url}")
+                        else:
+                            extraction_errors.append(f"Empty content extracted from URL: {url}")
+                    except ExtractionError as e:
+                        error_msg = f"Content extraction from URL {url} failed: {e}"
+                        extraction_errors.append(error_msg)
+                        logger.error(error_msg)
+                
+                if not extracted_texts and extraction_errors:
+                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", 
+                                         source_attributions=[], warnings=[f"Failed to extract content from URLs: {'; '.join(extraction_errors)}"])
             elif request_data.source_pdf_path:
                 try:
                     pdf_path_str = str(request_data.source_pdf_path)
-                    extracted_text = await extract_text_from_pdf_path(pdf_path_str)
-                    logger.info(f"Successfully extracted text from PDF path: {pdf_path_str}")
+                    text = await extract_text_from_pdf_path(pdf_path_str)
+                    if text:
+                        extracted_texts.append(text)
+                        logger.info(f"Successfully extracted text from PDF path: {pdf_path_str}")
+                    else:
+                        logger.error(f"Empty content extracted from PDF path: {pdf_path_str}")
+                        return PodcastEpisode(title="Error", summary="Empty Content Extracted", transcript="", 
+                                             audio_filepath="", source_attributions=[], 
+                                             warnings=[f"Empty content extracted from PDF: {pdf_path_str}"])
                 except ExtractionError as e:
                     logger.error(f"Content extraction from PDF path {request_data.source_pdf_path} failed: {e}")
-                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", source_attributions=[], warnings=[f"Failed to extract content from PDF: {e}"])
+                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", 
+                                         audio_filepath="", source_attributions=[], 
+                                         warnings=[f"Failed to extract content from PDF: {e}"])
             else:
-                logger.warning("No source URL or PDF path provided for content extraction.")
-                return PodcastEpisode(title="Error", summary="No Source Provided", transcript="", audio_filepath="", source_attributions=[], warnings=["No source URL or PDF path provided."])
+                logger.warning("No source URLs or PDF path provided for content extraction.")
+                return PodcastEpisode(title="Error", summary="No Source Provided", transcript="", 
+                                     audio_filepath="", source_attributions=[], 
+                                     warnings=["No source URLs or PDF path provided."])
 
-            if not extracted_text:
-                logger.error("Content extraction resulted in empty text.")
-                return PodcastEpisode(title="Error", summary="Empty Content Extracted", transcript="", audio_filepath="", source_attributions=[], warnings=["Content extraction resulted in empty text."])
+            if not extracted_texts:
+                logger.error("Content extraction resulted in empty texts.")
+                return PodcastEpisode(title="Error", summary="Empty Content Extracted", transcript="", 
+                                     audio_filepath="", source_attributions=[], 
+                                     warnings=["Content extraction resulted in empty texts."])
+                
+            # Combine all extracted texts with clear separation
+            extracted_text = "\n\n===== SOURCE SEPARATOR =====\n\n".join(extracted_texts)
 
             # 3. LLM - Source Analysis
             source_analysis_obj: Optional[SourceAnalysis] = None
@@ -162,10 +195,12 @@ class PodcastGeneratorService:
             if extracted_text: # Only proceed if we have text
                 try:
                     num_persons = len(request_data.prominent_persons) if request_data.prominent_persons else 0
+                    # Convert podcast length from integer to string format for LLM
+                    desired_length_str = f"{request_data.desired_podcast_length} minutes"
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
                         source_analyses=source_analyses_content, # List of JSON strings
                         persona_research_docs=persona_research_docs_content, # List of JSON strings
-                        desired_podcast_length_str=request_data.desired_podcast_length_str or "5-7 minutes",
+                        desired_podcast_length_str=desired_length_str,
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
                         user_provided_custom_prompt=request_data.custom_prompt_for_outline
@@ -204,11 +239,13 @@ class PodcastGeneratorService:
                             # gender_for_tts = persona_research_map[name]['gender']
                             prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
                     
+                    # Convert podcast length from integer to string format for LLM
+                    desired_length_str = f"{request_data.desired_podcast_length} minutes"
                     dialogue_turns_list = await self.llm_service.generate_dialogue_async(
                         podcast_outline=podcast_outline_obj.model_dump_json(), # Pass outline as JSON string
                         source_analyses=source_analyses_content,
                         persona_research_docs=persona_research_docs_content,
-                        desired_podcast_length_str=request_data.desired_podcast_length_str or "5-7 minutes",
+                        desired_podcast_length_str=desired_length_str,
                         num_prominent_persons=len(prominent_persons_details_for_dialogue),
                         prominent_persons_details=prominent_persons_details_for_dialogue,
                         user_provided_custom_prompt=None # Assuming no custom prompt for dialogue for now
@@ -270,7 +307,7 @@ class PodcastGeneratorService:
 # Example usage (for testing purposes, can be removed later)
 async def main_workflow_test():
     generator = PodcastGeneratorService()
-    sample_request = PodcastRequest(source_url="http://example.com/article")
+    sample_request = PodcastRequest(source_urls=["http://example.com/article"], desired_podcast_length=7)
     episode = await generator.generate_podcast_from_source(sample_request)
     print("--- Generated Episode ---")
     print(episode.model_dump_json(indent=2))

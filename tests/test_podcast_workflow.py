@@ -190,7 +190,7 @@ class TestPodcastGeneratorService:
         # Mock LLM response to prevent downstream errors for this test's focus
         self.service.llm_service.analyze_source_text_async.return_value = {"key_themes": [], "facts": [], "summary_points": [], "potential_biases": [], "counter_arguments_or_perspectives": []}
 
-        request = PodcastRequest(source_url="http://example.com/source")
+        request = PodcastRequest(source_urls=["http://example.com/source"], desired_podcast_length=5)
         # Test with temp directory for file path generation
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir:
@@ -198,7 +198,7 @@ class TestPodcastGeneratorService:
                 episode = await self.service.generate_podcast_from_source(request)
 
                 assert episode is not None
-                mock_extract_url.assert_called_once_with(str(request.source_url))
+                mock_extract_url.assert_called_once_with("http://example.com/source")
                 self.service.llm_service.analyze_source_text_async.assert_called_once_with(extracted_text)
 
     @pytest.mark.asyncio
@@ -206,7 +206,7 @@ class TestPodcastGeneratorService:
     async def test_content_extraction_pdf_path_triggers_workflow_error(self, mock_extract_pdf_path, MockGoogleCloudTtsService, MockLLMService):
         """Test that if extract_text_from_pdf_path raises ExtractionError, the workflow handles it."""
         fake_pdf_path = "/fake/path.to/nonexistent.pdf"
-        request = PodcastRequest(source_pdf_path=fake_pdf_path)
+        request = PodcastRequest(source_pdf_path=fake_pdf_path, desired_podcast_length=5)
         error_message = "Failed to extract from PDF path for testing"
         mock_extract_pdf_path.side_effect = ExtractionError(error_message)
 
@@ -254,7 +254,7 @@ class TestPodcastGeneratorService:
         # Mock pydub concatenation if needed, for now assume single segment or direct path usage
         # For simplicity, assume final audio path is directly from TTS if only one segment
 
-        request = PodcastRequest(source_pdf_path=fake_pdf_path)
+        request = PodcastRequest(source_pdf_path=fake_pdf_path, desired_podcast_length=5)
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
@@ -281,55 +281,54 @@ class TestPodcastGeneratorService:
         # 1. Setup Mocks
         self.setup_successful_mocks(mock_podcast_data, mock_podcast_models)
         
-        with patch('app.podcast_workflow.extract_content_from_url', AsyncMock(return_value=mock_podcast_data["extracted_text"])) as mock_extract_content, \
-             patch('app.podcast_workflow.logger') as mock_logger:
-            
-            # 2. Prepare Request
-            request_data = PodcastRequest(
-                source_url="http://example.com/e2e-test",
-                prominent_persons=["Person A"],
-                desired_podcast_length_str="2 minutes"
-            )
+        # Create a request with all required fields
+        request = PodcastRequest(
+            source_urls=["http://example.com/article"],
+            prominent_persons=["Person A"],
+            desired_podcast_length=6
+        )
+        
+        # Temp directory will be used by PodcastGeneratorService for output files
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Mock the tempfile.TemporaryDirectory context manager used in PodcastGeneratorService
+            with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
+                mock_tempdir_context.return_value.__enter__.return_value = tmpdir
+                
+                # Run the method
+                episode = await self.service.generate_podcast_from_source(request)
 
-            # 3. Execute
-            with tempfile.TemporaryDirectory() as tmpdir:
-                with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
-                    mock_tempdir_context.return_value.__enter__.return_value = tmpdir
-                    episode = await self.service.generate_podcast_from_source(request_data)
+                # 4. Assertions - Episode Metadata
+                assert episode.title == "E2E Test Podcast Title"
+                assert episode.summary == "E2E Test Podcast Summary."
+                expected_transcript = "Host: Welcome to our E2E test podcast.\nAlice: Let's discuss fact1."
+                assert episode.transcript == expected_transcript
+                assert episode.warnings == []
 
-                    # 4. Assertions - Episode Metadata
-                    assert episode.title == "E2E Test Podcast Title"
-                    assert episode.summary == "E2E Test Podcast Summary."
-                    expected_transcript = "Host: Welcome to our E2E test podcast.\nAlice: Let's discuss fact1."
-                    assert episode.transcript == expected_transcript
-                    assert episode.warnings == []
-
-                    # 5. Assertions - Saved JSON Files
-                    # For source_analysis, expect only fields defined in SourceAnalysis model
-                    expected_source_analysis_dict = {
-                        "summary_points": mock_podcast_data["source_analysis"]["summary_points"],
-                        "detailed_analysis": mock_podcast_data["source_analysis"]["detailed_analysis"]
-                    }
-                    self.verify_json_file_contents(
-                        episode.llm_source_analysis_path, 
-                        expected_source_analysis_dict
-                    )
-                    # For persona_research, the mock_podcast_data already matches the simplified PersonaResearch model
-                    self.verify_json_file_contents(
-                        episode.llm_persona_research_paths[0], 
-                        mock_podcast_data["persona_research"]
-                    )
-                    self.verify_json_file_contents(
-                        episode.llm_podcast_outline_path, 
-                        mock_podcast_models["outline"].model_dump()
-                    )
-                    self.verify_json_file_contents(
-                        episode.llm_dialogue_turns_path, 
-                        [turn.model_dump() for turn in mock_podcast_models["dialogue_turns"]]
-                    )
+                # 5. Assertions - Saved JSON Files
+                # For source_analysis, expect only fields defined in SourceAnalysis model
+                expected_source_analysis_dict = {
+                    "summary_points": mock_podcast_data["source_analysis"]["summary_points"],
+                    "detailed_analysis": mock_podcast_data["source_analysis"]["detailed_analysis"]
+                }
+                self.verify_json_file_contents(
+                    episode.llm_source_analysis_path, 
+                    expected_source_analysis_dict
+                )
+                # For persona_research, the mock_podcast_data already matches the simplified PersonaResearch model
+                self.verify_json_file_contents(
+                    episode.llm_persona_research_paths[0], 
+                    mock_podcast_data["persona_research"]
+                )
+                self.verify_json_file_contents(
+                    episode.llm_podcast_outline_path, 
+                    mock_podcast_models["outline"].model_dump()
+                )
+                self.verify_json_file_contents(
+                    episode.llm_dialogue_turns_path, 
+                    [turn.model_dump() for turn in mock_podcast_models["dialogue_turns"]]
+                )
             
             # 6. Assertions - Service Method Calls
-            mock_extract_content.assert_called_once_with(str(request_data.source_url))
             self.service.llm_service.analyze_source_text_async.assert_called_once_with(mock_podcast_data["extracted_text"])
             self.service.llm_service.research_persona_async.assert_called_once_with(
                 source_text=mock_podcast_data["extracted_text"], 
@@ -346,7 +345,7 @@ class TestPodcastGeneratorService:
     @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)
     async def test_content_extraction_url_failure(self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService):
         mock_extract_url.side_effect = ExtractionError("URL fetch failed")
-        request = PodcastRequest(source_url="http://example.com/badurl")
+        request = PodcastRequest(source_urls=["http://example.com/badurl"], desired_podcast_length=5)
         episode = await self.service.generate_podcast_from_source(request)
 
         assert episode.title == "Error"
@@ -356,7 +355,7 @@ class TestPodcastGeneratorService:
 
     @pytest.mark.asyncio
     async def test_content_extraction_no_source_provided(self, MockGoogleCloudTtsService, MockLLMService):
-        request = PodcastRequest() # No source_url or source_pdf_path
+        request = PodcastRequest(desired_podcast_length=5) # No source_url or source_pdf_path
         episode = await self.service.generate_podcast_from_source(request)
 
         assert episode.title == "Error"
@@ -368,19 +367,19 @@ class TestPodcastGeneratorService:
     @pytest.mark.asyncio
     @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)
     async def test_llm_source_analysis_success(self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService):
-        extracted_text = "Some fascinating source text."
-        llm_analysis_response = {
-            "key_themes": ["theme A", "theme B"],
-            "facts": ["fact X", "fact Y"],
-            "summary_points": ["point 1"],
-            "potential_biases": ["bias Z"],
-            "counter_arguments_or_perspectives": ["perspective W"],
-            "detailed_analysis": "This is a detailed analysis of the source text, covering themes, facts, and potential biases."
-        }
+        extracted_text = "Some text for source analysis test."
         mock_extract_url.return_value = extracted_text
-        self.service.llm_service.analyze_source_text_async.return_value = llm_analysis_response
-
-        request = PodcastRequest(source_url="http://example.com/source")
+        
+        # Sample analysis result matching the SourceAnalysis model
+        source_analysis_result = {
+            "summary_points": ["Point 1", "Point 2"],
+            "detailed_analysis": "This is a detailed analysis of the content."
+        }
+        
+        # Mock the LLM service to return the sample analysis
+        self.service.llm_service.analyze_source_text_async = AsyncMock(return_value=source_analysis_result)
+        
+        request = PodcastRequest(source_urls=["http://example.com/analysis-source"], desired_podcast_length=5)
         
         # We need to mock tempfile.TemporaryDirectory to control the path and check file creation
         with tempfile.TemporaryDirectory() as tmpdir: # Real temp dir for actual file write
@@ -407,7 +406,7 @@ class TestPodcastGeneratorService:
                          assert k in saved_data, f"Required key '{k}' from SourceAnalysis model not in saved_data"
                 assert episode.llm_source_analysis_path == expected_json_path
         
-        mock_extract_url.assert_called_once_with(str(request.source_url)) # Ensure extraction was called
+        mock_extract_url.assert_called_once_with(str(request.source_urls[0])) # Ensure extraction was called
         self.service.llm_service.analyze_source_text_async.assert_called_once_with(extracted_text)
 
     @pytest.mark.asyncio
@@ -438,7 +437,7 @@ class TestPodcastGeneratorService:
             self.service.llm_service.analyze_source_text_async = AsyncMock()
         self.service.llm_service.analyze_source_text_async.return_value = llm_response_config
 
-        request = PodcastRequest(source_url="http://example.com/source")
+        request = PodcastRequest(source_urls=["http://example.com/source"], desired_podcast_length=5)
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
                 mock_tempdir_context.return_value.__enter__.return_value = tmpdir
