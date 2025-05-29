@@ -746,72 +746,241 @@ For each segment in the 'segments' list:
         """
         Generates dialogue for a podcast episode based on an outline, source analyses,
         persona research, and other parameters.
-        """
-        # Placeholder for the actual PRD dialogue prompt template
-        prd_dialogue_prompt_template = """
-PLACEHOLDER: Define the PRD dialogue prompt template here.
-It should include placeholders like {podcast_outline}, {formatted_source_analyses}, 
-{formatted_persona_research}, {desired_podcast_length_str}, 
-and {formatted_prominent_persons_details}.
-"""
-        podcast_outline_str = podcast_outline.model_dump_json(indent=2)
-        formatted_source_analyses_str = json.dumps([sa.model_dump() for sa in source_analyses], indent=2)
-        formatted_persona_research_str = json.dumps([prd.model_dump() for prd in persona_research_docs], indent=2)
-        formatted_prominent_persons_details_str = json.dumps(prominent_persons_details, indent=2)
-
-        logger.debug(f"PRD Dialogue Template Before Formatting:\n{prd_dialogue_prompt_template}")
-        logger.debug(f"Dialogue Formatting Args - podcast_outline (type {type(podcast_outline_str)}): {podcast_outline_str[:500]}...")
-        logger.debug(f"Dialogue Formatting Args - formatted_source_analyses (type {type(formatted_source_analyses_str)}): {formatted_source_analyses_str[:200]}...")
-        logger.debug(f"Dialogue Formatting Args - formatted_persona_research (type {type(formatted_persona_research_str)}): {formatted_persona_research_str[:200]}...")
-        logger.debug(f"Dialogue Formatting Args - desired_podcast_length_str (type {type(desired_podcast_length_str)}): {desired_podcast_length_str}")
-        logger.debug(f"Dialogue Formatting Args - formatted_prominent_persons_details (type {type(formatted_prominent_persons_details_str)}): {formatted_prominent_persons_details_str[:200]}...")
-        final_dialogue_prompt = prd_dialogue_prompt_template.format(
-            podcast_outline=podcast_outline_str,
-            formatted_source_analyses=formatted_source_analyses_str,
-            formatted_persona_research=formatted_persona_research_str,
-            desired_podcast_length_str=desired_podcast_length_str,
-            formatted_prominent_persons_details=formatted_prominent_persons_details_str
-        )
-
-        raw_response_text = await self.generate_text_async(final_dialogue_prompt)
-        # Attempt to strip markdown fences if present
-        cleaned_response_text = raw_response_text.strip()
-        if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
-            cleaned_response_text = cleaned_response_text[7:-3].strip()
-        elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
-            cleaned_response_text = cleaned_response_text[3:-3].strip()
         
-        try:
-            parsed_json_list = json.loads(cleaned_response_text)
-            parsed_json_list = GeminiService._clean_keys_recursive(parsed_json_list) 
-            logger.debug(f"Attempting to create DialogueTurns. First item (cleaned) keys: {list(parsed_json_list[0].keys()) if isinstance(parsed_json_list, list) and parsed_json_list and isinstance(parsed_json_list[0], dict) else 'Not a list of dicts or empty list'}")
-            if not isinstance(parsed_json_list, list):
-                logger.error(f"LLM response for dialogue turns was not a JSON list. Got: {type(parsed_json_list)}")
-                logger.error(f"Problematic data (cleaned): '{str(parsed_json_list)[:500]}...' ")
-                logger.error(f"Problematic JSON string: '{cleaned_response_text[:500]}...' ")
-                raise LLMProcessingError("LLM output for dialogue turns was not a valid JSON list.")
+        This implementation iterates through each segment of the outline and generates
+        dialogue turns specific to that segment's content, maintaining the proper flow
+        and timing across segments.
+        """
+        logger.info(f"Generating dialogue for podcast outline '{podcast_outline.title_suggestion}' with {len(podcast_outline.segments)} segments")
+        
+        # Convert prominent persons details to a more usable format
+        persona_mapping = {}
+        gender_mapping = {}
+        for name, follower_initial, gender in prominent_persons_details:
+            persona_id = f"Persona_{follower_initial}"
+            persona_mapping[persona_id] = name
+            gender_mapping[persona_id] = gender
+        
+        # Add host gender mapping if not already included
+        if "Host" not in gender_mapping:
+            # Assign host a gender opposite to the first persona if any exist, otherwise default to "Male"
+            host_gender = "Female" if gender_mapping and list(gender_mapping.values())[0] == "Male" else "Male"
+            gender_mapping["Host"] = host_gender
+        
+        # Process each segment and generate dialogue turns
+        all_dialogue_turns = []
+        current_turn_id = 1
+        
+        # First, generate intro segment dialogue
+        intro_segments = [s for s in podcast_outline.segments if s.segment_id.lower().startswith("intro")]
+        main_segments = [s for s in podcast_outline.segments if not s.segment_id.lower().startswith("intro") and not s.segment_id.lower().startswith("conclu")]
+        conclusion_segments = [s for s in podcast_outline.segments if s.segment_id.lower().startswith("conclu")]
+        
+        # Log segment structure
+        logger.info(f"Segment structure: {len(intro_segments)} intro, {len(main_segments)} main, {len(conclusion_segments)} conclusion")
+        
+        # Process segments in proper order: intro → main → conclusion
+        for segment_group in [intro_segments, main_segments, conclusion_segments]:
+            for segment in segment_group:
+                logger.info(f"Generating dialogue for segment '{segment.segment_id}': '{segment.segment_title}'")
+                
+                # Build segment-specific prompt
+                segment_dialogue_prompt = self._build_segment_dialogue_prompt(
+                    segment=segment,
+                    podcast_outline=podcast_outline,
+                    source_analyses=source_analyses,
+                    persona_research_docs=persona_research_docs,
+                    persona_mapping=persona_mapping,
+                    user_provided_custom_prompt=user_provided_custom_prompt
+                )
+                
+                # Generate dialogue for this segment
+                segment_dialogue_turns = await self._generate_segment_dialogue(
+                    segment=segment,
+                    segment_dialogue_prompt=segment_dialogue_prompt,
+                    current_turn_id=current_turn_id,
+                    gender_mapping=gender_mapping
+                )
+                
+                # Update current_turn_id for the next segment
+                if segment_dialogue_turns:
+                    current_turn_id = segment_dialogue_turns[-1].turn_id + 1
+                    all_dialogue_turns.extend(segment_dialogue_turns)
+                    logger.info(f"Generated {len(segment_dialogue_turns)} dialogue turns for segment '{segment.segment_id}'")
+                else:
+                    logger.warning(f"No dialogue turns generated for segment '{segment.segment_id}'. Using fallback approach.")
+                    # Fallback: generate a simple host line for this segment
+                    fallback_turn = DialogueTurn(
+                        turn_id=current_turn_id,
+                        speaker_id="Host",
+                        speaker_gender=gender_mapping.get("Host", "Male"),
+                        text=f"Let's talk about {segment.content_cue}",
+                        source_mentions=[]
+                    )
+                    all_dialogue_turns.append(fallback_turn)
+                    current_turn_id += 1
+        
+        # Validate and process the final dialogue turns
+        if not all_dialogue_turns:
+            logger.error("No dialogue turns were generated across all segments")
+            raise LLMProcessingError("Failed to generate any dialogue turns for the podcast")
+        
+        logger.info(f"Successfully generated {len(all_dialogue_turns)} total dialogue turns across all segments")
+        return all_dialogue_turns
+    
+    def _build_segment_dialogue_prompt(self, 
+                                     segment: OutlineSegment,
+                                     podcast_outline: PodcastOutline,
+                                     source_analyses: list[SourceAnalysis],
+                                     persona_research_docs: list[PersonaResearch],
+                                     persona_mapping: dict,
+                                     user_provided_custom_prompt: Optional[str] = None) -> str:
+        """
+        Build a prompt for generating dialogue specific to a segment of the podcast outline.
+        """
+        # Get basic podcast information for context
+        podcast_title = podcast_outline.title_suggestion
+        segment_context = f"Segment ID: {segment.segment_id}\nTitle: {segment.segment_title}\nSpeaker: {segment.speaker_id}\nContent: {segment.content_cue}\nDuration: {segment.estimated_duration_seconds} seconds"
+        
+        # Determine which persona research is relevant for this segment's speaker
+        relevant_persona_research = None
+        if segment.speaker_id.startswith("Persona_") and persona_mapping:
+            persona_name = persona_mapping.get(segment.speaker_id)
+            if persona_name:
+                # Find matching persona research
+                for pr in persona_research_docs:
+                    if pr.persona_name.lower() == persona_name.lower():
+                        relevant_persona_research = pr
+                        break
+        
+        # Create the prompt template
+        segment_prompt = f"""
+LLM Prompt: Podcast Segment Dialogue Generation
 
+Role: You are an expert podcast dialogue writer. Your task is to create natural, engaging dialogue for a specific segment of a podcast.
+
+Podcast Information:
+- Title: {podcast_title}
+- Overall Theme: {podcast_outline.theme_description if hasattr(podcast_outline, 'theme_description') else 'Not specified'}
+
+Current Segment Details:
+{segment_context}
+
+Instructions:
+1. Write dialogue ONLY for this specific segment. The dialogue should directly address the content described in the segment's content cue.
+2. The primary speaker for this segment should be {segment.speaker_id}.
+3. Include appropriate responses or questions from other speakers as needed for natural conversation flow.
+4. The dialogue should take approximately {segment.estimated_duration_seconds} seconds to speak aloud (roughly {segment.estimated_duration_seconds // 2} words).
+5. Ensure the dialogue has a clear beginning and end appropriate for this segment's position in the overall podcast.
+"""
+
+        # Add persona-specific guidance if relevant
+        if relevant_persona_research:
+            segment_prompt += f"""
+
+Persona Information for {segment.speaker_id}:
+- Representing: {relevant_persona_research.persona_name}
+- Key Viewpoints: {relevant_persona_research.key_viewpoints}
+- Speaking Style: {relevant_persona_research.characteristic_speaking_style}
+
+Important: Ensure the dialogue for {segment.speaker_id} authentically reflects the viewpoints and speaking style of {relevant_persona_research.persona_name}.
+"""
+
+        # Add source guidance
+        if source_analyses:
+            source_titles = [sa.source_title for sa in source_analyses if hasattr(sa, 'source_title') and sa.source_title]
+            if source_titles:
+                sources_str = "\n- ".join(source_titles)
+                segment_prompt += f"""
+
+Relevant Sources:
+- {sources_str}
+
+Reference these sources appropriately in the dialogue. Be factual and accurate to the source material.
+"""
+
+        # Add output format instructions
+        segment_prompt += """
+
+Output Format:
+Provide the dialogue as a JSON array of dialogue turn objects. Each object should have:
+- "turn_id": A sequential number starting from the provided current_turn_id
+- "speaker_id": The ID of the speaker (e.g., "Host", "Persona_J", etc.)
+- "text": The spoken dialogue text
+- "source_mentions": An array of source reference strings (can be empty if no direct citations)
+
+Example format:
+[{"turn_id": 1, "speaker_id": "Host", "text": "Welcome to our discussion on...", "source_mentions": []},
+ {"turn_id": 2, "speaker_id": "Persona_J", "text": "I believe that...", "source_mentions": ["Article: The Future of AI"]}]
+"""
+
+        # Add any user-provided custom instructions if present
+        if user_provided_custom_prompt:
+            segment_prompt += f"""
+
+Additional User Instructions:
+{user_provided_custom_prompt}
+"""
+
+        return segment_prompt
+
+    async def _generate_segment_dialogue(self, 
+                                      segment: OutlineSegment,
+                                      segment_dialogue_prompt: str,
+                                      current_turn_id: int,
+                                      gender_mapping: dict) -> List[DialogueTurn]:
+        """
+        Generate dialogue turns for a specific segment using the LLM.
+        """
+        try:
+            logger.debug(f"Sending segment dialogue prompt for segment {segment.segment_id}")
+            raw_response_text = await self.generate_text_async(segment_dialogue_prompt)
+            
+            # Clean the response
+            cleaned_response_text = raw_response_text.strip()
+            if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
+                cleaned_response_text = cleaned_response_text[7:-3].strip()
+            elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
+                cleaned_response_text = cleaned_response_text[3:-3].strip()
+            
+            # Parse the response
+            parsed_json_list = json.loads(cleaned_response_text)
+            parsed_json_list = GeminiService._clean_keys_recursive(parsed_json_list)
+            
+            # Validate it's a list
+            if not isinstance(parsed_json_list, list):
+                logger.error(f"LLM response for segment {segment.segment_id} dialogue was not a JSON list")
+                return []
+            
+            # Create dialogue turns
             dialogue_turns: List[DialogueTurn] = []
             for i, item in enumerate(parsed_json_list):
-                if isinstance(item, dict):
-                    logger.debug(f"Attempting to create DialogueTurn for item {i} with (cleaned) keys: {list(item.keys())}")
+                if not isinstance(item, dict):
+                    logger.error(f"Item {i} in dialogue list for segment {segment.segment_id} is not a dict")
+                    continue
+                
+                # Ensure the turn_id follows the sequence
+                item['turn_id'] = current_turn_id + i
+                
+                # Add speaker gender if not present
+                if 'speaker_gender' not in item and 'speaker_id' in item:
+                    item['speaker_gender'] = gender_mapping.get(item['speaker_id'], 
+                                                              "Male" if i % 2 == 0 else "Female")
+                
+                # Create the dialogue turn
+                try:
                     dialogue_turns.append(DialogueTurn(**item))
-                else:
-                    logger.error(f"Item {i} in dialogue list is not a dict: {type(item)}. Content: {str(item)[:200]}")
-                    raise LLMProcessingError(f"Invalid item type in dialogue list: expected dict, got {type(item)}")
+                except ValidationError as e:
+                    logger.error(f"Failed to create DialogueTurn for item {i} in segment {segment.segment_id}: {e}")
+            
             return dialogue_turns
+            
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode LLM response as JSON for dialogue turns. Error: {e}")
-            logger.error(f"Problematic JSON string: '{cleaned_response_text[:500]}...' ")
-            raise LLMProcessingError(f"LLM output for dialogue turns was not valid JSON. Error: {e}")
-        except ValidationError as e:
-            logger.error(f"LLM response for dialogue turns failed Pydantic validation. Error: {e}")
-            logger.error(f"Cleaned response text that failed validation: '{cleaned_response_text[:500]}...' ")
-            raise LLMProcessingError(f"LLM output for dialogue turns did not match expected schema. Error: {e}")
+            logger.error(f"Failed to decode JSON for segment {segment.segment_id} dialogue: {e}")
+            return []
         except Exception as e:
-            logger.error(f"An unexpected error occurred while processing LLM response for dialogue turns: {e}")
-            logger.error(f"Raw response: '{raw_response_text[:500]}...' ")
-            raise LLMProcessingError(f"Unexpected error processing LLM output for dialogue turns: {e}")
+            logger.error(f"Error generating dialogue for segment {segment.segment_id}: {e}")
+            return []
 
 async def main_test():
     """
