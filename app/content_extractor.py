@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup # For parsing HTML
 import re # For YouTube video ID extraction
 import asyncio # For running blocking calls in a separate thread
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
+import os
 
 class ExtractionError(Exception):
     """Custom exception for content extraction errors."""
@@ -43,8 +44,46 @@ async def extract_text_from_pdf(file: UploadFile) -> str:
         return "\n".join(all_text)
     except Exception as e:
         err_msg = f"Error extracting text from PDF {file.filename}: {e}"
-        print(err_msg)
         raise ExtractionError(err_msg)
+
+async def extract_text_from_pdf_path(pdf_path: str) -> str:
+    """
+    Extracts all text content from a PDF file specified by its path.
+
+    Args:
+        pdf_path: The absolute or relative path to the PDF file.
+
+    Returns:
+        A string containing all extracted text from the PDF.
+        Raises ExtractionError if the file doesn't exist, is not a PDF, or text extraction fails.
+    """
+    all_text = []
+    if not os.path.exists(pdf_path):
+        raise ExtractionError(f"PDF file not found at path: {pdf_path}")
+    
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            if not pdf.pages: # Check if PDF has pages (basic validation)
+                raise ExtractionError(f"No pages found in PDF: {pdf_path}. It might be empty or corrupted.")
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    all_text.append(page_text)
+        if not all_text:
+            # If all_text is empty after processing, it could be an image-based PDF or truly empty.
+            # pdfplumber's extract_text() returns None for pages with no text, or empty string.
+            # Consider if this should be an ExtractionError or just return empty string.
+            # For now, let's be consistent: if no text, it's an issue for podcast generation.
+            raise ExtractionError(f"No text could be extracted from PDF: {pdf_path}. It might be image-based or empty.")
+        return "\n".join(all_text)
+    except PDFSyntaxError as e:
+        err_msg = f"Invalid or corrupted PDF file at {pdf_path}: {e}"
+        raise ExtractionError(err_msg)
+    except Exception as e:
+        # Catch other potential errors from pdfplumber or file operations
+        err_msg = f"Error extracting text from PDF at path {pdf_path}: {e}"
+        raise ExtractionError(err_msg)
+
 
 async def extract_content_from_url(url: str) -> str:
     """

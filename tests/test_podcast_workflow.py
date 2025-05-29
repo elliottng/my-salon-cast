@@ -9,10 +9,12 @@ from app.podcast_workflow import (
     PodcastGeneratorService,
     PodcastRequest,
     PodcastEpisode,
-    SourceAnalysis,
-    LLMNotInitializedError, # Make sure this is importable or defined for the test
-    ExtractionError # Make sure this is importable or defined for the test
+    ExtractionError,
+    DialogueTurn,  # Defined in podcast_workflow
+    SourceAnalysis # Also defined in podcast_workflow
 )
+from app.llm_service import LLMNotInitializedError
+
 # Mock the actual services that PodcastGeneratorService depends on
 # We need to patch where they are *looked up*, which is in app.podcast_workflow
 @patch('app.podcast_workflow.LLMService', new_callable=MagicMock)
@@ -125,28 +127,82 @@ class TestPodcastGeneratorService:
                 self.service.llm_service.analyze_source_text_async.assert_called_once_with(extracted_text)
 
     @pytest.mark.asyncio
-    async def test_content_extraction_pdf_path_triggers_workflow_error(self, MockGoogleCloudTtsService, MockLLMService):
-        """Test that providing a source_pdf_path raises ExtractionError in workflow and returns placeholder."""
-        request = PodcastRequest(source_pdf_path="/fake/path.pdf")
-        
+    @patch('app.podcast_workflow.extract_text_from_pdf_path', new_callable=AsyncMock) # New patch target
+    async def test_content_extraction_pdf_path_triggers_workflow_error(self, mock_extract_pdf_path, MockGoogleCloudTtsService, MockLLMService):
+        """Test that if extract_text_from_pdf_path raises ExtractionError, the workflow handles it."""
+        fake_pdf_path = "/fake/path.to/nonexistent.pdf"
+        request = PodcastRequest(source_pdf_path=fake_pdf_path)
+        error_message = "Failed to extract from PDF path for testing"
+        mock_extract_pdf_path.side_effect = ExtractionError(error_message)
+
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir, \
-                 patch('app.podcast_workflow.logger') as mock_logger:
+                 patch('app.podcast_workflow.logger') as mock_logger: # Keep logger mock for error log assertion
                 mock_tempdir.return_value.__enter__.return_value = tmpdir
                 episode = await self.service.generate_podcast_from_source(request)
 
                 assert episode is not None
-                assert episode.title == "Error" # Or specific error title
-                assert episode.transcript == "" # As per current workflow for failed/skipped extraction
-                # Check that the specific warning for PDF path handling was logged
-                mock_logger.warning.assert_any_call(
-                    f"PDF path ({request.source_pdf_path}) provided, but current implementation of extract_text_from_pdf expects UploadFile. This path will be ignored unless handled by a wrapper."
-                )
-                # Check that the subsequent ExtractionError was logged as an error
+                assert episode.title == "Error"
+                assert episode.summary == "Content Extraction Failed"
+                assert episode.transcript == ""
+                assert f"Failed to extract content from PDF: {error_message}" in episode.warnings[0]
+                
+                mock_extract_pdf_path.assert_called_once_with(fake_pdf_path)
+                # Check that the ExtractionError from extract_text_from_pdf_path was logged
                 mock_logger.error.assert_any_call(
-                    f"Content extraction from PDF {request.source_pdf_path} failed: PDF file path handling not fully implemented for {request.source_pdf_path}. Expects UploadFile."
+                    f"Content extraction from PDF path {fake_pdf_path} failed: {error_message}"
                 )
                 self.service.llm_service.analyze_source_text_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch('app.podcast_workflow.extract_text_from_pdf_path', new_callable=AsyncMock)
+    async def test_content_extraction_pdf_path_success(self, mock_extract_pdf_path, MockGoogleCloudTtsService, MockLLMService):
+        """Test successful content extraction when a PDF path is provided."""
+        fake_pdf_path = "/fake/path.to/real.pdf"
+        extracted_pdf_text = "This is text from the PDF."
+        mock_extract_pdf_path.return_value = extracted_pdf_text
+
+        # Mock LLM and TTS responses for a successful workflow
+        # This dictionary should match what SourceAnalysis expects after JSON parsing
+        mock_analysis_response = {"key_themes": ["pdf"], "facts": ["fact from pdf"], "summary_points": ["summary of pdf"]}
+        self.service.llm_service.analyze_source_text_async.return_value = mock_analysis_response
+
+        # PodcastGeneratorService will call llm_service.generate_text_async for script generation.
+        # It then parses the returned string (assumed JSON here) into DialogueTurn objects.
+        mock_script_string_from_llm = '[{"speaker_id": "Host", "text": "Podcast script based on PDF.", "speaker_gender": "neutral"}]'
+        # Ensure generate_text_async is treated as an AsyncMock
+        if not isinstance(self.service.llm_service.generate_text_async, AsyncMock):
+            self.service.llm_service.generate_text_async = AsyncMock()
+        self.service.llm_service.generate_text_async.return_value = mock_script_string_from_llm
+        
+        # Ensure text_to_audio_async is treated as an AsyncMock
+        if not isinstance(self.service.tts_service.text_to_audio_async, AsyncMock):
+            self.service.tts_service.text_to_audio_async = AsyncMock()
+        self.service.tts_service.text_to_audio_async.return_value = "mock_audio_segment.mp3"
+        # Mock pydub concatenation if needed, for now assume single segment or direct path usage
+        # For simplicity, assume final audio path is directly from TTS if only one segment
+
+        request = PodcastRequest(source_pdf_path=fake_pdf_path)
+
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir
+        ):
+                
+                mock_tempdir.return_value.__enter__.return_value = tmpdir
+                
+                episode = await self.service.generate_podcast_from_source(request)
+
+                mock_extract_pdf_path.assert_called_once_with(fake_pdf_path)
+                self.service.llm_service.analyze_source_text_async.assert_called_once_with(extracted_pdf_text)
+                # self.service.llm_service.generate_text_async.assert_called_once() # For script generation - To be enabled when implemented
+                # self.service.tts_service.text_to_audio_async.assert_called_once() # To be enabled when implemented
+                
+                assert episode is not None
+                assert episode.title == "Placeholder Title" # Matches placeholder in workflow
+                assert episode.transcript == extracted_pdf_text[:500] + "... (truncated for placeholder)" # Matches placeholder in workflow
+                assert episode.audio_filepath.startswith(tmpdir) # Check it's in the temp dir
+                assert episode.audio_filepath.endswith(".mp3")
 
     @pytest.mark.asyncio
     @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)

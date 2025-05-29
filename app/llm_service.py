@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 # Basic configuration, can be adjusted based on project-wide logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
+class LLMNotInitializedError(ValueError):
+    """Custom exception for LLM service initialization errors."""
+    pass
+
 class GeminiService:
     def __init__(self, api_key: str = None):
         """
@@ -30,7 +34,7 @@ class GeminiService:
             api_key = os.getenv("GOOGLE_API_KEY")
             
         if not api_key:
-            raise ValueError("API key for Gemini service is required. Set GOOGLE_API_KEY environment variable or pass it directly.")
+            raise LLMNotInitializedError("API key for Gemini service is required. Set GOOGLE_API_KEY environment variable or pass it directly.")
         
         genai.configure(api_key=api_key)
         # Using gemini-1.5-pro-latest as per discussion.

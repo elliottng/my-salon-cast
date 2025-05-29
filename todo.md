@@ -41,10 +41,25 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Implement voice selection based on LLM characteristics
 
 ### Task 1.7: Core Podcast Generation Workflow (P1, L)
-- Develop main workflow orchestration
-- Handle intermediate data
-- Implement source attribution
-- Check for inappropriate content flag
+- [x] Establish `PodcastGeneratorService` for workflow orchestration (`generate_podcast_from_source` method).
+- [x] Integrate `PodcastRequest` as input and `PodcastEpisode` as output.
+- [x] Implement temporary directory management for job-specific files.
+- [x] Integrate content extraction for URLs (PDF path handling needs improvement).
+- [x] Integrate LLM call for source text analysis (`LLMService.analyze_source_text_async`).
+- [x] Integrate LLM call for generating podcast title and summary.
+- [x] Integrate LLM call for generating main podcast script content.
+- [x] Integrate TTS call for converting the main script to audio.
+- [x] Basic error handling returning placeholder `PodcastEpisode` on critical failures.
+- [ ] Implement LLM-driven persona research and integrate into workflow.
+- [ ] Implement LLM-driven detailed podcast outline generation (multi-segment).
+- [ ] Refine LLM dialogue writing to iterate through outline segments, producing `DialogueTurn` objects.
+- [ ] Implement audio stitching of multiple `DialogueTurn` audio segments using `pydub`.
+- [ ] Enhance transcript generation by concatenating text from `DialogueTurn` objects.
+- [ ] Implement detailed source attribution: LLM-provided mentions compiled into `PodcastEpisode.source_attributions` and appended to transcript.
+- [ ] Implement robust content flag checking based on LLM safety ratings, populating `PodcastEpisode.warnings`.
+- [ ] Implement serialization of all specified intermediate LLM outputs (source analysis, persona research, outline, dialogue turns) to temp JSON files.
+- [ ] Ensure `PodcastEpisode` includes file paths to all serialized intermediate LLM outputs.
+- [ ] Improve PDF content extraction to correctly handle file paths (currently expects `UploadFile`).
 
 ### Task 1.8: API Endpoint Definition (P1, M)
 - Design and implement main API endpoint

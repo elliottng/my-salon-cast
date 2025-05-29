@@ -63,8 +63,8 @@ import logging
 from .llm_service import GeminiService as LLMService, LLMNotInitializedError
 from .tts_service import GoogleCloudTtsService # Will be used later
 from .content_extractor import (
-    extract_content_from_url,
-    extract_text_from_pdf,
+    extract_content_from_url, 
+    extract_text_from_pdf_path, 
     extract_transcript_from_youtube, # Added for completeness, though not used yet
     ExtractionError
 )
@@ -119,43 +119,12 @@ class PodcastGeneratorService:
                     logger.error(f"Content extraction from URL {request_data.source_url} failed: {e}")
                     return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", source_attributions=[], warnings=[f"Failed to extract content from URL: {e}"])
             elif request_data.source_pdf_path:
-                # Assuming source_pdf_path is an absolute path or accessible relative path
-                # For a real app, this path would come from a file upload mechanism
                 try:
-                    # PDF extraction in content_extractor is async now, so ensure it's awaited if used.
-# For now, assuming the workflow might primarily use URL or direct text input.
-# If PDF path is used, it should be: extracted_text = await extract_text_from_pdf_path_wrapper(request_data.source_pdf_path)
-# where extract_text_from_pdf_path_wrapper handles opening file and passing to extract_text_from_pdf(UploadFile)
-# OR, PodcastRequest changes to accept UploadFile directly for PDFs.
-# For this iteration, let's assume source_pdf_path implies a direct path that needs handling.
-# The original extract_text_from_pdf expects an UploadFile. We need a wrapper or change.
-# Let's simplify for now and assume if source_pdf_path is given, it's a path to a local file.
-# We will need to adjust content_extractor.extract_text_from_pdf or add a new function for file paths.
-
-# TEMPORARY: To avoid blocking, let's assume for now PDF path means we'd need a different handling
-# or that the ContentExtractionService would have a specific method for file paths.
-# For the current structure of extract_text_from_pdf expecting UploadFile, direct path usage is problematic.
-# We will defer proper PDF path handling or adjust extract_text_from_pdf later.
-# For now, this path will likely lead to an error or be unused if not an UploadFile.
-# This part needs to be revisited based on how PDF files are actually supplied to the workflow.
-# For the sake of making tests pass with current structure, we'll assume this path is not hit often
-# or extract_text_from_pdf is mocked appropriately in tests to not care about UploadFile type.
-
-# Given extract_text_from_pdf now takes UploadFile, and this workflow takes a path,
-# this is a mismatch. We'll need to address this. For now, let's comment out direct call
-# and rely on URL or make a note to fix PDF handling.
-# extracted_text = await extract_text_from_pdf(request_data.source_pdf_path) 
-# ^ This is incorrect as extract_text_from_pdf expects UploadFile.
-# We'll assume for now that if a PDF path is given, it's an error or needs a different function.
-# This will be caught by the 'No source URL or PDF path provided' or subsequent 'extracted_text is None'.
-# To make it more explicit, let's log a warning if pdf_path is used with current setup.
-
-                    logger.warning(f"PDF path ({request_data.source_pdf_path}) provided, but current implementation of extract_text_from_pdf expects UploadFile. This path will be ignored unless handled by a wrapper.")
-                    # To simulate a failure for this path for now:
-                    raise ExtractionError(f"PDF file path handling not fully implemented for {request_data.source_pdf_path}. Expects UploadFile.")
-                    logger.info(f"Successfully extracted text from PDF: {request_data.source_pdf_path}")
+                    pdf_path_str = str(request_data.source_pdf_path) # Ensure it's a string
+                    extracted_text = await extract_text_from_pdf_path(pdf_path_str)
+                    logger.info(f"Successfully extracted text from PDF path: {pdf_path_str}")
                 except ExtractionError as e:
-                    logger.error(f"Content extraction from PDF {request_data.source_pdf_path} failed: {e}")
+                    logger.error(f"Content extraction from PDF path {request_data.source_pdf_path} failed: {e}")
                     return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", source_attributions=[], warnings=[f"Failed to extract content from PDF: {e}"])
             else:
                 logger.warning("No source URL or PDF path provided for content extraction.")
