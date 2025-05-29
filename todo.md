@@ -35,14 +35,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Manage API key securely
 - [x] Implement retry logic
 
-### Task 1.5: Persona Research Logic (V1 Scope) (P1, M)
-- Design prompts for persona research using Gemini's internal knowledge
-- Process LLM output for views and speaking styles
-
-### Task 1.6: TTS Service Wrapper (P1, M)
-- Create Google Cloud Text-to-Speech wrapper
-- Implement text-to-audio conversion
-- Implement voice selection based on LLM characteristics
+### Task 1.6: TTS Service Wrapper (P1, M) ✓
+- [x] Create Google Cloud Text-to-Speech wrapper
+- [x] Implement text-to-audio conversion
+- [x] Implement voice selection based on LLM characteristics
 
 ### Task 1.7: Core Podcast Generation Workflow (P1, L)
 - Develop main workflow orchestration
