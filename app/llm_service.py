@@ -7,8 +7,10 @@ import logging
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import json # For potential JSONDecodeError
-from .podcast_models import PersonaResearch # Assuming podcast_models.py is in the same app directory
+from typing import List, Optional
+from .podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis # Assuming podcast_models.py is in the same app directory
 from pydantic import ValidationError
+from .common_exceptions import LLMProcessingError
 
 from google.api_core.exceptions import (
     DeadlineExceeded,
@@ -27,6 +29,20 @@ class LLMNotInitializedError(ValueError):
     pass
 
 class GeminiService:
+    @staticmethod
+    def _clean_keys_recursive(obj):
+        # logger.debug(f"_clean_keys_recursive processing type: {type(obj)}")
+        if isinstance(obj, dict):
+            new_dict = {}
+            for key, value in obj.items():
+                stripped_key = key.strip()
+                # logger.debug(f"Original key: '{key}', Stripped key: '{stripped_key}'")
+                new_dict[stripped_key] = GeminiService._clean_keys_recursive(value)
+            return new_dict
+        elif isinstance(obj, list):
+            return [GeminiService._clean_keys_recursive(element) for element in obj]
+        return obj
+
     def __init__(self, api_key: str = None):
         """
         Initializes the Gemini Service.
@@ -147,7 +163,7 @@ Please provide your research as a JSON object with the following structure and f
 Ensure the output is a single, valid JSON object only, with no additional text before or after the JSON.
 """
 
-        json_response_str: Optional[str] = None  # Initialize
+        json_response_str: str = None  # Initialize
         try:
             logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
             json_response_str = await self.generate_text_async(prompt)
@@ -188,9 +204,12 @@ Ensure the output is a single, valid JSON object only, with no additional text b
         
             # Add a log to see what exactly is being passed to json.loads
             logger.debug(f"String to be parsed by json.loads for '{person_name}': '{json_response_str}'")
-            parsed_json = json.loads(json_response_str)
+            cleaned_response_text = self._clean_llm_json_response(json_response_str)
+            logger.debug(f"Cleaned persona research response: {cleaned_response_text[:200]}...")
             
-            # Validate with Pydantic model
+            parsed_json = json.loads(cleaned_response_text)
+            parsed_json = GeminiService._clean_keys_recursive(parsed_json) # Clean keys before validation
+            logger.debug(f"Attempting to create PersonaResearch with (cleaned) keys: {list(parsed_json.keys()) if isinstance(parsed_json, dict) else 'Not a dict'}")
             persona_research_data = PersonaResearch(**parsed_json)
             logger.info(f"Successfully parsed and validated persona research for '{person_name}'.")
             return persona_research_data
@@ -216,7 +235,7 @@ Ensure the output is a single, valid JSON object only, with no additional text b
         num_prominent_persons: int,
         names_prominent_persons_list: list[str],
         user_provided_custom_prompt: str = None
-    ) -> str:
+    ) -> PodcastOutline:
         """
         Generates a podcast outline based on source analyses, persona research,
         and other parameters, using a detailed PRD-defined prompt or a user-provided custom prompt.
@@ -248,6 +267,7 @@ Ensure the output is a single, valid JSON object only, with no additional text b
                     formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\\n{doc}\\n---")
             else:
                 formatted_source_analyses_str_parts.append("No source analysis documents provided.")
+            input_formatted_source_analyses_str = "\n".join(formatted_source_analyses_str_parts)
             
             # Format Persona Research Documents for PRD prompt
             formatted_persona_research_str_parts = []
@@ -256,6 +276,7 @@ Ensure the output is a single, valid JSON object only, with no additional text b
                     formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\\n{doc}\\n---")
             else:
                 formatted_persona_research_str_parts.append("No persona research documents provided.")
+            input_formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
 
             # Format Names of Prominent Persons for PRD prompt
             formatted_names_prominent_persons_str: str
@@ -331,141 +352,153 @@ Objectivity in Narration: When a narrator/host is explaining core information fr
 
 Output Format:
 
-Provide the outline in a clear, hierarchical format (e.g., Markdown with headings and nested bullets).
-Clearly indicate which named persona (or generic role) is intended to voice specific points or lead particular exchanges.
+VERY IMPORTANT: You MUST output your response as a single, valid JSON object. Do NOT use markdown formatting (e.g., ```json ... ```) around the JSON.
+The JSON object must conform to the following Pydantic model structure:
+{{
+  "title_suggestion": "string (Suggested title for the podcast episode)",
+  "summary_suggestion": "string (Suggested brief summary for the podcast episode)",
+  "segments": [
+    {{
+      "segment_id": "string (Unique identifier, e.g., 'segment_1')",
+      "segment_title": "string (Optional: The title or topic of this podcast segment)",
+      "speaker_id": "string (Identifier for the speaker, e.g., 'Host', 'Persona_JohnDoe', 'Narrator')",
+      "content_cue": "string (A brief cue or summary of the content to be covered in this segment)",
+      "estimated_duration_seconds": "integer (Optional: Estimated duration for this segment in seconds)"
+    }}
+    // ... more segments
+  ]
+}}
+
+Ensure all string fields are properly escaped within the JSON.
+The 'segments' list should contain objects, each representing a distinct part of the podcast as outlined in the 'Outline Structure Requirements' section (Introduction, Main Body Segments, Conclusion).
+For each segment in the 'segments' list:
+- 'segment_id' should be unique for each segment (e.g., "intro_1", "body_1", "body_2", "conclusion_1").
+- 'segment_title' should reflect the specific theme or topic of that segment.
+- 'speaker_id' should indicate the primary speaker or interaction for that part of the segment (e.g., "Host", "Persona_A", "Persona_B_vs_Persona_A").
+- 'content_cue' should be a concise instruction or summary for what needs to be said or discussed in that part of the segment. This is crucial for the dialogue generation step.
+- 'estimated_duration_seconds' is optional but helpful for pacing.
 """
+            logger.debug(f"PRD Outline Template Before Formatting:\n{prd_outline_prompt_template}")
+            logger.debug(f"Outline Formatting Args - input_formatted_source_analyses_str (type {type(input_formatted_source_analyses_str)}): {input_formatted_source_analyses_str[:200]}...")
+            logger.debug(f"Outline Formatting Args - input_formatted_persona_research_str (type {type(input_formatted_persona_research_str)}): {input_formatted_persona_research_str[:200]}...")
+            logger.debug(f"Outline Formatting Args - input_desired_podcast_length_str (type {type(desired_podcast_length_str)}): {desired_podcast_length_str}")
+            logger.debug(f"Outline Formatting Args - input_num_prominent_persons (type {type(num_prominent_persons)}): {num_prominent_persons}")
+            logger.debug(f"Outline Formatting Args - input_formatted_names_prominent_persons_str (type {type(formatted_names_prominent_persons_str)}): {formatted_names_prominent_persons_str}")
             final_prompt = prd_outline_prompt_template.format(
-                input_formatted_source_analyses_str="\\n".join(formatted_source_analyses_str_parts),
-                input_formatted_persona_research_str="\\n".join(formatted_persona_research_str_parts),
+                input_formatted_source_analyses_str=input_formatted_source_analyses_str,
+                input_formatted_persona_research_str=input_formatted_persona_research_str,
                 input_desired_podcast_length_str=desired_podcast_length_str,
                 input_num_prominent_persons=num_prominent_persons,
                 input_formatted_names_prominent_persons_str=formatted_names_prominent_persons_str
             )
+            logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
 
-        return await self.generate_text_async(final_prompt)
+            raw_response_text = await self.generate_text_async(final_prompt)
+            
+            # Attempt to strip markdown fences if present
+            cleaned_response_text = raw_response_text.strip()
+            if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
+                cleaned_response_text = cleaned_response_text[7:-3].strip()
+            elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
+                cleaned_response_text = cleaned_response_text[3:-3].strip()
 
+            try:
+                # Clean keys before parsing, as Gemini sometimes adds extra spaces
+                parsed_json_dict = json.loads(cleaned_response_text)
+                parsed_json_dict = GeminiService._clean_keys_recursive(parsed_json_dict) 
+
+                podcast_outline = PodcastOutline(**parsed_json_dict)
+                logger.info(f"Successfully generated and validated podcast outline: {podcast_outline.title_suggestion}")
+                return podcast_outline
+            except json.JSONDecodeError as e:
+                logger.error(f"LLM output for podcast outline was not valid JSON. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
+                raise LLMProcessingError(f"LLM output for podcast outline was not valid JSON: {e}")
+            except ValidationError as e:
+                logger.error(f"LLM output for podcast outline did not match expected schema. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
+                logger.debug(f"Problematic JSON string for outline: '{cleaned_response_text}'")
+                raise LLMProcessingError(f"LLM output for podcast outline did not match expected schema: {e.errors()}")
+            except Exception as e:
+                logger.error(f"An unexpected error occurred during podcast outline generation. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
+                raise LLMProcessingError(f"An unexpected error occurred during podcast outline generation: {e}")
     async def generate_dialogue_async(
         self,
-        podcast_outline: str,
-        source_analyses: list[str],
-        persona_research_docs: list[str],
-        desired_podcast_length_str: str, # e.g., "10 minutes"
+        podcast_outline: PodcastOutline,
+        source_analyses: list[SourceAnalysis],
+        persona_research_docs: list[PersonaResearch],
+        desired_podcast_length_str: str,
         num_prominent_persons: int,
-        # List of tuples: (prominent_person_name, follower_name_initial, follower_system_assigned_gender)
-        # e.g., [("Cardano Ada", "C", "Female"), ("Polkadot Gavin", "P", "Male")]
-        prominent_persons_details: list[tuple[str, str, str]], 
-        user_provided_custom_prompt: str = None # Optional, for future flexibility
-    ) -> str:
+        prominent_persons_details: list[tuple[str, str, str]], # (prominent_person_name, follower_name_initial, follower_system_assigned_gender)
+        user_provided_custom_prompt: Optional[str] = None
+    ) -> List[DialogueTurn]:
         """
-        Generates the full podcast dialogue script based on the outline and other inputs,
-        using the prompt defined in PRD Section 4.2.5.1.
+        Generates dialogue for a podcast episode based on an outline, source analyses,
+        persona research, and other parameters.
         """
-        if user_provided_custom_prompt:
-            final_dialogue_prompt = user_provided_custom_prompt # Or integrate it if needed
-            # For now, if custom prompt is given, we assume it's complete and self-contained
-            # or that it contains its own placeholders for the data below if needed.
-            # This part might need refinement based on how custom prompts are intended to be used.
-        else:
-            # Format Source Analyses
-            formatted_source_analyses_str_parts = []
-            if source_analyses:
-                for i, doc in enumerate(source_analyses):
-                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\n{doc}\n---")
-            else:
-                formatted_source_analyses_str_parts.append("No source analysis documents provided.")
-            formatted_source_analyses_str = "\n".join(formatted_source_analyses_str_parts)
-
-            # Format Persona Research Documents
-            formatted_persona_research_str_parts = []
-            if persona_research_docs:
-                for i, doc in enumerate(persona_research_docs):
-                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\n{doc}\n---")
-            else:
-                formatted_persona_research_str_parts.append("No persona research documents provided.")
-            formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
-
-            # Format Prominent Persons Details
-            # This tells the LLM about each prominent person, their follower's name initial, and system-assigned gender.
-            formatted_prominent_persons_details_parts = []
-            if num_prominent_persons > 0 and prominent_persons_details:
-                for i, (name, initial, gender) in enumerate(prominent_persons_details):
-                    formatted_prominent_persons_details_parts.append(
-                        f"  Prominent Person {i+1}: {name}\n"
-                        f"    - Follower Name Initial: {initial}\n"
-                        f"    - Follower System-Assigned Gender: {gender}"
-                    )
-                formatted_prominent_persons_details_str = "Details for Prominent Persons and their Followers:\n" + "\n".join(formatted_prominent_persons_details_parts)
-            else:
-                formatted_prominent_persons_details_str = "No prominent persons specified. Dialogue will be between Host and potentially a generic Analyst/Expert."
-
-            # PRD 4.2.5.1 Dialogue Writing Prompt Template
-            prd_dialogue_prompt_template = """Based on all the provided inputs, write the full dialogue script.
-Key Instructions & Guidelines:
-Adherence to Outline:
-
-The Podcast Outline Document is the primary source. Follow its structure, flow, assigned speakers for particular points, and integrate any specific instructions it contains (e.g., how to introduce topics, sequence debates, or reference evidence).
-Ensure all thematic segments from the outline are covered in the dialogue. You have discretion to focus on more interesting themes at the expense of less interesting themes.
-Dialogue Style:
-
-Conversational & Engaging: The dialogue should flow naturally, like a real conversation. Avoid overly formal or robotic language.
-Informative: Accurately reflect the key information from the Source Analysis Documents as guided by the outline.
-Entertaining: Where appropriate and consistent with the topic and personas, inject elements that make the podcast enjoyable to listen to.
-Viewpoint-Driven: Speakers, especially followers, must express views consistent with their researched personas or assigned roles. The dialogue should highly viewpoint diversity through healthy debate.
-Speaker Roles & Dialogue:
-
-Host:
-The Host guides the conversation, introduces topics and segments as per the outline, provides necessary narration or summaries of source information, and facilitates discussions.
-Ensure the Host's dialogue is clear and helps maintain the podcast's structure.
-Follower Speakers (if prominent persons were specified):
-Name Generation: For each follower speaker, you must generate a first name. This name MUST start with the provided Initial and MUST be congruent with the System-Assigned Gender provided for that follower. (e.g., If Initial is 'A' and System-Assigned Gender is 'Female', a name like 'Alice' or 'Anna' would be appropriate).
-Introduction: The Host will introduce these speakers as followers/advocates of the prominent person's viewpoints (e.g., "Joining us is [Follower's Generated Name], who will be sharing insights reflecting [Prominent Person]'s perspectives...").
-Content: Their dialogue must strongly and accurately reflect the viewpoints, opinions, and characteristic speaking style of the prominent person they represent, drawing from the Persona Research Document and as cued by the Podcast Outline.
-Attribution: Ensure their lines are clearly attributable to their generated first name (e.g., "[Generated Follower Name]:").
-Generic Speakers (if no prominent persons were specified):
-If the outline includes roles like 'Analyst' or 'Expert' in addition to the Host, write their dialogue to be informative and engaging, fulfilling the purpose outlined for them.
-Integrating Content & Discussions:
-
-Seamlessly weave in facts, data, or educational points from the Source Analysis Documents when the outline calls for it.
-If the outline details a debate or discussion between speakers, create dynamic and robust exchanges that allow for the strong expression of differing standpoints, while keeping the discussion constructive and focused.
-Clarity of Representation:
-
-The dialogue must make it clear which prominent person's viewpoint a follower represents, or what the role of a generic speaker is.
-Length Adherence:
-
-The total word count of the script should closely target the user's specified podcast duration, calculated at approximately 150 words per minute. You have discretion to manage the depth of discussion for each outline point accordingly.
-Output Format Requirements:
-Provide the output as a clean dialogue script.
-Each line of dialogue must start with the speaker's name (e.g., "Host:", "[Generated Follower Name]:", "Analyst:") followed by a colon and then the spoken text.
-Ensure clear delineation between speakers.
-
-Inputs for Dialogue Generation:
-
-1. Podcast Outline Document:
-{podcast_outline}
-
-2. Source Analysis Documents (for contextual reference):
-{formatted_source_analyses}
-
-3. Persona Research Documents (for contextual reference and follower dialogue):
-{formatted_persona_research}
-
-4. Desired Podcast Length:
-{desired_podcast_length_str}
-
-5. Prominent Persons Information (if any):
-{formatted_prominent_persons_details}
-
-Now, please generate the dialogue script based on all the above.
+        # Placeholder for the actual PRD dialogue prompt template
+        prd_dialogue_prompt_template = """
+PLACEHOLDER: Define the PRD dialogue prompt template here.
+It should include placeholders like {podcast_outline}, {formatted_source_analyses}, 
+{formatted_persona_research}, {desired_podcast_length_str}, 
+and {formatted_prominent_persons_details}.
 """
-            final_dialogue_prompt = prd_dialogue_prompt_template.format(
-                podcast_outline=podcast_outline,
-                formatted_source_analyses=formatted_source_analyses_str,
-                formatted_persona_research=formatted_persona_research_str,
-                desired_podcast_length_str=desired_podcast_length_str,
-                formatted_prominent_persons_details=formatted_prominent_persons_details_str
-            )
+        podcast_outline_str = podcast_outline.model_dump_json(indent=2)
+        formatted_source_analyses_str = json.dumps([sa.model_dump() for sa in source_analyses], indent=2)
+        formatted_persona_research_str = json.dumps([prd.model_dump() for prd in persona_research_docs], indent=2)
+        formatted_prominent_persons_details_str = json.dumps(prominent_persons_details, indent=2)
 
-        return await self.generate_text_async(final_dialogue_prompt)
+        logger.debug(f"PRD Dialogue Template Before Formatting:\n{prd_dialogue_prompt_template}")
+        logger.debug(f"Dialogue Formatting Args - podcast_outline (type {type(podcast_outline_str)}): {podcast_outline_str[:500]}...")
+        logger.debug(f"Dialogue Formatting Args - formatted_source_analyses (type {type(formatted_source_analyses_str)}): {formatted_source_analyses_str[:200]}...")
+        logger.debug(f"Dialogue Formatting Args - formatted_persona_research (type {type(formatted_persona_research_str)}): {formatted_persona_research_str[:200]}...")
+        logger.debug(f"Dialogue Formatting Args - desired_podcast_length_str (type {type(desired_podcast_length_str)}): {desired_podcast_length_str}")
+        logger.debug(f"Dialogue Formatting Args - formatted_prominent_persons_details (type {type(formatted_prominent_persons_details_str)}): {formatted_prominent_persons_details_str[:200]}...")
+        final_dialogue_prompt = prd_dialogue_prompt_template.format(
+            podcast_outline=podcast_outline_str,
+            formatted_source_analyses=formatted_source_analyses_str,
+            formatted_persona_research=formatted_persona_research_str,
+            desired_podcast_length_str=desired_podcast_length_str,
+            formatted_prominent_persons_details=formatted_prominent_persons_details_str
+        )
+
+        raw_response_text = await self.generate_text_async(final_dialogue_prompt)
+        # Attempt to strip markdown fences if present
+        cleaned_response_text = raw_response_text.strip()
+        if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
+            cleaned_response_text = cleaned_response_text[7:-3].strip()
+        elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
+            cleaned_response_text = cleaned_response_text[3:-3].strip()
+        
+        try:
+            parsed_json_list = json.loads(cleaned_response_text)
+            parsed_json_list = GeminiService._clean_keys_recursive(parsed_json_list) 
+            logger.debug(f"Attempting to create DialogueTurns. First item (cleaned) keys: {list(parsed_json_list[0].keys()) if isinstance(parsed_json_list, list) and parsed_json_list and isinstance(parsed_json_list[0], dict) else 'Not a list of dicts or empty list'}")
+            if not isinstance(parsed_json_list, list):
+                logger.error(f"LLM response for dialogue turns was not a JSON list. Got: {type(parsed_json_list)}")
+                logger.error(f"Problematic data (cleaned): '{str(parsed_json_list)[:500]}...' ")
+                logger.error(f"Problematic JSON string: '{cleaned_response_text[:500]}...' ")
+                raise LLMProcessingError("LLM output for dialogue turns was not a valid JSON list.")
+
+            dialogue_turns: List[DialogueTurn] = []
+            for i, item in enumerate(parsed_json_list):
+                if isinstance(item, dict):
+                    logger.debug(f"Attempting to create DialogueTurn for item {i} with (cleaned) keys: {list(item.keys())}")
+                    dialogue_turns.append(DialogueTurn(**item))
+                else:
+                    logger.error(f"Item {i} in dialogue list is not a dict: {type(item)}. Content: {str(item)[:200]}")
+                    raise LLMProcessingError(f"Invalid item type in dialogue list: expected dict, got {type(item)}")
+            return dialogue_turns
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode LLM response as JSON for dialogue turns. Error: {e}")
+            logger.error(f"Problematic JSON string: '{cleaned_response_text[:500]}...' ")
+            raise LLMProcessingError(f"LLM output for dialogue turns was not valid JSON. Error: {e}")
+        except ValidationError as e:
+            logger.error(f"LLM response for dialogue turns failed Pydantic validation. Error: {e}")
+            logger.error(f"Cleaned response text that failed validation: '{cleaned_response_text[:500]}...' ")
+            raise LLMProcessingError(f"LLM output for dialogue turns did not match expected schema. Error: {e}")
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while processing LLM response for dialogue turns: {e}")
+            logger.error(f"Raw response: '{raw_response_text[:500]}...' ")
+            raise LLMProcessingError(f"Unexpected error processing LLM output for dialogue turns: {e}")
 
 async def main_test():
     """

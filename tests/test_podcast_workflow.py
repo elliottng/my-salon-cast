@@ -8,10 +8,15 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from app.podcast_workflow import (
     PodcastGeneratorService,
     PodcastRequest,
+    ExtractionError
+)
+from app.podcast_models import (
     PodcastEpisode,
-    ExtractionError,
-    DialogueTurn,  # Defined in podcast_workflow
-    SourceAnalysis # Also defined in podcast_workflow
+    DialogueTurn,
+    SourceAnalysis,
+    PodcastOutline,
+    OutlineSegment,
+    PersonaResearch
 )
 from app.llm_service import LLMNotInitializedError
 
@@ -197,8 +202,161 @@ class TestPodcastGeneratorService:
                 
                 assert episode is not None
                 assert episode.title == "Generation Incomplete" # Title remains default if outline fails
-                assert episode.transcript == "Transcript generation pending." # Transcript remains default if outline/dialogue fails
+                assert episode.transcript == "Dialogue generation skipped due to missing prerequisites." # Transcript reflects skipped dialogue
                 assert episode.audio_filepath == "placeholder.mp3" # Check for hardcoded placeholder
+
+    @pytest.mark.asyncio
+    async def test_generate_podcast_from_source_e2e_success(self, MockGoogleCloudTtsService, MockLLMService):
+        """Test a full successful run of generate_podcast_from_source with all mocks."""
+        # 1. Setup Mocks
+        mock_extracted_text = "This is the extracted content from a source."
+        mock_source_analysis = {
+            "key_themes": ["theme1"],
+            "facts": ["fact1"],
+            "summary_points": ["point1"],
+            "potential_biases": [],
+            "counter_arguments_or_perspectives": []
+        }
+        mock_persona_research_content = {
+            "person_id": "person-a",
+            "name": "Person A",
+            "viewpoints": ["Opinion 1", "Summary of Person A"],
+            "speaking_style": "direct, formal",
+            "key_quotes": []
+        }
+
+        mock_podcast_outline = PodcastOutline(
+            title_suggestion="E2E Test Podcast Title",
+            summary_suggestion="E2E Test Podcast Summary.",
+            segments=[
+                OutlineSegment(
+                    segment_id="s1",
+                    segment_title="Introduction",
+                    speaker_id="Host",
+                    content_cue="Introduce the main topic.",
+                    estimated_duration_seconds=30
+                ),
+                OutlineSegment(
+                    segment_id="s2",
+                    segment_title="Main Discussion",
+                    speaker_id="Alice",
+                    content_cue="Discuss fact1.",
+                    estimated_duration_seconds=60
+                )
+            ]
+        )
+
+        mock_dialogue_turns = [
+            DialogueTurn(turn_id=1, speaker_id="Host", speaker_gender="Neutral", text="Welcome to our E2E test podcast.", source_mentions=[]),
+            DialogueTurn(turn_id=2, speaker_id="Alice", speaker_gender="Female", text="Let's discuss fact1.", source_mentions=["fact1"])
+        ]
+
+        # Mock content extraction
+        with patch('app.podcast_workflow.extract_content_from_url', AsyncMock(return_value=mock_extracted_text)) as mock_extract_content:
+            # Mock LLMService methods
+            self.service.llm_service.analyze_source_text_async = AsyncMock(return_value=mock_source_analysis)
+            self.service.llm_service.research_persona_async = AsyncMock(return_value=PersonaResearch(**mock_persona_research_content))
+            self.service.llm_service.generate_podcast_outline_async = AsyncMock(return_value=mock_podcast_outline)
+            self.service.llm_service.generate_dialogue_async = AsyncMock(return_value=mock_dialogue_turns)
+
+            # Mock TTSService method
+            self.service.tts_service.text_to_audio_async = AsyncMock(return_value="mock_segment.mp3")
+            
+            with patch('app.podcast_workflow.logger') as mock_logger:
+                # 2. Prepare Request
+                request_data = PodcastRequest(
+                    source_url="http://example.com/e2e-test",
+                    prominent_persons=["Person A"],
+                    desired_podcast_length_str="2 minutes"
+                )
+
+                # 3. Execute
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with patch('app.podcast_workflow.tempfile.TemporaryDirectory') as mock_tempdir_context:
+                        mock_tempdir_context.return_value.__enter__.return_value = tmpdir
+                        episode = await self.service.generate_podcast_from_source(request_data)
+
+                        # 4. Assertions
+
+                        assert episode.title == "E2E Test Podcast Title"
+                        assert episode.summary == "E2E Test Podcast Summary."
+                        expected_transcript = "Host: Welcome to our E2E test podcast.\nAlice: Let's discuss fact1."
+                        assert episode.transcript == expected_transcript
+                        assert episode.warnings == []
+
+                        # Check saved JSON files
+                        assert episode.llm_source_analysis_path is not None
+                        # llm_source_analysis_path is a single string path
+                        with open(episode.llm_source_analysis_path, 'r') as f:
+                            saved_analysis = json.load(f)
+                            assert saved_analysis == mock_source_analysis
+                        
+                        assert episode.llm_persona_research_paths is not None
+                        # Assuming llm_persona_research_paths is a list of paths, and we check the first one
+                        with open(episode.llm_persona_research_paths[0], 'r') as f:
+                            saved_persona = json.load(f)
+                            assert saved_persona == mock_persona_research_content
+
+                        assert episode.llm_podcast_outline_path is not None
+                        with open(episode.llm_podcast_outline_path, 'r') as f:
+                            saved_outline = json.load(f)
+                            assert saved_outline == mock_podcast_outline.model_dump()
+
+                        assert episode.llm_dialogue_turns_path is not None
+                        with open(episode.llm_dialogue_turns_path, 'r') as f:
+                            saved_turns = json.load(f)
+                            assert saved_turns == [turn.model_dump() for turn in mock_dialogue_turns]
+                # If multiple segments are combined, mock the combined audio object's export
+                # For simplicity, let's assume the final path is constructed and export is called on it.
+                # If your service directly calls export on a combined AudioSegment object:
+                mock_combined_audio = MagicMock()
+                # If an empty segment is created and then appended to:
+                # if mock_audio_empty.called: # Check if AudioSegment.empty() was part of the logic
+                #     mock_audio_empty.return_value = mock_combined_audio
+                # else: # Otherwise, assume the first segment becomes the base for combining
+                #     mock_segment_audio.__add__ = MagicMock(return_value=mock_combined_audio) # Mock '+' operator if used
+                
+                mock_combined_audio.export = MagicMock()
+
+                # 4. Assertions
+                mock_extract_content.assert_called_once_with(str(request_data.source_url))
+                self.service.llm_service.analyze_source_text_async.assert_called_once_with(mock_extracted_text)
+                self.service.llm_service.research_persona_async.assert_called_once_with(source_text=mock_extracted_text, person_name="Person A")
+                self.service.llm_service.generate_podcast_outline_async.assert_called_once()
+                self.service.llm_service.generate_dialogue_async.assert_called_once()
+                
+                # Assert TTS calls (one for each dialogue turn)
+                # TODO: Reinstate TTS assertions when TTS audio generation is implemented in podcast_workflow.py
+                # assert self.service.tts_service.text_to_audio_async.call_count == len(mock_dialogue_turns)
+                # self.service.tts_service.text_to_audio_async.assert_any_call(mock_dialogue_turns[0].text, mock_dialogue_turns[0].speaker_gender, mock_dialogue_turns[0].speaker_id, 0)
+                # self.service.tts_service.text_to_audio_async.assert_any_call(mock_dialogue_turns[1].text, mock_dialogue_turns[1].speaker_gender, mock_dialogue_turns[1].speaker_id, 1)
+
+                # Assert final audio export was called (assuming it's on mock_combined_audio)
+                # The exact path for export depends on your implementation
+                # For now, we'll check if export was called on the final combined object if it exists
+                # This part is highly dependent on the actual audio stitching logic in podcast_workflow.py
+                # If the final path is constructed and passed to export, that's easier to check.
+                # For this example, let's assume the final path is in episode.audio_filepath
+                # and that the export method of the combined audio object was called with this path.
+                # This requires more detailed mocking of pydub if it's used directly.
+                # For now, we'll simplify and assume the path is set correctly.
+                # A more robust test would mock the specific pydub calls if they are made inside the service.
+                # If the service just returns a path after TTS service does its work, that's simpler.
+                # Let's assume the tts_service is responsible for the final combined file for now.
+                # And the workflow simply assigns the path.
+                # If the workflow itself does the stitching, this mock needs to be more detailed.
+                # For now, let's assume the `audio_stitching` part of the workflow correctly produces a file, 
+                # and its path is episode.audio_filepath
+                # If the audio stitching is complex, this mock needs to be more detailed.
+                # For now, let's assume the service.tts_service.combine_audio_segments is mocked or handled internally by tts_service
+                # and the final path is set correctly.
+                # The test currently doesn't mock the combination logic, so we'll check the path.
+                # TODO: Reinstate audio_filepath assertions when audio generation/stitching is implemented
+                # assert episode.audio_filepath.endswith(".mp3") # Check if it looks like an mp3 path
+                # assert tmpdir in episode.audio_filepath # Check it's in the temp dir
+
+
+
 
     @pytest.mark.asyncio
     @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)

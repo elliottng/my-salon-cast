@@ -4,6 +4,7 @@ from typing import List, Optional, Any # Added Any for potential complex inputs
 # --- Pydantic Models for Workflow Data ---
 # Models like SourceAnalysis, PersonaResearch, etc., are now imported from .podcast_models
 from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode
+from .common_exceptions import LLMProcessingError
 
 # Placeholder for the input data model to generate_podcast_from_source
 # This will likely be defined more concretely when we build the API endpoint (Task 1.8)
@@ -68,6 +69,7 @@ class PodcastGeneratorService:
         llm_persona_research_filepaths: List[str] = []
         llm_podcast_outline_filepath: Optional[str] = None
         llm_dialogue_script_filepath: Optional[str] = None # Path for the full dialogue script
+        llm_dialogue_turns_filepath: Optional[str] = None
 
         source_analyses_content: List[str] = []
         persona_research_docs_content: List[str] = []
@@ -76,6 +78,7 @@ class PodcastGeneratorService:
         podcast_summary = "Full generation pending or failed at an early stage."
         podcast_transcript = "Transcript generation pending."
         warnings_list: List[str] = []
+        podcast_episode_data: dict = {} # Initialize the dictionary
 
         with tempfile.TemporaryDirectory(prefix="podcast_job_") as tmpdir_path:
             logger.info(f"Created temporary directory for podcast job: {tmpdir_path}")
@@ -185,38 +188,69 @@ class PodcastGeneratorService:
                 warnings_list.append("Skipping outline generation as extracted_text is empty.")
 
             # 6. LLM - Dialogue Generation
+            dialogue_turns_list: Optional[List[DialogueTurn]] = None
             if podcast_outline_obj and extracted_text:
                 try:
                     # Construct prominent_persons_details for dialogue generation
-                    # This is a simplified version; gender might need more sophisticated handling for TTS
                     prominent_persons_details_for_dialogue: List[Tuple[str, str, str]] = []
                     if request_data.prominent_persons:
                         for name in request_data.prominent_persons:
                             initial = name[0].upper() if name else "X"
-                            # For now, gender is 'neutral'. This might need to come from PersonaResearch or user input for TTS.
-                            prominent_persons_details_for_dialogue.append((name, initial, "neutral")) 
+                            # TODO: Enhance gender assignment. For now, using 'neutral'.
+                            # This might need to come from PersonaResearch or user input for accurate TTS.
+                            # Consider a mapping if persona research provides gender, or default to 'neutral'.
+                            gender_for_tts = "neutral" # Placeholder
+                            # Example: if persona_research_map.get(name, {}).get('gender'): 
+                            # gender_for_tts = persona_research_map[name]['gender']
+                            prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
                     
-                    generated_dialogue_script = await self.llm_service.generate_dialogue_async(
-                        podcast_outline_str=podcast_outline_obj.model_dump_json(), # Pass outline as JSON string
+                    dialogue_turns_list = await self.llm_service.generate_dialogue_async(
+                        podcast_outline=podcast_outline_obj.model_dump_json(), # Pass outline as JSON string
                         source_analyses=source_analyses_content,
                         persona_research_docs=persona_research_docs_content,
-                        prominent_persons_details=prominent_persons_details_for_dialogue
+                        desired_podcast_length_str=request_data.desired_podcast_length_str or "5-7 minutes",
+                        num_prominent_persons=len(prominent_persons_details_for_dialogue),
+                        prominent_persons_details=prominent_persons_details_for_dialogue,
+                        user_provided_custom_prompt=None # Assuming no custom prompt for dialogue for now
                     )
-                    if generated_dialogue_script:
-                        logger.info("Podcast dialogue generated successfully.")
-                        podcast_transcript = generated_dialogue_script
-                        llm_dialogue_script_filepath = os.path.join(tmpdir_path, "dialogue_script.txt")
-                        with open(llm_dialogue_script_filepath, 'w') as f:
-                            f.write(generated_dialogue_script)
-                        logger.info(f"Dialogue script saved to {llm_dialogue_script_filepath}")
+
+                    if dialogue_turns_list:
+                        logger.info(f"Podcast dialogue turns generated successfully ({len(dialogue_turns_list)} turns).")
+                        
+                        # Save dialogue turns to JSON file
+                        llm_dialogue_turns_filepath = os.path.join(tmpdir_path, "dialogue_turns.json")
+                        serialized_turns = [turn.model_dump() for turn in dialogue_turns_list]
+                        with open(llm_dialogue_turns_filepath, 'w') as f:
+                            json.dump(serialized_turns, f, indent=2)
+                        logger.info(f"Dialogue turns saved to {llm_dialogue_turns_filepath}")
+                        podcast_episode_data['llm_dialogue_turns_path'] = llm_dialogue_turns_filepath
+                        
+                        # Construct transcript string from dialogue turns
+                        transcript_parts = []
+                        for turn in dialogue_turns_list:
+                            transcript_parts.append(f"{turn.speaker_id}: {turn.text}")
+                        podcast_transcript = "\n".join(transcript_parts)
+                        logger.info("Transcript constructed from dialogue turns.")
+                        podcast_episode_data['transcript'] = podcast_transcript
                     else:
-                        logger.error("Dialogue generation returned None or empty script.")
-                        warnings_list.append("Dialogue generation failed to produce a script.")
+                        logger.error("Dialogue generation returned None or empty list of turns.")
+                        warnings_list.append("Dialogue generation failed to produce turns.")
+                        podcast_transcript = "Error: Dialogue generation failed."
+                        podcast_episode_data['transcript'] = podcast_transcript
+
+                except LLMProcessingError as e:
+                    logger.error(f"LLMProcessingError during dialogue generation: {e}")
+                    warnings_list.append(f"LLM processing error during dialogue generation: {e}")
+                    podcast_episode_data['transcript'] = f"Error: LLM processing failed during dialogue generation. Details: {e}"
                 except Exception as e:
-                    logger.error(f"Error during dialogue generation: {e}")
+                    logger.error(f"Unexpected error during dialogue generation: {e}", exc_info=True)
                     warnings_list.append(f"Critical error during dialogue generation: {e}")
+                    podcast_transcript = f"Error: Critical error during dialogue generation. Details: {e}"
+                    podcast_episode_data['transcript'] = podcast_transcript
             else:
                 warnings_list.append("Skipping dialogue generation as outline or extracted_text is missing.")
+                podcast_transcript = "Dialogue generation skipped due to missing prerequisites."
+                podcast_episode_data['transcript'] = podcast_transcript
 
             # (Future steps: TTS, audio stitching, final attributions)
 
@@ -230,7 +264,7 @@ class PodcastGeneratorService:
                 llm_source_analysis_path=llm_source_analysis_filepath,
                 llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
                 llm_podcast_outline_path=llm_podcast_outline_filepath,
-                llm_dialogue_turns_path=llm_dialogue_script_filepath # Using this field for the full script path for now
+                llm_dialogue_turns_path=llm_dialogue_turns_filepath
             )
 
 # Example usage (for testing purposes, can be removed later)
