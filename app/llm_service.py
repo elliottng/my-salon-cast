@@ -80,36 +80,81 @@ class GeminiService:
             f"(Reason: {retry_state.outcome.exception()}). Attempt #{retry_state.attempt_number}"
         )
     )
-    async def generate_text_async(self, prompt: str) -> str:
+    async def generate_text_async(self, prompt: str, timeout_seconds: int = 60) -> str:
         """
         Asynchronously generates text based on the given prompt using the configured Gemini model.
+        
+        Args:
+            prompt: The prompt to send to the model
+            timeout_seconds: Maximum time to wait for the API call in seconds (default: 30)
+            
+        Returns:
+            The generated text response
+            
+        Raises:
+            TimeoutError: If the API call exceeds the timeout_seconds
+            ValueError: If the prompt is empty
+            RuntimeError: For other unexpected errors
         """
+        logger.info("ENTRY: generate_text_async method called")
+        logger.info(f"Prompt length: {len(prompt) if prompt else 0} characters with {timeout_seconds}s timeout")
+        
         if not prompt:
+            logger.error("Prompt cannot be empty.")
             raise ValueError("Prompt cannot be empty.")
             
         try:
-            # Use asyncio.to_thread to run the blocking SDK call in a separate thread
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            # Use asyncio.wait_for to add a timeout to the thread call
+            logger.info(f"Calling Gemini model generate_content with {timeout_seconds}s timeout")
+            
+            # Create a task with asyncio.to_thread and apply a timeout
+            task = asyncio.create_task(asyncio.to_thread(self.model.generate_content, prompt))
+            
+            # Wait for the task with a timeout
+            try:
+                response = await asyncio.wait_for(task, timeout=timeout_seconds)
+                logger.info(f"API call completed successfully within {timeout_seconds}s timeout")
+            except asyncio.TimeoutError:
+                logger.error(f"API call timed out after {timeout_seconds} seconds")
+                task.cancel()
+                # Try to get the task result, but don't wait - just to see if there's an exception
+                try:
+                    task.result()
+                except Exception as task_ex:
+                    logger.error(f"Task had exception: {task_ex}")
+                error_json = '{"error": "Gemini API timeout", "details": "API call timed out after ' + str(timeout_seconds) + ' seconds"}'
+                logger.error(f"Returning error JSON: {error_json}")
+                return error_json
             
             # Check for response.parts for potentially multi-part responses
             if response.parts:
+                logger.info(f"Response has {len(response.parts)} parts")
                 # Ensure all parts are concatenated, checking if they have a 'text' attribute
-                return "".join(part.text for part in response.parts if hasattr(part, 'text'))
+                result = "".join(part.text for part in response.parts if hasattr(part, 'text'))
+                logger.info(f"Concatenated response text length: {len(result)} characters")
+                logger.info("EXIT: generate_text_async completed successfully with multi-part response")
+                return result
             # Fallback if response.text is directly available (older API versions or simpler responses)
             elif hasattr(response, 'text') and response.text:
-                 return response.text
+                logger.info(f"Response has single text attribute of length: {len(response.text)} characters")
+                logger.info("EXIT: generate_text_async completed successfully with single-part response")
+                return response.text
             else:
                 # This case might occur if the response is blocked, has no text content, or an unexpected structure
-                # Log the full response for debugging if possible.
-                # print(f"Gemini response issue. Full response: {response}")
+                logger.warning("No text content found in response")
                 # Check for prompt feedback which might indicate blocking
                 if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                    logger.warning(f"Response has prompt_feedback: {response.prompt_feedback}")
+                    logger.info("EXIT: generate_text_async with prompt feedback issue")
                     return f"Error: Could not generate text. Prompt feedback: {response.prompt_feedback}"
+                logger.warning("No text content or prompt feedback found in response")
+                logger.info("EXIT: generate_text_async with empty/blocked response")
                 return "Error: No text content in Gemini response or response was blocked."
 
         except Exception as e:
             # This is a general catch-all for any other errors during the API call or response processing.
             logger.error(f"Unexpected error in generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
+            logger.info("EXIT: generate_text_async with exception")
             # Ensure an exception is raised so the caller knows something went wrong.
             raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
 
@@ -118,21 +163,70 @@ class GeminiService:
         Analyzes the provided source text using the LLM.
         Allows for custom analysis instructions.
         """
-        if not source_text:
-            raise ValueError("Source text for analysis cannot be empty.")
-
-        if analysis_instructions:
-            prompt = f"{analysis_instructions}\n\nAnalyze the following text:\n\n---\n{source_text}\n---"
-        else:
-            # Default analysis prompt
-            prompt = (
-                "Please analyze the following text. Identify the key topics, main arguments, "
-                "the overall sentiment, and any notable stylistic features. "
-                "Provide a concise summary of your analysis.\n\n"
-                f"---\n{source_text}\n---"
-            )
+        logger.info("ENTRY: analyze_source_text_async method called")
+        logger.info(f"Source text length: {len(source_text) if source_text else 0} characters")
         
-        return await self.generate_text_async(prompt)
+        try:
+            if not source_text:
+                logger.error("Source text for analysis is empty or None")
+                raise ValueError("Source text for analysis cannot be empty.")
+
+            if analysis_instructions:
+                logger.info(f"Using custom analysis instructions: {analysis_instructions[:100]}...")
+                prompt = f"{analysis_instructions}\n\nAnalyze the following text:\n\n---\n{source_text}\n---"
+            else:
+                logger.info("Using default analysis prompt template")
+                # Default analysis prompt
+                prompt = (
+                    "Please analyze the following text. Identify the key topics, main arguments, "
+                    "the overall sentiment, and any notable stylistic features. "
+                    "Provide a concise summary of your analysis.\n\n"
+                    f"---\n{source_text}\n---"
+                )
+        
+            logger.info(f"Constructed prompt of length {len(prompt)} characters")
+            logger.info("Calling generate_text_async for source analysis...")
+            
+            try:
+                response = await self.generate_text_async(prompt)
+                logger.info(f"generate_text_async returned response of length: {len(response) if response else 0} characters")
+                
+                if not response:
+                    logger.error("LLM returned empty response for source analysis")
+                    return '{"error": "LLM returned empty response", "raw_response": ""}'
+                
+                # Try to validate if the response is a proper JSON format
+                try:
+                    import json
+                    json.loads(response)  # Just check if it's valid JSON
+                    logger.info("Response appears to be valid JSON")
+                except json.JSONDecodeError:
+                    logger.warning("Response is not valid JSON, it may be a plain text response")
+                    logger.warning(f"First 200 chars of response: {response[:200]}")
+                    # We'll let the calling code handle this situation
+                
+                logger.info("EXIT: analyze_source_text_async completed successfully")
+                return response
+                
+            except Exception as gen_error:
+                logger.error(f"Error during generate_text_async call: {gen_error}", exc_info=True)
+                error_msg = str(gen_error).replace('"', '\\"')
+                error_json = '{"error": "LLM API error: ' + error_msg + '", "raw_response": ""}'
+                logger.error(f"Returning error JSON: {error_json}")
+                return error_json
+                
+        except ValueError as ve:
+            logger.error(f"ValueError in analyze_source_text_async: {ve}")
+            error_msg = str(ve).replace('"', '\\"')
+            return '{"error": "ValueError: ' + error_msg + '", "raw_response": ""}'
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in analyze_source_text_async: {e}", exc_info=True)
+            error_msg = str(e).replace('"', '\\"')
+            return '{"error": "Unexpected error: ' + error_msg + '", "raw_response": ""}'
+            
+        finally:
+            logger.info("EXIT: analyze_source_text_async method (in finally block)")
 
     async def research_persona_async(self, source_text: str, person_name: str) -> PersonaResearch:
         """
