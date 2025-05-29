@@ -50,7 +50,9 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Integrate LLM call for generating main podcast script content.
 - [x] Integrate TTS call for converting the main script to audio.
 - [x] Basic error handling returning placeholder `PodcastEpisode` on critical failures.
-- [ ] Implement LLM-driven persona research and integrate into workflow.
+- [x] Implement core LLM-driven persona research service (`GeminiService.research_persona_async`)
+- [x] Integrate persona research calls into `PodcastGeneratorService` workflow
+- [x] Utilize `PersonaResearch` data for podcast outline and dialogue generation
 - [ ] Implement LLM-driven detailed podcast outline generation (multi-segment).
 - [ ] Refine LLM dialogue writing to iterate through outline segments, producing `DialogueTurn` objects.
 - [ ] Implement audio stitching of multiple `DialogueTurn` audio segments using `pydub`.
