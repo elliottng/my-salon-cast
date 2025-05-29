@@ -390,123 +390,85 @@ Ensure the output is a single, valid JSON object only, with no additional text b
         segment_ids = [s.segment_id for s in segments]
         if len(segment_ids) != len(set(segment_ids)):
             logger.warning("Duplicate segment IDs found. Assigning new unique IDs.")
-            for i, segment in enumerate(segments):
-                segment.segment_id = f"segment_{i+1}"
         
-        # 3. Assign durations if missing or zero
-        segments_with_duration = [s for s in segments if s.estimated_duration_seconds and s.estimated_duration_seconds > 0]
-        segments_without_duration = [s for s in segments if not s.estimated_duration_seconds or s.estimated_duration_seconds <= 0]
-        
-        # If no segments have durations, distribute time based on ideal proportions
-        if not segments_with_duration:
-            logger.info("No segments have durations. Distributing time based on ideal proportions.")
-            return self._distribute_time_to_segments(segments, total_duration_seconds)
-        
-        # 4. If some segments have durations but others don't, distribute remaining time
-        if segments_without_duration:
-            total_assigned_duration = sum(s.estimated_duration_seconds for s in segments_with_duration)
-            remaining_duration = max(0, total_duration_seconds - total_assigned_duration)
-            
-            if remaining_duration > 0:
-                per_segment_remaining = remaining_duration // len(segments_without_duration)
-                for segment in segments_without_duration:
-                    segment.estimated_duration_seconds = per_segment_remaining
-            else:
-                # Not enough time left, scale everything down
-                scaling_factor = total_duration_seconds / total_assigned_duration
-                for segment in segments_with_duration:
-                    segment.estimated_duration_seconds = int(segment.estimated_duration_seconds * scaling_factor)
-                for segment in segments_without_duration:
-                    segment.estimated_duration_seconds = 10  # Minimal duration
-        
-        # 5. If total duration doesn't match target, scale proportionally
-        total_segment_duration = sum(s.estimated_duration_seconds for s in segments)
-        if abs(total_segment_duration - total_duration_seconds) > 30:  # Allow 30 second margin
-            scaling_factor = total_duration_seconds / total_segment_duration
-            for segment in segments:
-                segment.estimated_duration_seconds = max(10, int(segment.estimated_duration_seconds * scaling_factor))
-        
-        # 6. Validate structure (intro, body, conclusion)
-        has_intro = any("intro" in s.segment_id.lower() or "introduction" in s.segment_title.lower() for s in segments)
-        has_conclusion = any("conclu" in s.segment_id.lower() or "conclusion" in s.segment_title.lower() 
-                            or "outro" in s.segment_id.lower() or "summary" in s.segment_title.lower() for s in segments)
-        
-        if not (has_intro and has_conclusion):
-            logger.warning("Missing intro or conclusion segments. Restructuring outline.")
-            return self._restructure_outline_segments(podcast_outline, total_duration_seconds)
-        
+        # For the simplified single segment approach, we just return the outline as-is
+        # The original validation logic has been removed for clarity.
+        # See comments below for reference on what was previously done.
         return podcast_outline
-    
-    def _distribute_time_to_segments(self, segments: List[OutlineSegment], total_duration_seconds: int) -> PodcastOutline:
+        
+    # The following method contains commented out code that was part of the original
+    # validation logic. Retained for reference or future reuse if needed.
+    def _original_validate_and_adjust_segments_logic(self):
         """
-        Distribute time to segments based on ideal proportions:
-        - Intro: ~10-15% 
-        - Body: ~70-80%
-        - Conclusion: ~10-15%
+        Original validation logic notes (retained for backward compatibility or future use):    
+        If no duration provided for all segments, allocate based on ideal proportions:    
+            - Intro: ~10-15% 
+            - Body: ~70-80%
+            - Conclusion: ~10-15%
         """
-        intro_segments = []
-        body_segments = []
-        conclusion_segments = []
+        # This method is not called anywhere - it's just a placeholder for the old code
+        pass
         
-        # Categorize segments
-        for segment in segments:
-            if "intro" in segment.segment_id.lower() or "introduction" in segment.segment_title.lower():
-                intro_segments.append(segment)
-            elif "conclu" in segment.segment_id.lower() or "conclusion" in segment.segment_title.lower() \
-                or "outro" in segment.segment_id.lower() or "summary" in segment.segment_title.lower():
-                conclusion_segments.append(segment)
-            else:
-                body_segments.append(segment)
+        # Categorize segments example from old logic:
+        # for segment in segments:
+            # Example of old code:
+            # if "intro" in segment.segment_id.lower() or "introduction" in segment.segment_title.lower():
+            #     intro_segments.append(segment)
+            # elif "conclu" in segment.segment_id.lower() or "conclusion" in segment.segment_title.lower() \
+            #     or "outro" in segment.segment_id.lower() or "summary" in segment.segment_title.lower():
+            #     conclusion_segments.append(segment)
+            # else:
+            #     body_segments.append(segment)
+            # 
+            # # If categorization failed, make a best guess based on position
+            # if not intro_segments and not conclusion_segments and len(segments) >= 3:
+            #     intro_segments = [segments[0]]
+            #     conclusion_segments = [segments[-1]]
+            #     body_segments = segments[1:-1]
+            # elif not intro_segments and not conclusion_segments and len(segments) == 2:
+            #     intro_segments = [segments[0]]
+            #     conclusion_segments = [segments[1]]
+            #     body_segments = []
+            # elif not body_segments:
+            # # Create at least one body segment if none exist
+            # body_segments = [OutlineSegment(
+            #     segment_id="body_1",
+            #     segment_title="Main Discussion",
+            #     speaker_id="Host",
+            #     content_cue="Discuss the main points from the source material.",
+            #     estimated_duration_seconds=0
+            # )]
+            #
+            # # Calculate ideal durations based on proportions
+            # intro_duration = int(total_duration_seconds * 0.15)  # 15%
+            # conclusion_duration = int(total_duration_seconds * 0.15)  # 15%
+            # body_duration = total_duration_seconds - intro_duration - conclusion_duration  # 70%
+            # 
+            # # Distribute durations within each category
+            # if intro_segments:
+            #     per_intro_segment = intro_duration // len(intro_segments)
+            #     for segment in intro_segments:
+            #         segment.estimated_duration_seconds = per_intro_segment
+            # 
+            # if body_segments:
+            #     per_body_segment = body_duration // len(body_segments)
+            #     for segment in body_segments:
+            #         segment.estimated_duration_seconds = per_body_segment
+            # 
+            # if conclusion_segments:
+            #     per_conclusion_segment = conclusion_duration // len(conclusion_segments)
+            #     for segment in conclusion_segments:
+            #         segment.estimated_duration_seconds = per_conclusion_segment
+            # 
+            # # Recombine segments in proper order
+            # all_segments = intro_segments + body_segments + conclusion_segments
         
-        # If categorization failed, make a best guess based on position
-        if not intro_segments and not conclusion_segments and len(segments) >= 3:
-            intro_segments = [segments[0]]
-            conclusion_segments = [segments[-1]]
-            body_segments = segments[1:-1]
-        elif not intro_segments and not conclusion_segments and len(segments) == 2:
-            intro_segments = [segments[0]]
-            conclusion_segments = [segments[1]]
-            body_segments = []
-        elif not body_segments:
-            # Create at least one body segment if none exist
-            body_segments = [OutlineSegment(
-                segment_id="body_1",
-                segment_title="Main Discussion",
-                speaker_id="Host",
-                content_cue="Discuss the main points from the source material.",
-                estimated_duration_seconds=0
-            )]
-        
-        # Calculate ideal durations based on proportions
-        intro_duration = int(total_duration_seconds * 0.15)  # 15%
-        conclusion_duration = int(total_duration_seconds * 0.15)  # 15%
-        body_duration = total_duration_seconds - intro_duration - conclusion_duration  # 70%
-        
-        # Distribute durations within each category
-        if intro_segments:
-            per_intro_segment = intro_duration // len(intro_segments)
-            for segment in intro_segments:
-                segment.estimated_duration_seconds = per_intro_segment
-        
-        if body_segments:
-            per_body_segment = body_duration // len(body_segments)
-            for segment in body_segments:
-                segment.estimated_duration_seconds = per_body_segment
-        
-        if conclusion_segments:
-            per_conclusion_segment = conclusion_duration // len(conclusion_segments)
-            for segment in conclusion_segments:
-                segment.estimated_duration_seconds = per_conclusion_segment
-        
-        # Recombine segments in proper order
-        all_segments = intro_segments + body_segments + conclusion_segments
-        
-        # Create updated outline with the same title/summary but adjusted segments
-        return PodcastOutline(
-            title_suggestion=segments[0].segment_title if segments else "Generated Podcast",
-            summary_suggestion="A podcast discussing the provided content.",
-            segments=all_segments
-        )
+            # # Create updated outline with the same title/summary but adjusted segments
+            # return PodcastOutline(
+            #     title_suggestion=segments[0].segment_title if segments else "Generated Podcast",
+            #     summary_suggestion="A podcast discussing the provided content.",
+            #     segments=all_segments
+            # )
     
     def _restructure_outline_segments(self, podcast_outline: PodcastOutline, total_duration_seconds: int) -> PodcastOutline:
         """
@@ -704,8 +666,8 @@ Ensure the output is a single, valid JSON object only, with no additional text b
             else:
                 formatted_names_prominent_persons_str = "None"
 
-            # PRD 4.2.4 Prompt Template with enhanced duration guidance
-            prd_outline_prompt_template = """LLM Prompt: Podcast Outline Generation
+            # PRD 4.2.4 Prompt Template, simplified for V1 to use a single segment
+            prd_outline_prompt_template = """LLM Prompt: Simplified Podcast Outline Generation
 Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative podcast outline based on the provided materials.
 
 Overall Podcast Goals:
@@ -713,7 +675,6 @@ Overall Podcast Goals:
 Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
 Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents.
 Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints.
-Create Properly Timed Segments: Ensure the podcast fits within the requested duration by creating segments with appropriate estimated_duration_seconds values that sum up to the total requested length.
 
 Inputs Provided to You:
 
@@ -727,76 +688,48 @@ Desired Podcast Length: {input_desired_podcast_length_str}
 Number of Prominent Persons Specified: {input_num_prominent_persons}
 Names of Prominent People Specified: {input_formatted_names_prominent_persons_str}
 
-Task: Generate a Podcast Outline
+Task: Generate a Simplified Podcast Outline
 
-Create a detailed outline that structures the podcast. The outline should serve as a blueprint for the subsequent dialogue writing step.
+Create a comprehensive outline for the entire podcast as a single segment. This outline will serve as the blueprint for the subsequent dialogue writing step.
 
-Outline Structure Requirements:
+Outline Structure Guidelines:
 
-Your outline must include the following sections, with specific content tailored to the inputs:
-
-I. Introduction (Approx. 10-15% of podcast length)
-A.  Opening Hook: Suggest a compelling question or statement to grab the listener's attention, related to the core topic.
-B.  Topic Overview: Briefly introduce the main subject(s) to be discussed, derived from the source analyses.
-C.  Speaker Introduction:
-* If prominent persons are specified (based on "Names of Prominent People Specified"): Introduce them by name (e.g., "Today, we'll explore these topics through the synthesized perspectives of [Name of Persona A] and [Name of Persona B]..."). Indicate their general relevance or contrasting viewpoints if immediately obvious.
-* If no persons are specified: Plan for a "Host" and an "Analyst/Expert" or similar generic roles.
-
-II. Main Body Discussion Segments (Approx. 70-80% of podcast length)
-* Divide the main body into 2-4 distinct thematic segments.
-* For each segment:
-1.  Theme/Topic Identification: Clearly state the specific theme or key question this segment will address (derived from source analyses).
-2.  Core Information Summary: Outline the key facts, data, or educational points from the source documents that need to be explained to the listener regarding this theme.
-3.  Persona Integration & Discussion (if prominent persons are specified):
-a.  Initial Viewpoints: Plan how each named persona will introduce their perspective or initial thoughts on this theme, drawing from their corresponding persona research document.
-b.  Points of Alignment/Conflict: Identify if this theme highlights agreement or disagreement between the named personas, or between a persona and the source material, or conflicting information between sources.
-c.  Structuring Debate (if conflict/disagreement is identified):
-* Outline a sequence for named personas to strongly express their differing viewpoints.
-* Suggest moments for direct engagement (e.g., "[Name of Persona A] challenges [Name of Persona B]'s point on X by stating Y," or "How does [Name of Persona A]'s view reconcile with Source Document 2's finding on Z?").
-* Ensure the debate remains constructive and focused on elucidating the topic for the listener.
-d.  Supporting Evidence: Note key pieces of information or brief quotes from the source analysis documents that personas should reference to support their arguments or that the narrator should use for clarification.
-4.  Presenting Conflicting Source Information (if no personas, or if relevant beyond persona debate): If the source documents themselves contain important conflicting information on this theme, outline how this will be presented and explored.
-
-III. Conclusion (Approx. 10-15% of podcast length)
-A.  Summary of Key Takeaways: Briefly recap the main educational points and the core arguments/perspectives discussed.
-B.  Final Persona Thoughts (if prominent persons specified): Allow a brief concluding remark from each named persona, summarizing their stance or a final reflection.
-C.  Outro: Suggest a closing statement.
+Your outline should have a natural flow and include these elements:
+- Opening Hook: A compelling question or statement to grab the listener's attention
+- Topic Overview: Brief introduction of the main subject(s) to be discussed
+- Speaker Introduction: Introduce any specified prominent persons, or plan for a "Host" and an "Analyst/Expert"
+- Main Discussion: Cover key themes, facts, and perspectives from the source materials
+- Persona Integration: If prominent persons are specified, include how each will present their perspective
+- Points of Agreement/Conflict: Note where viewpoints align or conflict on important topics
+- Key Evidence: Note important facts or quotes that should be referenced
+- Conclusion: Summarize key takeaways and allow for final thoughts from each persona if applicable
 
 Guiding Principles for Outline Content:
 
 Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
-Authentic Persona Representation: When personas are used, their contributions should be consistent with their researched views and styles, as detailed in their persona research documents. They should be guided to select and emphasize information aligning with their persona.
-Natural and Engaging Flow: Even with debates, the overall podcast should feel conversational and engaging.
-Length Adherence: The proposed structure and depth of discussion in the outline should be feasible within the target podcast length (approx. 150 words per minute of dialogue). Allocate rough timings or emphasis to sections.
-Objectivity in Narration: When a narrator/host is explaining core information from sources, it should be presented objectively before personas offer their specific takes.
+Authentic Persona Representation: When personas are used, their contributions should be consistent with their researched views and styles, as detailed in their persona research documents.
+Natural and Engaging Flow: The podcast should feel conversational and engaging throughout.
+Length Adherence: Ensure the outline can be reasonably covered within the target podcast length (approx. 150 words per minute of dialogue).
 
 Output Format:
 
-VERY IMPORTANT: You MUST output your response as a single, valid JSON object. Do NOT use markdown formatting (e.g., ```json ... ```) around the JSON.
-The JSON object must conform to the following Pydantic model structure:
+VERY IMPORTANT: You MUST output your response as a single, valid JSON object. Do NOT use markdown formatting around the JSON.
+The JSON object must conform to the following structure:
 {{
   "title_suggestion": "string (Suggested title for the podcast episode)",
   "summary_suggestion": "string (Suggested brief summary for the podcast episode)",
   "segments": [
     {{
-      "segment_id": "string (Unique identifier, e.g., 'segment_1')",
-      "segment_title": "string (Optional: The title or topic of this podcast segment)",
-      "speaker_id": "string (Identifier for the speaker, e.g., 'Host', 'Persona_JohnDoe', 'Narrator')",
-      "content_cue": "string (A brief cue or summary of the content to be covered in this segment)",
-      "estimated_duration_seconds": "integer (Optional: Estimated duration for this segment in seconds)"
+      "segment_id": "full_podcast",
+      "segment_title": "Complete Podcast",
+      "speaker_id": "Host",
+      "content_cue": "string (A comprehensive outline covering the entire podcast content)",
+      "estimated_duration_seconds": integer (The full podcast duration in seconds)
     }}
-    // ... more segments
   ]
 }}
 
-Ensure all string fields are properly escaped within the JSON.
-The 'segments' list should contain objects, each representing a distinct part of the podcast as outlined in the 'Outline Structure Requirements' section (Introduction, Main Body Segments, Conclusion).
-For each segment in the 'segments' list:
-- 'segment_id' should be unique for each segment (e.g., "intro_1", "body_1", "body_2", "conclusion_1").
-- 'segment_title' should reflect the specific theme or topic of that segment.
-- 'speaker_id' should indicate the primary speaker or interaction for that part of the segment (e.g., "Host", "Persona_A", "Persona_B_vs_Persona_A").
-- 'content_cue' should be a concise instruction or summary for what needs to be said or discussed in that part of the segment. This is crucial for the dialogue generation step.
-- 'estimated_duration_seconds' is optional but helpful for pacing.
+Ensure all string fields are properly escaped within the JSON. The 'content_cue' field should be detailed and provide a complete outline of the podcast content.
 """
             logger.debug(f"PRD Outline Template Before Formatting:\n{prd_outline_prompt_template}")
             logger.debug(f"Outline Formatting Args - input_formatted_source_analyses_str (type {type(input_formatted_source_analyses_str)}): {input_formatted_source_analyses_str[:200]}...")
@@ -891,17 +824,11 @@ For each segment in the 'segments' list:
         all_dialogue_turns = []
         current_turn_id = 1
         
-        # First, generate intro segment dialogue
-        intro_segments = [s for s in podcast_outline.segments if s.segment_id.lower().startswith("intro")]
-        main_segments = [s for s in podcast_outline.segments if not s.segment_id.lower().startswith("intro") and not s.segment_id.lower().startswith("conclu")]
-        conclusion_segments = [s for s in podcast_outline.segments if s.segment_id.lower().startswith("conclu")]
+        # Simplified: Process all segments directly (expecting just one in V1)
+        logger.info(f"Processing {len(podcast_outline.segments)} segments for dialogue generation")
         
-        # Log segment structure
-        logger.info(f"Segment structure: {len(intro_segments)} intro, {len(main_segments)} main, {len(conclusion_segments)} conclusion")
-        
-        # Process segments in proper order: intro → main → conclusion
-        for segment_group in [intro_segments, main_segments, conclusion_segments]:
-            for segment in segment_group:
+        # Directly process segments without categorization
+        for segment in podcast_outline.segments:
                 logger.info(f"Generating dialogue for segment '{segment.segment_id}': '{segment.segment_title}'")
                 
                 # Build segment-specific prompt
