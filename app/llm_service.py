@@ -242,6 +242,129 @@ Clearly indicate which named persona (or generic role) is intended to voice spec
 
         return await self.generate_text_async(final_prompt)
 
+    async def generate_dialogue_async(
+        self,
+        podcast_outline: str,
+        source_analyses: list[str],
+        persona_research_docs: list[str],
+        desired_podcast_length_str: str, # e.g., "10 minutes"
+        num_prominent_persons: int,
+        # List of tuples: (prominent_person_name, follower_name_initial, follower_system_assigned_gender)
+        # e.g., [("Cardano Ada", "C", "Female"), ("Polkadot Gavin", "P", "Male")]
+        prominent_persons_details: list[tuple[str, str, str]], 
+        user_provided_custom_prompt: str = None # Optional, for future flexibility
+    ) -> str:
+        """
+        Generates the full podcast dialogue script based on the outline and other inputs,
+        using the prompt defined in PRD Section 4.2.5.1.
+        """
+        if user_provided_custom_prompt:
+            final_dialogue_prompt = user_provided_custom_prompt # Or integrate it if needed
+            # For now, if custom prompt is given, we assume it's complete and self-contained
+            # or that it contains its own placeholders for the data below if needed.
+            # This part might need refinement based on how custom prompts are intended to be used.
+        else:
+            # Format Source Analyses
+            formatted_source_analyses_str_parts = []
+            if source_analyses:
+                for i, doc in enumerate(source_analyses):
+                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\n{doc}\n---")
+            else:
+                formatted_source_analyses_str_parts.append("No source analysis documents provided.")
+            formatted_source_analyses_str = "\n".join(formatted_source_analyses_str_parts)
+
+            # Format Persona Research Documents
+            formatted_persona_research_str_parts = []
+            if persona_research_docs:
+                for i, doc in enumerate(persona_research_docs):
+                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\n{doc}\n---")
+            else:
+                formatted_persona_research_str_parts.append("No persona research documents provided.")
+            formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
+
+            # Format Prominent Persons Details
+            # This tells the LLM about each prominent person, their follower's name initial, and system-assigned gender.
+            formatted_prominent_persons_details_parts = []
+            if num_prominent_persons > 0 and prominent_persons_details:
+                for i, (name, initial, gender) in enumerate(prominent_persons_details):
+                    formatted_prominent_persons_details_parts.append(
+                        f"  Prominent Person {i+1}: {name}\n"
+                        f"    - Follower Name Initial: {initial}\n"
+                        f"    - Follower System-Assigned Gender: {gender}"
+                    )
+                formatted_prominent_persons_details_str = "Details for Prominent Persons and their Followers:\n" + "\n".join(formatted_prominent_persons_details_parts)
+            else:
+                formatted_prominent_persons_details_str = "No prominent persons specified. Dialogue will be between Host and potentially a generic Analyst/Expert."
+
+            # PRD 4.2.5.1 Dialogue Writing Prompt Template
+            prd_dialogue_prompt_template = """Based on all the provided inputs, write the full dialogue script.
+Key Instructions & Guidelines:
+Adherence to Outline:
+
+The Podcast Outline Document is the primary source. Follow its structure, flow, assigned speakers for particular points, and integrate any specific instructions it contains (e.g., how to introduce topics, sequence debates, or reference evidence).
+Ensure all thematic segments from the outline are covered in the dialogue. You have discretion to focus on more interesting themes at the expense of less interesting themes.
+Dialogue Style:
+
+Conversational & Engaging: The dialogue should flow naturally, like a real conversation. Avoid overly formal or robotic language.
+Informative: Accurately reflect the key information from the Source Analysis Documents as guided by the outline.
+Entertaining: Where appropriate and consistent with the topic and personas, inject elements that make the podcast enjoyable to listen to.
+Viewpoint-Driven: Speakers, especially followers, must express views consistent with their researched personas or assigned roles. The dialogue should highly viewpoint diversity through healthy debate.
+Speaker Roles & Dialogue:
+
+Host:
+The Host guides the conversation, introduces topics and segments as per the outline, provides necessary narration or summaries of source information, and facilitates discussions.
+Ensure the Host's dialogue is clear and helps maintain the podcast's structure.
+Follower Speakers (if prominent persons were specified):
+Name Generation: For each follower speaker, you must generate a first name. This name MUST start with the provided Initial and MUST be congruent with the System-Assigned Gender provided for that follower. (e.g., If Initial is 'A' and System-Assigned Gender is 'Female', a name like 'Alice' or 'Anna' would be appropriate).
+Introduction: The Host will introduce these speakers as followers/advocates of the prominent person's viewpoints (e.g., "Joining us is [Follower's Generated Name], who will be sharing insights reflecting [Prominent Person]'s perspectives...").
+Content: Their dialogue must strongly and accurately reflect the viewpoints, opinions, and characteristic speaking style of the prominent person they represent, drawing from the Persona Research Document and as cued by the Podcast Outline.
+Attribution: Ensure their lines are clearly attributable to their generated first name (e.g., "[Generated Follower Name]:").
+Generic Speakers (if no prominent persons were specified):
+If the outline includes roles like 'Analyst' or 'Expert' in addition to the Host, write their dialogue to be informative and engaging, fulfilling the purpose outlined for them.
+Integrating Content & Discussions:
+
+Seamlessly weave in facts, data, or educational points from the Source Analysis Documents when the outline calls for it.
+If the outline details a debate or discussion between speakers, create dynamic and robust exchanges that allow for the strong expression of differing standpoints, while keeping the discussion constructive and focused.
+Clarity of Representation:
+
+The dialogue must make it clear which prominent person's viewpoint a follower represents, or what the role of a generic speaker is.
+Length Adherence:
+
+The total word count of the script should closely target the user's specified podcast duration, calculated at approximately 150 words per minute. You have discretion to manage the depth of discussion for each outline point accordingly.
+Output Format Requirements:
+Provide the output as a clean dialogue script.
+Each line of dialogue must start with the speaker's name (e.g., "Host:", "[Generated Follower Name]:", "Analyst:") followed by a colon and then the spoken text.
+Ensure clear delineation between speakers.
+
+Inputs for Dialogue Generation:
+
+1. Podcast Outline Document:
+{podcast_outline}
+
+2. Source Analysis Documents (for contextual reference):
+{formatted_source_analyses}
+
+3. Persona Research Documents (for contextual reference and follower dialogue):
+{formatted_persona_research}
+
+4. Desired Podcast Length:
+{desired_podcast_length_str}
+
+5. Prominent Persons Information (if any):
+{formatted_prominent_persons_details}
+
+Now, please generate the dialogue script based on all the above.
+"""
+            final_dialogue_prompt = prd_dialogue_prompt_template.format(
+                podcast_outline=podcast_outline,
+                formatted_source_analyses=formatted_source_analyses_str,
+                formatted_persona_research=formatted_persona_research_str,
+                desired_podcast_length_str=desired_podcast_length_str,
+                formatted_prominent_persons_details=formatted_prominent_persons_details_str
+            )
+
+        return await self.generate_text_async(final_dialogue_prompt)
+
 async def main_test():
     """
     Example usage function for testing the GeminiService directly.
@@ -321,6 +444,39 @@ async def main_test():
         )
         print("Podcast Outline (User Custom Prompt):")
         print(outline_custom_user)
+
+        # --- Test data for dialogue generation ---
+        # Using outputs from previous outline tests as inputs here
+
+        print("\nTesting dialogue generation (using 0-persona outline from PRD default)...")
+        dialogue_0_personas = await service.generate_dialogue_async(
+            podcast_outline=outline_prd_0_personas,
+            source_analyses=test_source_analyses,
+            persona_research_docs=[], # Matches the 0-persona outline scenario
+            desired_podcast_length_str=test_desired_length,
+            num_prominent_persons=0,
+            prominent_persons_details=[]
+        )
+        print("Generated Dialogue (0 Personas):")
+        print(dialogue_0_personas)
+
+        print("\nTesting dialogue generation (using 2-persona outline from PRD default)...")
+        # Define details for the prominent persons as per generate_dialogue_async signature
+        # (prominent_person_name, follower_name_initial, follower_system_assigned_gender)
+        test_prominent_persons_details_for_dialogue = [
+            ("Innovator Alpha", "A", "Male"), # Example: Alpha, system assigns Male for TTS
+            ("Journalist Beta", "B", "Female") # Example: Beta, system assigns Female for TTS
+        ]
+        dialogue_2_personas = await service.generate_dialogue_async(
+            podcast_outline=outline_prd_2_personas,
+            source_analyses=test_source_analyses,
+            persona_research_docs=test_persona_docs, # These were used to generate the 2-persona outline
+            desired_podcast_length_str=test_desired_length,
+            num_prominent_persons=2,
+            prominent_persons_details=test_prominent_persons_details_for_dialogue
+        )
+        print("Generated Dialogue (2 Personas):")
+        print(dialogue_2_personas)
 
     except ValueError as ve:
         print(f"Configuration Error: {ve}")

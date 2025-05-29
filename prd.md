@@ -117,16 +117,77 @@ Output Format:
 Provide the outline in a clear, hierarchical format (e.g., Markdown with headings and nested bullets).
 Clearly indicate which named persona (or generic role) is intended to voice specific points or lead particular exchanges.
 
-A rough outline for the podcast is created (e.g., intro, key point 1 with discussion, key point 2 with discussion, counter-arguments if applicable, conclusion).
 
 4.2.5. LLM Step 3: Dialogue Writing (Google Gemini 2.5 Pro):
-The LLM writes the podcast dialogue based on the outline.
-Style: Conversational, informative (accurately reflecting source information), entertaining, and viewpoint-driven (speakers express views consistent with researched personas or assigned roles).
-Speakers:
-If prominent persons are specified, dialogue lines are attributed to them (e.g., "[Elon Musk]:", "[Oprah Winfrey]:").
-If no persons are specified, dialogue is between 1-2 generic speakers (e.g., "Host:", "Analyst:", or "Narrator:"). The tone will be informative and engaging.
-Clarity: Dialogue clearly indicates which speaker represents which persona/viewpoint.
-Length Adherence: The script's word count will target the user's specified duration (approx. 150 words/minute).
+
+The LLM writes the podcast dialogue based on the provided Podcast Outline Document (from LLM Step 2 / Section 4.2.4). It will also be provided with the Source Analysis Documents and Persona Research Documents (from LLM Step 1 / Section 4.2.3) for contextual reference and to accurately represent information and viewpoints. 
+
+Style: Conversational, informative (accurately reflecting source information), entertaining, and viewpoint-driven (speakers express views consistent with researched personas or assigned roles). 
+Speakers: A 'Host' role will always be present to guide the conversation, introduce topics from the outline, and provide narration.
+If prominent persons are specified: 
+In addition to the Host, there will be one speaker representing each specified prominent person.
+Each representative speaker will be assigned a first name by the LLM. This name will begin with the same initial as the prominent person they represent (e.g., if 'Cardano Ada' is a specified prominent person, the representative speaker might be named 'Casey'; if 'Polkadot Gavin' is specified, 'Parker').
+These representative speakers will be introduced by the Host, for example, as followers or advocates of the prominent person's known viewpoints (e.g., "Joining us is Casey, who will be sharing insights reflecting Cardano Ada's perspectives, and Parker, who will articulate viewpoints in line with Polkadot Gavin's known positions...").
+Dialogue lines for these representatives should clearly reflect the researched viewpoints and characteristic speaking styles of the prominent individuals they follow, as detailed in their Persona Research Documents and cued in the Podcast Outline.
+Attribution in the script will be to their assigned first name (e.g., "Casey:", "Parker:").
+If no prominent persons are specified: 
+The dialogue will primarily feature the 'Host' and may include one additional generic speaker role, such as 'Analyst' or 'Expert', if needed to present different facets of the information from the source documents, as guided by the outline. 
+The tone will be informative and engaging. 
+Speaker Gender Assignment for TTS: To ensure distinct voices for Text-to-Speech (TTS) conversion (as per Section 4.2.6), each speaker in the dialogue script will be assigned a gender characteristic ('Male' or 'Female') by the system. This assignment is primarily for vocal differentiation for the TTS service:
+Host: The Host will be assigned a consistent gender characteristic by the system (e.g., a default such as 'Female' voice, or a gender chosen to contrast with other initial speakers).
+Follower Speakers: Each follower speaker will be assigned a gender characteristic by the system (e.g., using an alternating pattern such as Follower 1: 'Male', Follower 2: 'Female') to promote vocal diversity. This assigned gender is independent of any inferred gender of the prominent person the follower represents. The LLM, when generating the follower's first name (as described above), should select a name congruent with this system-assigned gender.
+Generic Speakers (e.g., 'Analyst'): If used, these speakers will also be assigned a gender characteristic by the system to ensure vocal distinction.
+Clarity: Dialogue clearly indicates which speaker represents which prominent person's viewpoint (if applicable) or their assigned generic role. 
+Length Adherence: The script's word count will target the user's specified duration (approx. 150 words/minute). 
+
+4.2.5.1. Draft Dialogue Writing Prompt:
+
+Based on all the provided inputs, write the full dialogue script.
+Key Instructions & Guidelines:
+Adherence to Outline:
+
+
+The Podcast Outline Document is the primary source. Follow its structure, flow, assigned speakers for particular points, and integrate any specific instructions it contains (e.g., how to introduce topics, sequence debates, or reference evidence).
+Ensure all thematic segments from the outline are covered in the dialogue. You have discretion to focus on more interesting themes at the expense of less interesting themes.
+Dialogue Style:
+
+
+Conversational & Engaging: The dialogue should flow naturally, like a real conversation. Avoid overly formal or robotic language.
+Informative: Accurately reflect the key information from the Source Analysis Documents as guided by the outline.
+Entertaining: Where appropriate and consistent with the topic and personas, inject elements that make the podcast enjoyable to listen to.
+Viewpoint-Driven: Speakers, especially followers, must express views consistent with their researched personas or assigned roles. The dialogue should highly viewpoint diversity through healthy debate.
+Speaker Roles & Dialogue:
+
+
+Host:
+The Host guides the conversation, introduces topics and segments as per the outline, provides necessary narration or summaries of source information, and facilitates discussions.
+Ensure the Host's dialogue is clear and helps maintain the podcast's structure.
+Follower Speakers (if prominent persons were specified):
+Name Generation: For each follower speaker, you must generate a first name. This name MUST start with the provided Initial and MUST be congruent with the System-Assigned Gender provided for that follower. (e.g., If Initial is 'A' and System-Assigned Gender is 'Female', a name like 'Alice' or 'Anna' would be appropriate).
+Introduction: The Host will introduce these speakers as followers/advocates of the prominent person's viewpoints (e.g., "Joining us is [Follower's Generated Name], who will be sharing insights reflecting [Prominent Person]'s perspectives...").
+Content: Their dialogue must strongly and accurately reflect the viewpoints, opinions, and characteristic speaking style of the prominent person they represent, drawing from the Persona Research Document and as cued by the Podcast Outline.
+Attribution: Ensure their lines are clearly attributable to their generated first name (e.g., "[Generated Follower Name]:").
+Generic Speakers (if no prominent persons were specified):
+If the outline includes roles like 'Analyst' or 'Expert' in addition to the Host, write their dialogue to be informative and engaging, fulfilling the purpose outlined for them.
+Integrating Content & Discussions:
+
+
+Seamlessly weave in facts, data, or educational points from the Source Analysis Documents when the outline calls for it.
+If the outline details a debate or discussion between speakers, create dynamic and robust exchanges that allow for the strong expression of differing standpoints, while keeping the discussion constructive and focused.
+Clarity of Representation:
+
+
+The dialogue must make it clear which prominent person's viewpoint a follower represents, or what the role of a generic speaker is.
+Length Adherence:
+
+
+The total word count of the script should closely target the user's specified podcast duration, calculated at approximately 150 words per minute. You have discretion to manage the depth of discussion for each outline point accordingly.
+Output Format Requirements:
+Provide the output as a clean dialogue script.
+Each line of dialogue must start with the speaker's name (e.g., "Host:", "[Generated Follower Name]:", "Analyst:") followed by a colon and then the spoken text.
+Ensure clear delineation between speakers.
+
+
 
 4.2.6. Text-to-Speech (TTS) Conversion:
 The generated dialogue script is converted into an audio file using Google Cloud Text-to-Speech AI API.
