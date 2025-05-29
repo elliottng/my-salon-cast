@@ -1,0 +1,336 @@
+# app/llm_service.py
+
+import google.generativeai as genai
+import os
+import asyncio
+from dotenv import load_dotenv
+
+class GeminiService:
+    def __init__(self, api_key: str = None):
+        """
+        Initializes the Gemini Service.
+        API key is read from GOOGLE_API_KEY environment variable if not provided.
+        """
+        load_dotenv() # Load environment variables from .env file
+        
+        if api_key is None:
+            api_key = os.getenv("GOOGLE_API_KEY")
+            
+        if not api_key:
+            raise ValueError("API key for Gemini service is required. Set GOOGLE_API_KEY environment variable or pass it directly.")
+        
+        genai.configure(api_key=api_key)
+        # Using gemini-1.5-pro-latest as per discussion.
+        # Consider making the model name configurable if needed in the future.
+        self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
+
+    async def generate_text_async(self, prompt: str) -> str:
+        """
+        Asynchronously generates text based on the given prompt using the configured Gemini model.
+        """
+        if not prompt:
+            raise ValueError("Prompt cannot be empty.")
+            
+        try:
+            # Use asyncio.to_thread to run the blocking SDK call in a separate thread
+            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            
+            # Check for response.parts for potentially multi-part responses
+            if response.parts:
+                # Ensure all parts are concatenated, checking if they have a 'text' attribute
+                return "".join(part.text for part in response.parts if hasattr(part, 'text'))
+            # Fallback if response.text is directly available (older API versions or simpler responses)
+            elif hasattr(response, 'text') and response.text:
+                 return response.text
+            else:
+                # This case might occur if the response is blocked, has no text content, or an unexpected structure
+                # Log the full response for debugging if possible.
+                # print(f"Gemini response issue. Full response: {response}")
+                # Check for prompt feedback which might indicate blocking
+                if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                    return f"Error: Could not generate text. Prompt feedback: {response.prompt_feedback}"
+                return "Error: No text content in Gemini response or response was blocked."
+
+        except Exception as e:
+            # Log the error for debugging
+            print(f"Error generating text with Gemini: {e}")
+            # Consider more specific error handling based on Gemini API exceptions if available
+            return f"Error: Could not generate text due to: {str(e)}"
+
+    async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> str:
+        """
+        Analyzes the provided source text using the LLM.
+        Allows for custom analysis instructions.
+        """
+        if not source_text:
+            raise ValueError("Source text for analysis cannot be empty.")
+
+        if analysis_instructions:
+            prompt = f"{analysis_instructions}\n\nAnalyze the following text:\n\n---\n{source_text}\n---"
+        else:
+            # Default analysis prompt
+            prompt = (
+                "Please analyze the following text. Identify the key topics, main arguments, "
+                "the overall sentiment, and any notable stylistic features. "
+                "Provide a concise summary of your analysis.\n\n"
+                f"---\n{source_text}\n---"
+            )
+        
+        return await self.generate_text_async(prompt)
+
+    async def research_persona_async(self, source_text: str, persona_focus: str = None) -> str:
+        """
+        Conducts persona research based on the provided source text.
+        Allows for specifying a focus for the persona research.
+        """
+        if not source_text:
+            raise ValueError("Source text for persona research cannot be empty.")
+
+        if persona_focus:
+            prompt = (
+                f"Based on the following text, conduct research for a persona. "
+                f"Focus specifically on: {persona_focus}.\n\n"
+                "Describe the persona's likely demographics, interests, viewpoints, "
+                "and communication style as suggested by the text.\n\n"
+                f"---\n{source_text}\n---"
+            )
+        else:
+            # Default persona research prompt
+            prompt = (
+                "Based on the following text, develop a detailed persona. "
+                "Consider the likely demographics, interests, values, pain points, "
+                "and communication style of an individual who would resonate with or be represented by this text. "
+                "Provide a narrative description of this persona.\n\n"
+                f"---\n{source_text}\n---"
+            )
+        
+        return await self.generate_text_async(prompt)
+
+    async def generate_podcast_outline_async(
+        self,
+        source_analyses: list[str],
+        persona_research_docs: list[str],
+        desired_podcast_length_str: str,
+        num_prominent_persons: int,
+        names_prominent_persons_list: list[str],
+        user_provided_custom_prompt: str = None
+    ) -> str:
+        """
+        Generates a podcast outline based on source analyses, persona research,
+        and other parameters, using a detailed PRD-defined prompt or a user-provided custom prompt.
+        """
+        if not source_analyses:
+            raise ValueError("At least one source analysis document is required.")
+
+        final_prompt: str
+        if user_provided_custom_prompt:
+            # If user provides a custom prompt, we use it directly.
+            # Consider if/how to append standard context if the custom prompt expects it.
+            # For now, assuming custom prompt is self-contained or user includes placeholders.
+            final_prompt = user_provided_custom_prompt
+            # Example of appending context if needed:
+            # context_parts = ["### Supporting Context ###"]
+            # if source_analyses:
+            #     for i, doc in enumerate(source_analyses):
+            #         context_parts.append(f"Source Analysis Document {i+1}:\\n{doc}\\n---")
+            # if persona_research_docs:
+            #     for i, doc in enumerate(persona_research_docs):
+            #         context_parts.append(f"Persona Research Document {i+1}:\\n{doc}\\n---")
+            # formatted_context = "\\n".join(context_parts)
+            # final_prompt += f"\\n\\n--- Supporting Context ---\\n{formatted_context}"
+        else:
+            # Format Source Analyses for PRD prompt
+            formatted_source_analyses_str_parts = []
+            if source_analyses:
+                for i, doc in enumerate(source_analyses):
+                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\\n{doc}\\n---")
+            else:
+                formatted_source_analyses_str_parts.append("No source analysis documents provided.")
+            
+            # Format Persona Research Documents for PRD prompt
+            formatted_persona_research_str_parts = []
+            if persona_research_docs:
+                for i, doc in enumerate(persona_research_docs):
+                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\\n{doc}\\n---")
+            else:
+                formatted_persona_research_str_parts.append("No persona research documents provided.")
+
+            # Format Names of Prominent Persons for PRD prompt
+            formatted_names_prominent_persons_str: str
+            if names_prominent_persons_list:
+                formatted_names_prominent_persons_str = ", ".join(names_prominent_persons_list)
+            else:
+                formatted_names_prominent_persons_str = "None"
+
+            # PRD 4.2.4 Prompt Template
+            prd_outline_prompt_template = """LLM Prompt: Podcast Outline Generation
+Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative podcast outline based on the provided materials.
+
+Overall Podcast Goals:
+
+Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
+Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents.
+Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints.
+
+Inputs Provided to You:
+
+Source Analysis Documents:
+{input_formatted_source_analyses_str}
+
+Persona Research Documents:
+{input_formatted_persona_research_str}
+
+Desired Podcast Length: {input_desired_podcast_length_str}
+Number of Prominent Persons Specified: {input_num_prominent_persons}
+Names of Prominent People Specified: {input_formatted_names_prominent_persons_str}
+
+Task: Generate a Podcast Outline
+
+Create a detailed outline that structures the podcast. The outline should serve as a blueprint for the subsequent dialogue writing step.
+
+Outline Structure Requirements:
+
+Your outline must include the following sections, with specific content tailored to the inputs:
+
+I. Introduction (Approx. 10-15% of podcast length)
+A.  Opening Hook: Suggest a compelling question or statement to grab the listener's attention, related to the core topic.
+B.  Topic Overview: Briefly introduce the main subject(s) to be discussed, derived from the source analyses.
+C.  Speaker Introduction:
+* If prominent persons are specified (based on "Names of Prominent People Specified"): Introduce them by name (e.g., "Today, we'll explore these topics through the synthesized perspectives of [Name of Persona A] and [Name of Persona B]..."). Indicate their general relevance or contrasting viewpoints if immediately obvious.
+* If no persons are specified: Plan for a "Host" and an "Analyst/Expert" or similar generic roles.
+
+II. Main Body Discussion Segments (Approx. 70-80% of podcast length)
+* Divide the main body into 2-4 distinct thematic segments.
+* For each segment:
+1.  Theme/Topic Identification: Clearly state the specific theme or key question this segment will address (derived from source analyses).
+2.  Core Information Summary: Outline the key facts, data, or educational points from the source documents that need to be explained to the listener regarding this theme.
+3.  Persona Integration & Discussion (if prominent persons are specified):
+a.  Initial Viewpoints: Plan how each named persona will introduce their perspective or initial thoughts on this theme, drawing from their corresponding persona research document.
+b.  Points of Alignment/Conflict: Identify if this theme highlights agreement or disagreement between the named personas, or between a persona and the source material, or conflicting information between sources.
+c.  Structuring Debate (if conflict/disagreement is identified):
+* Outline a sequence for named personas to strongly express their differing viewpoints.
+* Suggest moments for direct engagement (e.g., "[Name of Persona A] challenges [Name of Persona B]'s point on X by stating Y," or "How does [Name of Persona A]'s view reconcile with Source Document 2's finding on Z?").
+* Ensure the debate remains constructive and focused on elucidating the topic for the listener.
+d.  Supporting Evidence: Note key pieces of information or brief quotes from the source analysis documents that personas should reference to support their arguments or that the narrator should use for clarification.
+4.  Presenting Conflicting Source Information (if no personas, or if relevant beyond persona debate): If the source documents themselves contain important conflicting information on this theme, outline how this will be presented and explored.
+
+III. Conclusion (Approx. 10-15% of podcast length)
+A.  Summary of Key Takeaways: Briefly recap the main educational points and the core arguments/perspectives discussed.
+B.  Final Persona Thoughts (if prominent persons specified): Allow a brief concluding remark from each named persona, summarizing their stance or a final reflection.
+C.  Outro: Suggest a closing statement.
+
+Guiding Principles for Outline Content:
+
+Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
+Authentic Persona Representation: When personas are used, their contributions should be consistent with their researched views and styles, as detailed in their persona research documents. They should be guided to select and emphasize information aligning with their persona.
+Natural and Engaging Flow: Even with debates, the overall podcast should feel conversational and engaging.
+Length Adherence: The proposed structure and depth of discussion in the outline should be feasible within the target podcast length (approx. 150 words per minute of dialogue). Allocate rough timings or emphasis to sections.
+Objectivity in Narration: When a narrator/host is explaining core information from sources, it should be presented objectively before personas offer their specific takes.
+
+Output Format:
+
+Provide the outline in a clear, hierarchical format (e.g., Markdown with headings and nested bullets).
+Clearly indicate which named persona (or generic role) is intended to voice specific points or lead particular exchanges.
+"""
+            final_prompt = prd_outline_prompt_template.format(
+                input_formatted_source_analyses_str="\\n".join(formatted_source_analyses_str_parts),
+                input_formatted_persona_research_str="\\n".join(formatted_persona_research_str_parts),
+                input_desired_podcast_length_str=desired_podcast_length_str,
+                input_num_prominent_persons=num_prominent_persons,
+                input_formatted_names_prominent_persons_str=formatted_names_prominent_persons_str
+            )
+
+        return await self.generate_text_async(final_prompt)
+
+async def main_test():
+    """
+    Example usage function for testing the GeminiService directly.
+    Ensure GOOGLE_API_KEY is set in your .env file or environment.
+    """
+    print("Testing GeminiService...")
+    try:
+        service = GeminiService()
+
+        test_prompt_basic = "Write a very short, two-sentence story about a curious cat exploring a new garden."
+        print(f"Sending basic prompt to Gemini: \"{test_prompt_basic}\"")
+        generated_text = await service.generate_text_async(test_prompt_basic)
+        print("\\nGenerated Text (Basic):")
+        print(generated_text)
+
+        print("\\nTesting source analysis...")
+        sample_text_for_analysis = (
+            "The recent advancements in renewable energy technology, particularly in solar panel efficiency "
+            "and battery storage capacity, are poised to revolutionize the global energy market. "
+            "Governments worldwide are increasingly implementing policies to support this transition, "
+            "though challenges related to grid modernization and material sourcing remain significant."
+        )
+        analysis_result = await service.analyze_source_text_async(sample_text_for_analysis)
+        print("Source Analysis Result:")
+        print(analysis_result)
+
+        print("\\nTesting persona research...")
+        persona_research_result = await service.research_persona_async(sample_text_for_analysis)
+        print("Persona Research Result:")
+        print(persona_research_result)
+
+        # --- Test data for podcast outline generation ---
+        test_source_analyses = [analysis_result, "Second analysis: AI is rapidly changing industries."]
+        test_persona_docs = [persona_research_result, "Second persona: A skeptical tech journalist."]
+        test_desired_length = "5 minutes"
+        
+        print("\\nTesting podcast outline generation (PRD default prompt, 0 personas)...")
+        outline_prd_0_personas = await service.generate_podcast_outline_async(
+            source_analyses=test_source_analyses,
+            persona_research_docs=[], # No specific personas for this test
+            desired_podcast_length_str=test_desired_length,
+            num_prominent_persons=0,
+            names_prominent_persons_list=[]
+        )
+        print("Podcast Outline (PRD Default, 0 Personas):")
+        print(outline_prd_0_personas)
+
+        print("\\nTesting podcast outline generation (PRD default prompt, 2 personas)...")
+        outline_prd_2_personas = await service.generate_podcast_outline_async(
+            source_analyses=test_source_analyses,
+            persona_research_docs=test_persona_docs,
+            desired_podcast_length_str=test_desired_length,
+            num_prominent_persons=2,
+            names_prominent_persons_list=["Innovator Alpha", "Journalist Beta"]
+        )
+        print("Podcast Outline (PRD Default, 2 Personas):")
+        print(outline_prd_2_personas)
+
+        print("\\nTesting podcast outline generation (user-provided custom prompt)...")
+        custom_user_prompt_for_outline = (
+            "Based on the provided context, create a very brief, 2-point outline for a podcast "
+            "discussing the future of renewable energy and AI. Keep it under 50 words."
+            "Do not use the standard PRD outline structure. Just give me the 2 points."
+        )
+        # For a custom prompt, the PRD-specific inputs might not be directly used by the LLM
+        # unless the custom prompt itself asks for them or has placeholders.
+        # The service currently sends them if the PRD prompt is NOT used,
+        # which might be redundant if the custom prompt doesn't use them.
+        # For this test, we provide them anyway.
+        outline_custom_user = await service.generate_podcast_outline_async(
+            source_analyses=test_source_analyses,
+            persona_research_docs=test_persona_docs,
+            desired_podcast_length_str=test_desired_length, # May not be used by custom prompt
+            num_prominent_persons=2, # May not be used by custom prompt
+            names_prominent_persons_list=["Innovator Alpha", "Journalist Beta"], # May not be used
+            user_provided_custom_prompt=custom_user_prompt_for_outline
+        )
+        print("Podcast Outline (User Custom Prompt):")
+        print(outline_custom_user)
+
+    except ValueError as ve:
+        print(f"Configuration Error: {ve}")
+    except Exception as e:
+        print(f"An unexpected error occurred during testing: {e}")
+
+if __name__ == "__main__":
+    # This allows running this file directly for testing the GeminiService.
+    # To run:
+    # 1. Ensure you have GOOGLE_API_KEY set in your .env file in the project root.
+    # 2. Navigate to the project root directory in your terminal.
+    # 3. Run the script as a module: python -m app.llm_service
+    asyncio.run(main_test())

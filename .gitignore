@@ -33,3 +33,6 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# Google Cloud SDK (if vendored)
+mysaloncast/google-cloud-sdk/

@@ -51,10 +51,72 @@ Multiple Source Synthesis & Prioritization: The LLM will be instructed to synthe
 The LLM (Google Gemini 2.5 Pro) analyzes the extracted textual content to identify key themes, arguments, and information.
 If prominent persons are named, the LLM researches their publicly known views, opinions, and characteristic speaking styles relevant to the source material based on its internal training data for V1. Integration with an external live search API for persona research is a V2 feature.
 Fallback for Persona Research: If sufficient information isn't found for a specified person (based on LLM's internal knowledge), a message like "Could not find enough information to distinctly model [Person's Name] using current knowledge. A generic 'Expert' persona will be used instead for this speaker" will be shown, and that slot will use a generic persona.
+The output of this step will be one document per source, and one document per specified prominent person.
 
-4.2.4. LLM Step 2: Briefing Document & Outline Generation (Google Gemini 2.5 Pro):
-The LLM generates an internal briefing document summarizing key views and speaking styles of the named persons (if any).
-The LLM brainstorms ideas based on the analyzed sources and these personas' views.
+4.2.4. LLM Step 2: Outline Generation (Google Gemini 2.5 Pro):
+
+LLM Prompt: Podcast Outline Generation
+Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative podcast outline based on the provided materials.
+
+Overall Podcast Goals:
+
+Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
+Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents.
+Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints.
+Inputs Provided to You:
+
+Source Analysis Documents: [Assume these are provided, detailing key themes, arguments, and raw information extracted from each PDF/URL source. e.g., "Source1_Analysis.txt", "Source2_Analysis.txt"]
+Persona Research Documents: [Assume these are provided if prominent persons were named, detailing their known views, characteristic speaking styles, and relevant opinions on topics likely to be in the source material. e.g., "PersonaA_Profile.txt", "PersonaB_Profile.txt"]
+Desired Podcast Length: [User-specified, e.g., "7 minutes"]
+Number of Prominent Persons Specified: [e.g., "2" or "0"]
+Names of Prominent People Specified: [e.g., "Persona A, Persona B" or "None"]
+Task: Generate a Podcast Outline
+
+Create a detailed outline that structures the podcast. The outline should serve as a blueprint for the subsequent dialogue writing step.
+
+Outline Structure Requirements:
+
+Your outline must include the following sections, with specific content tailored to the inputs:
+
+I. Introduction (Approx. 10-15% of podcast length)
+A.  Opening Hook: Suggest a compelling question or statement to grab the listener's attention, related to the core topic.
+B.  Topic Overview: Briefly introduce the main subject(s) to be discussed, derived from the source analyses.
+C.  Speaker Introduction:
+* If prominent persons are specified (based on "Names of Prominent People Specified"): Introduce them by name (e.g., "Today, we'll explore these topics through the synthesized perspectives of [Name of Persona A] and [Name of Persona B]..."). Indicate their general relevance or contrasting viewpoints if immediately obvious.
+* If no persons are specified: Plan for a "Host" and an "Analyst/Expert" or similar generic roles.
+
+II. Main Body Discussion Segments (Approx. 70-80% of podcast length)
+* Divide the main body into 2-4 distinct thematic segments.
+* For each segment:
+1.  Theme/Topic Identification: Clearly state the specific theme or key question this segment will address (derived from source analyses).
+2.  Core Information Summary: Outline the key facts, data, or educational points from the source documents that need to be explained to the listener regarding this theme.
+3.  Persona Integration & Discussion (if prominent persons are specified):
+a.  Initial Viewpoints: Plan how each named persona will introduce their perspective or initial thoughts on this theme, drawing from their corresponding persona research document.
+b.  Points of Alignment/Conflict: Identify if this theme highlights agreement or disagreement between the named personas, or between a persona and the source material, or conflicting information between sources.
+c.  Structuring Debate (if conflict/disagreement is identified):
+* Outline a sequence for named personas to strongly express their differing viewpoints.
+* Suggest moments for direct engagement (e.g., "[Name of Persona A] challenges [Name of Persona B]'s point on X by stating Y," or "How does [Name of Persona A]'s view reconcile with Source Document 2's finding on Z?").
+* Ensure the debate remains constructive and focused on elucidating the topic for the listener.
+d.  Supporting Evidence: Note key pieces of information or brief quotes from the source analysis documents that personas should reference to support their arguments or that the narrator should use for clarification.
+4.  Presenting Conflicting Source Information (if no personas, or if relevant beyond persona debate): If the source documents themselves contain important conflicting information on this theme, outline how this will be presented and explored.
+
+III. Conclusion (Approx. 10-15% of podcast length)
+A.  Summary of Key Takeaways: Briefly recap the main educational points and the core arguments/perspectives discussed.
+B.  Final Persona Thoughts (if prominent persons specified): Allow a brief concluding remark from each named persona, summarizing their stance or a final reflection.
+C.  Outro: Suggest a closing statement.
+
+Guiding Principles for Outline Content:
+
+Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
+Authentic Persona Representation: When personas are used, their contributions should be consistent with their researched views and styles, as detailed in their persona research documents. They should be guided to select and emphasize information aligning with their persona.
+Natural and Engaging Flow: Even with debates, the overall podcast should feel conversational and engaging.
+Length Adherence: The proposed structure and depth of discussion in the outline should be feasible within the target podcast length (approx. 150 words per minute of dialogue). Allocate rough timings or emphasis to sections.
+Objectivity in Narration: When a narrator/host is explaining core information from sources, it should be presented objectively before personas offer their specific takes.
+Output Format:
+
+Provide the outline in a clear, hierarchical format (e.g., Markdown with headings and nested bullets).
+Clearly indicate which named persona (or generic role) is intended to voice specific points or lead particular exchanges.
+
 A rough outline for the podcast is created (e.g., intro, key point 1 with discussion, key point 2 with discussion, counter-arguments if applicable, conclusion).
 
 4.2.5. LLM Step 3: Dialogue Writing (Google Gemini 2.5 Pro):

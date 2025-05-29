@@ -28,7 +28,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ### Task 1.4: LLM Interaction Service Wrapper (P1, M)
 - Create Google Gemini 2.5 Pro API wrapper
-- Implement methods for source analysis, persona research, briefing, and dialogue writing
+- [x] Implement method for source analysis
+- [x] Implement method for persona research
+- [x] Implement method for podcast outline generation (Ref: PRD 4.2.4 detailed prompt)
+- [ ] Implement method for dialogue writing
 - Manage API key securely
 - Implement retry logic
 
@@ -94,9 +97,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - Develop prompts for text analysis
 - Research personas using internal knowledge
 
-### Task 3.2: Briefing & Outline Generation (P1, M)
-- Develop prompts for briefing and outlines
+### Task 3.2: Podcast Outline Generation Prompt (P1, M)
+- Implement and refine 'Podcast Outline Generation' prompt from PRD 4.2.4
 - Guide content prioritization
+- Test outline generation with various inputs and persona combinations
 
 ### Task 3.3: Dialogue Writing (P1, XL)
 - Develop prompts for conversational dialogue
@@ -119,8 +123,12 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 ### Task 4.2: Terraform Configurations (P1, L)
 - Define Google Cloud resources
 - Configure IAM roles
-- Set up environment variables
+- Set up environment variables (sourcing sensitive values from Google Secret Manager)
 - Configure network
+- **Integrate Google Secret Manager for API keys and other sensitive data**
+  - Provision Secret Manager via Terraform
+  - Store API keys in Secret Manager
+  - Update application to fetch secrets from Secret Manager in deployed environments
 
 ### Task 4.2.1: Initialize Terraform (P1, M)
 - Run terraform init
