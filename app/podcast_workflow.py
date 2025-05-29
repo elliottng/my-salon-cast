@@ -1,7 +1,9 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field
 from typing import List, Optional, Any # Added Any for potential complex inputs
 
 # --- Pydantic Models for Workflow Data ---
+# Models like SourceAnalysis, PersonaResearch, etc., are now imported from .podcast_models
+from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline
 
 class PodcastEpisode(BaseModel):
     title: str
@@ -15,42 +17,15 @@ class PodcastEpisode(BaseModel):
     llm_podcast_outline_path: Optional[str] = None
     llm_dialogue_turns_path: Optional[str] = None
 
-class SourceAnalysis(BaseModel):
-    key_themes: List[str]
-    facts: List[str]
-    summary_points: Optional[List[str]] = None
-    potential_biases: Optional[List[str]] = None
-    counter_arguments_or_perspectives: Optional[List[str]] = None
-    # Add other fields as identified by LLM or needed by workflow
-
-class PersonaResearch(BaseModel):
-    person_id: str # To identify which prominent person this research is for
-    name: str
-    viewpoints: List[str]
-    speaking_style: str
-    # Add other fields as identified by LLM or needed by workflow
-
-class OutlineSegment(BaseModel):
-    segment_title: Optional[str] = None
-    speaker_id: str # e.g., "Host", "PersonA_Name", "Follower_PersonA_1_Name"
-    content_cue: str # What the speaker should talk about, or a specific question
-    estimated_duration_seconds: Optional[int] = None
-
-class DialogueTurn(BaseModel):
-    speaker_id: str
-    speaker_gender: str # "Male", "Female", "Neutral" (or as per TTS options)
-    text: str
-    source_mentions: Optional[List[str]] = []
-
 # Placeholder for the input data model to generate_podcast_from_source
 # This will likely be defined more concretely when we build the API endpoint (Task 1.8)
 class PodcastRequest(BaseModel):
     source_url: Optional[HttpUrl] = None
     source_pdf_path: Optional[str] = None # Assuming a path if a PDF is uploaded
     custom_prompt_for_outline: Optional[str] = None
-    # Add other user inputs, e.g., desired number of prominent persons, podcast length preference
+    prominent_persons: Optional[List[str]] = Field(default=None, description="List of prominent person names for targeted research.")
+    # Add other user inputs, e.g., podcast length preference
     # For now, let's keep it simple
-    pass
 
 
 # --- Podcast Generation Service ---
@@ -165,12 +140,40 @@ class PodcastGeneratorService:
                     # Decide if this is a critical failure
 
             except Exception as e: # Catching a broad exception for now
-                logger.error(f"LLM Source Analysis failed: {e}")
+                logger.error(f"LLM Source Analysis failed: {e}", exc_info=True)
                 # Potentially return an error episode or try to continue without it
                 # For now, let's treat it as non-critical for the dummy response but log it
                 pass # Allow to proceed to dummy response for now
 
-            # ... Steps 4-13 will be implemented here ...
+            # Step 4: LLM - Persona Research
+            llm_persona_research_filepaths: List[str] = []
+            if request_data.prominent_persons and extracted_text:
+                logger.info(f"Starting persona research for: {request_data.prominent_persons}")
+                for person_name in request_data.prominent_persons:
+                    try:
+                        logger.info(f"Researching persona: {person_name}")
+                        persona_profile: PersonaResearch = await self.llm_service.research_persona_async(
+                            source_text=extracted_text,
+                            person_name=person_name
+                        )
+                        
+                        persona_filepath = os.path.join(tmpdir_path, f"persona_research_{persona_profile.person_id}.json")
+                        with open(persona_filepath, 'w') as f:
+                            json.dump(persona_profile.model_dump(), f, indent=2)
+                        llm_persona_research_filepaths.append(persona_filepath)
+                        logger.info(f"Persona research for '{person_name}' saved to {persona_filepath}")
+                    except ValueError as ve:
+                        logger.error(f"ValueError during persona research for '{person_name}': {ve}", exc_info=True)
+                        # Decide how to handle, e.g., skip this persona, add a warning
+                    except Exception as e:
+                        logger.error(f"Unexpected error during persona research for '{person_name}': {e}", exc_info=True)
+                        # Decide how to handle
+            elif not extracted_text and request_data.prominent_persons:
+                logger.warning("Cannot perform persona research: no extracted text available.")
+            else:
+                logger.info("No prominent persons requested for research or no extracted text.")
+
+            # ... Steps 5-13 will be implemented here ...
 
             # Placeholder implementation - This will be replaced by actual generated content
             logger.info("Proceeding with placeholder podcast episode generation.")
@@ -182,7 +185,7 @@ class PodcastGeneratorService:
                 source_attributions=["Placeholder Source 1"],
                 warnings=["This is a placeholder response."],
                 llm_source_analysis_path=llm_source_analysis_filepath, # Use the actual path if available
-                llm_persona_research_paths=None, # Placeholder
+                llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
                 llm_podcast_outline_path=None, # Placeholder
                 llm_dialogue_turns_path=None # Placeholder
             )

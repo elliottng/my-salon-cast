@@ -6,6 +6,10 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import json # For potential JSONDecodeError
+from .podcast_models import PersonaResearch # Assuming podcast_models.py is in the same app directory
+from pydantic import ValidationError
+
 from google.api_core.exceptions import (
     DeadlineExceeded,
     ServiceUnavailable,
@@ -109,33 +113,61 @@ class GeminiService:
         
         return await self.generate_text_async(prompt)
 
-    async def research_persona_async(self, source_text: str, persona_focus: str = None) -> str:
+    async def research_persona_async(self, source_text: str, person_name: str) -> PersonaResearch:
         """
         Conducts persona research based on the provided source text.
         Allows for specifying a focus for the persona research.
         """
         if not source_text:
             raise ValueError("Source text for persona research cannot be empty.")
+        if not person_name:
+            raise ValueError("Person name for persona research cannot be empty.")
 
-        if persona_focus:
-            prompt = (
-                f"Based on the following text, conduct research for a persona. "
-                f"Focus specifically on: {persona_focus}.\n\n"
-                "Describe the persona's likely demographics, interests, viewpoints, "
-                "and communication style as suggested by the text.\n\n"
-                f"---\n{source_text}\n---"
-            )
-        else:
-            # Default persona research prompt
-            prompt = (
-                "Based on the following text, develop a detailed persona. "
-                "Consider the likely demographics, interests, values, pain points, "
-                "and communication style of an individual who would resonate with or be represented by this text. "
-                "Provide a narrative description of this persona.\n\n"
-                f"---\n{source_text}\n---"
-            )
-        
-        return await self.generate_text_async(prompt)
+        # Create a simple person_id from the name (e.g., for filenames or internal references)
+        # This can be made more robust if needed (e.g., handling special characters, ensuring uniqueness)
+        person_id = person_name.lower().replace(' ', '_').replace('.', '')
+
+        prompt = f"""
+Given the following source text, conduct detailed persona research for the individual named: '{person_name}'.
+
+Source Text:
+---
+{source_text}
+---
+
+Please provide your research as a JSON object with the following structure and fields:
+{{
+  "person_id": "{person_id}",
+  "name": "{person_name}",
+  "viewpoints": ["List of key viewpoints, opinions, or arguments associated with {person_name} from the source text. Be specific and quote or paraphrase where possible."],
+  "speaking_style": "Describe the observed or inferred speaking style of {person_name} (e.g., 'analytical and data-driven', 'passionate and persuasive', 'cautious and measured', 'storytelling and anecdotal'). Provide examples if possible.",
+  "key_quotes": ["List direct memorable quotes from {person_name} found in the source text. If no direct quotes are prominent, this can be an empty list or null."]
+}}
+
+Ensure the output is a single, valid JSON object only, with no additional text before or after the JSON.
+"""
+
+        try:
+            json_response_str = await self.generate_text_async(prompt)
+            # The LLM might sometimes wrap the JSON in backticks, try to remove them
+            if json_response_str.startswith("```json\n") and json_response_str.endswith("\n```"):
+                json_response_str = json_response_str[7:-4]
+            elif json_response_str.startswith("```") and json_response_str.endswith("```"):
+                json_response_str = json_response_str[3:-3]
+            
+            # It's crucial that the LLM returns a string that PersonaResearch.model_validate_json can parse.
+            persona_profile = PersonaResearch.model_validate_json(json_response_str)
+            return persona_profile
+        except json.JSONDecodeError as e:
+            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {json_response_str[:500]}...", exc_info=True)
+            # Consider raising a custom error or returning a default/error PersonaResearch object
+            raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
+        except ValidationError as e:
+            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {json_response_str[:500]}...", exc_info=True)
+            raise ValueError(f"LLM response for persona '{person_name}' did not match PersonaResearch schema.") from e
+        except Exception as e:
+            logger.error(f"Unexpected error during persona research for '{person_name}': {e}. LLM Output was: {json_response_str[:500]}...", exc_info=True)
+            raise ValueError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
 
     async def generate_podcast_outline_async(
         self,
