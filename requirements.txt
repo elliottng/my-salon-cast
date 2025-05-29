@@ -12,3 +12,4 @@ youtube-transcript-api
 httpx
 beautifulsoup4
 tenacity>=8.2.0
+pydub==0.25.1
