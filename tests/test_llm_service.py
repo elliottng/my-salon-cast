@@ -42,7 +42,7 @@ async def test_generate_podcast_outline_async_success(gemini_service):
     mock_persona_research = PersonaResearch(
         person_id="person-b",
         name="Person B",
-        viewpoints=["viewpoint X", "viewpoint Y"]
+        detailed_profile="This is a detailed profile for Person B, summarizing viewpoints such as 'viewpoint X' and 'viewpoint Y'."
     )
 
     with patch.object(gemini_service, 'generate_text_async', AsyncMock(return_value=mock_response_json)) as mock_generate_text:
@@ -116,7 +116,7 @@ async def test_generate_dialogue_async_success(gemini_service):
     mock_persona_research_obj = PersonaResearch(
         person_id="person-a",
         name="Person A",
-        viewpoints=["viewpoint1", "viewpoint2"]
+        detailed_profile="This is a detailed profile for Person A, summarizing viewpoints such as 'viewpoint1' and 'viewpoint2'."
     )
 
     with patch.object(gemini_service, 'generate_text_async', AsyncMock(return_value=mock_response_json)) as mock_generate_text:

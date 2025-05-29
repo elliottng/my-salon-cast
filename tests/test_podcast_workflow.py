@@ -30,14 +30,13 @@ def mock_podcast_data():
             "facts": ["fact1"],
             "summary_points": ["point1"],
             "potential_biases": [],
-            "counter_arguments_or_perspectives": []
+            "counter_arguments_or_perspectives": [],
+            "detailed_analysis": "This is a mock detailed analysis for the e2e test."
         },
         "persona_research": {
             "person_id": "person-a",
             "name": "Person A",
-            "viewpoints": ["Opinion 1", "Summary of Person A"],
-            "speaking_style": "direct, formal",
-            "key_quotes": []
+            "detailed_profile": "A comprehensive profile for Person A, known for opinions like 'Opinion 1' and a direct, formal speaking style. This summary captures their essence based on the source."
         }
     }
 
@@ -306,10 +305,16 @@ class TestPodcastGeneratorService:
                     assert episode.warnings == []
 
                     # 5. Assertions - Saved JSON Files
+                    # For source_analysis, expect only fields defined in SourceAnalysis model
+                    expected_source_analysis_dict = {
+                        "summary_points": mock_podcast_data["source_analysis"]["summary_points"],
+                        "detailed_analysis": mock_podcast_data["source_analysis"]["detailed_analysis"]
+                    }
                     self.verify_json_file_contents(
                         episode.llm_source_analysis_path, 
-                        mock_podcast_data["source_analysis"]
+                        expected_source_analysis_dict
                     )
+                    # For persona_research, the mock_podcast_data already matches the simplified PersonaResearch model
                     self.verify_json_file_contents(
                         episode.llm_persona_research_paths[0], 
                         mock_podcast_data["persona_research"]
@@ -369,7 +374,8 @@ class TestPodcastGeneratorService:
             "facts": ["fact X", "fact Y"],
             "summary_points": ["point 1"],
             "potential_biases": ["bias Z"],
-            "counter_arguments_or_perspectives": ["perspective W"]
+            "counter_arguments_or_perspectives": ["perspective W"],
+            "detailed_analysis": "This is a detailed analysis of the source text, covering themes, facts, and potential biases."
         }
         mock_extract_url.return_value = extracted_text
         self.service.llm_service.analyze_source_text_async.return_value = llm_analysis_response
@@ -388,7 +394,17 @@ class TestPodcastGeneratorService:
                 assert os.path.exists(expected_json_path)
                 with open(expected_json_path, 'r') as f:
                     saved_data = json.load(f)
-                assert saved_data == llm_analysis_response
+                # Assert that all items in saved_data (from Pydantic model) are present and correct in llm_analysis_response (raw mock)
+                for key, value in saved_data.items():
+                    assert key in llm_analysis_response, f"Key '{key}' from saved_data not found in llm_analysis_response"
+                    assert llm_analysis_response[key] == value, f"Value for key '{key}' does not match between saved_data and llm_analysis_response"
+                # Optionally, assert that all *required* fields of SourceAnalysis are present in saved_data
+                # This is implicitly handled by Pydantic validation if the model was created successfully.
+                # However, to be explicit about what we expect to be saved:
+                expected_keys_from_model = SourceAnalysis.model_fields.keys()
+                for k in expected_keys_from_model:
+                    if k in SourceAnalysis.model_fields and SourceAnalysis.model_fields[k].is_required():
+                         assert k in saved_data, f"Required key '{k}' from SourceAnalysis model not in saved_data"
                 assert episode.llm_source_analysis_path == expected_json_path
         
         mock_extract_url.assert_called_once_with(str(request.source_url)) # Ensure extraction was called

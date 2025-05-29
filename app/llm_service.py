@@ -282,9 +282,7 @@ Please provide your research as a JSON object with the following structure and f
 {{
   "person_id": "{person_id}",
   "name": "{person_name}",
-  "viewpoints": ["List of key viewpoints, opinions, or arguments associated with {person_name} from the source text. Be specific and quote or paraphrase where possible."],
-  "speaking_style": "Describe the observed or inferred speaking style of {person_name} (e.g., 'analytical and data-driven', 'passionate and persuasive', 'cautious and measured', 'storytelling and anecdotal'). Provide examples if possible.",
-  "key_quotes": ["List direct memorable quotes from {person_name} found in the source text. If no direct quotes are prominent, this can be an empty list or null."]
+  "detailed_profile": "Provide a comprehensive textual profile of {person_name} based on the source text. This profile should synthesize their key viewpoints, opinions, or arguments. Also, describe their observed or inferred speaking style (e.g., 'analytical', 'passionate', 'cautious', 'storytelling'). Include any direct memorable quotes if they are prominent and illustrative of the persona. Combine all this information into a coherent narrative or summary string for this field."
 }}
 
 Ensure the output is a single, valid JSON object only, with no additional text before or after the JSON.

@@ -3,23 +3,18 @@ from pydantic import BaseModel, Field
 
 class SourceAnalysis(BaseModel):
     """
-    Structured analysis of the source text.
+    Simplified structured analysis of the source text.
     """
-    key_themes: List[str] = Field(..., description="List of key themes identified in the source text.")
-    facts: List[str] = Field(..., description="List of important facts extracted from the source text.")
-    summary_points: Optional[List[str]] = Field(default=None, description="Bulleted or numbered summary points from the source text.")
-    potential_biases: Optional[List[str]] = Field(default=None, description="Potential biases identified in the source text.")
-    counter_arguments_or_perspectives: Optional[List[str]] = Field(default=None, description="Counter arguments or alternative perspectives found.")
+    summary_points: List[str] = Field(..., description="Key summary points from the source text, as a list of strings.")
+    detailed_analysis: str = Field(..., description="A more detailed, free-form textual analysis of the source content.")
 
 class PersonaResearch(BaseModel):
     """
-    Detailed profile of a prominent person identified in the source material.
+    Simplified profile of a prominent person identified in the source material.
     """
     person_id: str = Field(..., description="A unique identifier for the person (e.g., a slugified name).")
     name: str = Field(..., description="The full name of the prominent person.")
-    viewpoints: List[str] = Field(..., description="Key viewpoints, opinions, or arguments associated with this person from the source text.")
-    speaking_style: Optional[str] = Field(default=None, description="Observed or inferred speaking style (e.g., 'analytical', 'passionate', 'cautious').")
-    key_quotes: Optional[List[str]] = Field(default=None, description="Direct memorable quotes from this person in the source text, if any.")
+    detailed_profile: str = Field(..., description="A comprehensive textual profile of the person, summarizing their viewpoints, inferred speaking style, and any notable quotes or statements derived from the source text.")
 
 class OutlineSegment(BaseModel):
     """
