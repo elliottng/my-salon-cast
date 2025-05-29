@@ -1,9 +1,14 @@
 import pytest
 import asyncio
 import json
+import os
+import re
 from unittest.mock import Mock, patch, AsyncMock # AsyncMock might not be directly used by these specific tests but good for consistency if fixture evolves
 
 from app.llm_service import GeminiService
+
+# Check if the API key is available in the environment for integration tests
+GEMINI_API_KEY_AVAILABLE = bool(os.environ.get("GEMINI_API_KEY"))
 
 # Content from test_article.txt
 TEST_ARTICLE_CONTENT = """The Future of Artificial Intelligence in Healthcare
@@ -174,3 +179,62 @@ async def test_gta_for_source_analysis(gemini_service):
         loaded_result = json.loads(result_str)
         assert loaded_result["summary_points"] == expected_data["summary_points"]
         assert loaded_result["detailed_analysis"] == expected_data["detailed_analysis"]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not GEMINI_API_KEY_AVAILABLE, reason="GEMINI_API_KEY environment variable not set")
+@pytest.mark.asyncio
+async def test_generate_text_async_integration_source_analysis_format(gemini_service):
+    """
+    Integration test: Calls the actual Gemini API with a prompt
+    expecting SourceAnalysis-like JSON output.
+    """
+    prompt_to_use = SAMPLE_ANALYSIS_PROMPT # Uses TEST_ARTICLE_CONTENT
+
+    try:
+        # No mocking here - direct call
+        result_str = await gemini_service.generate_text_async(prompt_to_use, timeout_seconds=180) # Longer timeout for real call
+
+        assert isinstance(result_str, str), "API response should be a string"
+        assert len(result_str) > 0, "API response should not be empty"
+
+        cleaned_json_str = result_str
+        # Try to extract JSON from markdown code block
+        # This regex handles ```json ... ``` or ``` ... ```
+        match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", result_str)
+        if match:
+            cleaned_json_str = match.group(1)
+        else:
+            # Fallback for plain JSON or if LLM doesn't use markdown, strip whitespace
+            cleaned_json_str = result_str.strip()
+
+        try:
+            print(f"\n--- API Response (Cleaned JSON) ---\n{cleaned_json_str}\n--- End API Response ---") # Print for inspection
+            loaded_json = json.loads(cleaned_json_str)
+        except json.JSONDecodeError as e:
+            original_response_snippet = result_str[:500] if result_str else "[empty response]"
+            cleaned_response_snippet = cleaned_json_str[:500] if cleaned_json_str else "[empty cleaned response]"
+            pytest.fail(
+                f"API response could not be parsed as valid JSON after cleaning attempt: {e}\n"
+                f"Original response (first 500 chars): {original_response_snippet}...\n"
+                f"Cleaned response for parsing (first 500 chars): {cleaned_response_snippet}..."
+            )
+
+        assert isinstance(loaded_json, dict), "Parsed JSON should be a dictionary"
+
+        assert "summary_points" in loaded_json, "JSON response must contain 'summary_points'"
+        assert isinstance(loaded_json["summary_points"], list), "'summary_points' should be a list"
+        # We can't assert specific content for summary_points, but we can check type if not empty
+        if loaded_json["summary_points"]:
+            for item in loaded_json["summary_points"]:
+                assert isinstance(item, str), "Each item in 'summary_points' should be a string"
+
+        assert "detailed_analysis" in loaded_json, "JSON response must contain 'detailed_analysis'"
+        assert isinstance(loaded_json["detailed_analysis"], str), "'detailed_analysis' should be a string"
+        assert len(loaded_json["detailed_analysis"]) > 0, "'detailed_analysis' should not be empty if present"
+
+    except asyncio.TimeoutError:
+        pytest.fail("The API call timed out during the integration test.")
+    except Exception as e:
+        # Catch other potential errors like API connection issues, etc.
+        pytest.fail(f"An unexpected error occurred during the integration test: {e}\nResponse (first 500 chars): {result_str[:500]}...")

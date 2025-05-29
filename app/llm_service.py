@@ -12,6 +12,7 @@ import asyncio
 
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from google.api_core.exceptions import (
     DeadlineExceeded,
     ServiceUnavailable,
@@ -158,7 +159,21 @@ class GeminiService:
             # Ensure an exception is raised so the caller knows something went wrong.
             raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
 
-    async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> str:
+    def _clean_json_string_from_markdown(self, text: str) -> str:
+        """
+        Extracts a JSON string from a Markdown code block if present.
+        Handles blocks like ```json ... ``` or ``` ... ```.
+        """
+        if not text:
+            return ""
+        # Regex to find content within ```json ... ``` or ``` ... ```
+        # Making it non-greedy and handling potential leading/trailing whitespace within the block
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return text.strip() # Fallback if no markdown block found, just strip whitespace
+
+    async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> SourceAnalysis:
         """
         Analyzes the provided source text using the LLM.
         Allows for custom analysis instructions.
@@ -175,14 +190,20 @@ class GeminiService:
                 logger.info(f"Using custom analysis instructions: {analysis_instructions[:100]}...")
                 prompt = f"{analysis_instructions}\n\nAnalyze the following text:\n\n---\n{source_text}\n---"
             else:
-                logger.info("Using default analysis prompt template")
-                # Default analysis prompt
-                prompt = (
-                    "Please analyze the following text. Identify the key topics, main arguments, "
-                    "the overall sentiment, and any notable stylistic features. "
-                    "Provide a concise summary of your analysis.\n\n"
-                    f"---\n{source_text}\n---"
-                )
+                logger.info("Using default analysis prompt template, expecting JSON output for SourceAnalysis model")
+            # Default analysis prompt, expecting JSON output
+            prompt = (
+                "Please analyze the following text and provide your analysis in JSON format. "
+                "The JSON object should have exactly two keys: 'summary_points' and 'detailed_analysis'.\n"
+                "- 'summary_points' should be a list of strings, where each string is a key summary point from the text.\n"
+                "- 'detailed_analysis' should be a single string containing a more in-depth, free-form textual analysis of the source content.\n\n"
+                "Example JSON format:\n"
+                "{\n"
+                "  \"summary_points\": [\"Key takeaway 1\", \"Important fact 2\", \"Main argument 3\"],\n"
+                "  \"detailed_analysis\": \"The text discusses [topic] with a [tone/style]. It presents arguments such as [argument A] and [argument B], supported by [evidence]. The overall sentiment appears to be [sentiment]. Noteworthy stylistic features include [feature X]...\"\n"
+                "}\n\n"
+                f"Analyze this text:\n---\n{source_text}\n---"
+            )
         
             logger.info(f"Constructed prompt of length {len(prompt)} characters")
             logger.info("Calling generate_text_async for source analysis...")
@@ -193,37 +214,44 @@ class GeminiService:
                 
                 if not response:
                     logger.error("LLM returned empty response for source analysis")
-                    return '{"error": "LLM returned empty response", "raw_response": ""}'
+                    raise LLMProcessingError("LLM returned empty response for source analysis")
                 
-                # Try to validate if the response is a proper JSON format
+                cleaned_response_str = self._clean_json_string_from_markdown(response)
+                if not cleaned_response_str:
+                    logger.error("LLM response was empty after cleaning Markdown.")
+                    raise LLMProcessingError("LLM response was empty after cleaning Markdown.")
+
                 try:
-                    import json
-                    json.loads(response)  # Just check if it's valid JSON
-                    logger.info("Response appears to be valid JSON")
-                except json.JSONDecodeError:
-                    logger.warning("Response is not valid JSON, it may be a plain text response")
-                    logger.warning(f"First 200 chars of response: {response[:200]}")
-                    # We'll let the calling code handle this situation
-                
-                logger.info("EXIT: analyze_source_text_async completed successfully")
-                return response
+                    import json # Ensure json is imported in this scope if not already at top level
+                    parsed_json = json.loads(cleaned_response_str)
+                    logger.info("Successfully parsed JSON from cleaned LLM response.")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON from cleaned LLM response: {e}", exc_info=True)
+                    logger.error(f"Cleaned response snippet: {cleaned_response_str[:200]}")
+                    raise LLMProcessingError(f"Response was not valid JSON after cleaning Markdown: {e}")
+
+                try:
+                    analysis_object = SourceAnalysis.model_validate(parsed_json)
+                    logger.info("Successfully validated LLM response against SourceAnalysis model.")
+                    logger.info("EXIT: analyze_source_text_async completed successfully")
+                    return analysis_object
+                except ValidationError as ve:
+                    logger.error(f"Failed to validate LLM response against SourceAnalysis model: {ve}", exc_info=True)
+                    logger.error(f"Parsed JSON data: {parsed_json}")
+                    raise LLMProcessingError(f"Failed to validate the structure of the LLM response for source analysis: {ve}")
                 
             except Exception as gen_error:
                 logger.error(f"Error during generate_text_async call: {gen_error}", exc_info=True)
-                error_msg = str(gen_error).replace('"', '\\"')
-                error_json = '{"error": "LLM API error: ' + error_msg + '", "raw_response": ""}'
-                logger.error(f"Returning error JSON: {error_json}")
-                return error_json
+                logger.error(f"LLM API error during source analysis: {gen_error}")
+                raise LLMProcessingError(f"LLM API error during source analysis: {gen_error}") from gen_error
                 
         except ValueError as ve:
             logger.error(f"ValueError in analyze_source_text_async: {ve}")
-            error_msg = str(ve).replace('"', '\\"')
-            return '{"error": "ValueError: ' + error_msg + '", "raw_response": ""}'
+            raise LLMProcessingError(f"Input validation error for source analysis: {ve}") from ve
             
         except Exception as e:
             logger.error(f"Unexpected error in analyze_source_text_async: {e}", exc_info=True)
-            error_msg = str(e).replace('"', '\\"')
-            return '{"error": "Unexpected error: ' + error_msg + '", "raw_response": ""}'
+            raise LLMProcessingError(f"Unexpected error during source analysis: {e}") from e
             
         finally:
             logger.info("EXIT: analyze_source_text_async method (in finally block)")
@@ -823,7 +851,7 @@ For each segment in the 'segments' list:
             except ValidationError as e:
                 logger.error(f"LLM output for podcast outline did not match expected schema. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
                 logger.debug(f"Problematic JSON string for outline: '{cleaned_response_text}'")
-                raise LLMProcessingError(f"LLM output for podcast outline did not match expected schema: {e.errors()}")
+                raise LLMProcessingError(f"LLM output for podcast outline did not match expected schema: {e}")
             except Exception as e:
                 logger.error(f"An unexpected error occurred during podcast outline generation. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
                 raise LLMProcessingError(f"An unexpected error occurred during podcast outline generation: {e}")

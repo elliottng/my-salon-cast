@@ -7,6 +7,12 @@ from app.llm_service import GeminiService
 from app.podcast_models import PodcastOutline, OutlineSegment, DialogueTurn, PersonaResearch, SourceAnalysis
 from app.common_exceptions import LLMProcessingError
 
+SAMPLE_SOURCE_TEXT_FOR_ANALYSIS = """
+Artificial intelligence is rapidly changing the world.
+Its applications span from healthcare to finance, offering new solutions.
+However, ethical considerations and potential biases are important topics of discussion.
+"""
+
 @pytest.fixture
 def gemini_service():
     return GeminiService()
@@ -155,3 +161,74 @@ async def test_generate_dialogue_async_item_validation_error(gemini_service):
         with pytest.raises(LLMProcessingError) as excinfo:
             await gemini_service.generate_dialogue_async(test_podcast_outline, [], [], "", 0, [])
         assert "Failed to generate any dialogue turns for the podcast" in str(excinfo.value)
+
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_text_async_success(gemini_service):
+    """Test successful analysis of source text with default instructions."""
+    sample_analysis_data = {
+        "summary_points": ["AI is transformative.", "Ethical concerns exist."],
+        "detailed_analysis": "The text discusses AI's broad impact and related ethical questions."
+    }
+    # Simulate that generate_text_async returns a markdown-wrapped JSON string
+    mock_llm_response_str = f"```json\n{json.dumps(sample_analysis_data)}\n```"
+
+    with patch.object(gemini_service, 'generate_text_async', AsyncMock(return_value=mock_llm_response_str)) as mock_generate_text:
+        analysis_result = await gemini_service.analyze_source_text_async(SAMPLE_SOURCE_TEXT_FOR_ANALYSIS)
+
+        mock_generate_text.assert_called_once()
+        # Optional: More specific assertion about the prompt construction if desired
+        # called_prompt = mock_generate_text.call_args[0][0]
+        # assert SAMPLE_SOURCE_TEXT_FOR_ANALYSIS in called_prompt
+
+        assert isinstance(analysis_result, SourceAnalysis)
+        assert analysis_result.summary_points == sample_analysis_data["summary_points"]
+        assert analysis_result.detailed_analysis == sample_analysis_data["detailed_analysis"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_text_async_invalid_json_response(gemini_service):
+    """Test analyze_source_text_async when the LLM returns a non-JSON string."""
+    malformed_json_string = "```json\n{\"summary_points\": [\"AI is transformative.\", \"Ethical concerns exist.\"invalid_json```"
+    
+    with patch.object(gemini_service, 'generate_text_async', AsyncMock(return_value=malformed_json_string)) as mock_generate_text:
+        with pytest.raises(LLMProcessingError) as excinfo:
+            await gemini_service.analyze_source_text_async(SAMPLE_SOURCE_TEXT_FOR_ANALYSIS)
+        
+        mock_generate_text.assert_called_once()
+        assert "Response was not valid JSON after cleaning Markdown" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_text_async_pydantic_validation_error(gemini_service):
+    """Test analyze_source_text_async when LLM returns JSON that fails Pydantic validation."""
+    # summary_points should be a list, but here it's a string
+    invalid_structure_data = {
+        "summary_points": "This should be a list, not a string.",
+        "detailed_analysis": "The detailed analysis is present and correct."
+    }
+    mock_llm_response_str = f"```json\n{json.dumps(invalid_structure_data)}\n```"
+
+    with patch.object(gemini_service, 'generate_text_async', AsyncMock(return_value=mock_llm_response_str)) as mock_generate_text:
+        with pytest.raises(LLMProcessingError) as excinfo:
+            await gemini_service.analyze_source_text_async(SAMPLE_SOURCE_TEXT_FOR_ANALYSIS)
+        
+        mock_generate_text.assert_called_once()
+        # Check for part of the Pydantic validation error message or our custom wrapper message
+        assert "Failed to validate the structure of the LLM response for source analysis" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_text_async_generate_text_raises_exception(gemini_service):
+    """Test analyze_source_text_async when generate_text_async raises an exception."""
+    original_exception_message = "Simulated API error"
+    
+    with patch.object(gemini_service, 'generate_text_async', AsyncMock(side_effect=RuntimeError(original_exception_message))) as mock_generate_text:
+        with pytest.raises(LLMProcessingError) as excinfo:
+            await gemini_service.analyze_source_text_async(SAMPLE_SOURCE_TEXT_FOR_ANALYSIS)
+        
+        mock_generate_text.assert_called_once()
+        # Check that our custom error message is present, and optionally the original exception's message
+        assert "LLM API error during source analysis" in str(excinfo.value) # Check for the more specific part of the wrapped error
+        assert original_exception_message in str(excinfo.value)
