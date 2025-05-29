@@ -9,6 +9,10 @@ import re # For YouTube video ID extraction
 import asyncio # For running blocking calls in a separate thread
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 
+class ExtractionError(Exception):
+    """Custom exception for content extraction errors."""
+    pass
+
 # Regex to extract YouTube video ID from various URL formats
 # Captures the 11-character video ID
 YOUTUBE_VIDEO_ID_REGEX = re.compile(
@@ -38,8 +42,9 @@ async def extract_text_from_pdf(file: UploadFile) -> str:
                     all_text.append(page_text)
         return "\n".join(all_text)
     except Exception as e:
-        print(f"Error extracting text from PDF {file.filename}: {e}")
-        return ""
+        err_msg = f"Error extracting text from PDF {file.filename}: {e}"
+        print(err_msg)
+        raise ExtractionError(err_msg)
 
 async def extract_content_from_url(url: str) -> str:
     """
@@ -59,7 +64,7 @@ async def extract_content_from_url(url: str) -> str:
                 # For now, let's try to decode if it's a text type, otherwise empty
                 if "text/" in content_type:
                     return response.text
-                return "" # Or handle other content types like plain text specifically
+                raise ExtractionError(f"Content at {url} is not HTML and not a recognized text type (type: {content_type}).")
 
             soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -76,17 +81,23 @@ async def extract_content_from_url(url: str) -> str:
                 return text_content
             else:
                 # Fallback if no body tag (unlikely for valid HTML)
-                return soup.get_text(separator=' ', strip=True)
+                text_content = soup.get_text(separator=' ', strip=True)
+                if not text_content:
+                    raise ExtractionError(f"No text content found in body or fallback for URL: {url}")
+                return text_content
 
     except httpx.HTTPStatusError as e:
-        print(f"HTTP error {e.response.status_code} while fetching {url}: {e}")
-        return f"Error: Could not fetch content due to HTTP status {e.response.status_code}."
+        err_msg = f"HTTP error {e.response.status_code} while fetching {url}: {e}"
+        print(err_msg)
+        raise ExtractionError(err_msg)
     except httpx.RequestError as e:
-        print(f"Request error while fetching {url}: {e}")
-        return "Error: Could not fetch content due to a network or request issue."
+        err_msg = f"Request error while fetching {url}: {e}"
+        print(err_msg)
+        raise ExtractionError(err_msg)
     except Exception as e:
-        print(f"Error extracting content from URL {url}: {e}")
-        return "Error: An unexpected error occurred while processing the URL."
+        err_msg = f"Error extracting content from URL {url}: {e}"
+        print(err_msg)
+        raise ExtractionError(err_msg)
 
 
 async def extract_transcript_from_youtube(url: str) -> str:
@@ -101,7 +112,7 @@ async def extract_transcript_from_youtube(url: str) -> str:
     """
     match = YOUTUBE_VIDEO_ID_REGEX.search(url)
     if not match:
-        return "Error: Could not extract YouTube video ID from URL."
+        raise ExtractionError("Could not extract YouTube video ID from URL.")
     video_id = match.group(1)
 
     def _fetch_and_process_transcript_sync(vid_id: str) -> str:
@@ -110,15 +121,16 @@ async def extract_transcript_from_youtube(url: str) -> str:
             full_transcript = " ".join([item['text'] for item in transcript_list])
             return full_transcript
         except TranscriptsDisabled:
-            return f"Error: Transcripts are disabled for video ID {vid_id}."
+            raise ExtractionError(f"Transcripts are disabled for video ID {vid_id}.")
         except NoTranscriptFound:
-            return f"Error: No transcript found for video ID {vid_id} (could be auto-generated only, or none available)."
+            raise ExtractionError(f"No transcript found for video ID {vid_id} (could be auto-generated only, or none available).")
         except VideoUnavailable:
-            return f"Error: Video ID {vid_id} is unavailable."
+            raise ExtractionError(f"Video ID {vid_id} is unavailable.")
         except Exception as e:
             # Catch any other exceptions from the library or processing
-            print(f"Error fetching transcript for video ID {vid_id}: {e}")
-            return f"Error: An unexpected error occurred while fetching transcript for video ID {vid_id}."
+            err_msg = f"Error fetching transcript for video ID {vid_id}: {e}"
+            print(err_msg)
+            raise ExtractionError(err_msg)
 
     try:
         # Run the synchronous blocking call in a separate thread
@@ -126,5 +138,6 @@ async def extract_transcript_from_youtube(url: str) -> str:
         return transcript
     except Exception as e:
         # Catch potential errors from asyncio.to_thread itself or other unforeseen issues
-        print(f"Asyncio error or other issue processing YouTube URL {url} for video ID {video_id}: {e}")
-        return "Error: An unexpected error occurred while preparing to fetch the YouTube transcript."
+        err_msg = f"Asyncio error or other issue processing YouTube URL {url} for video ID {video_id}: {e}"
+        print(err_msg)
+        raise ExtractionError(err_msg)
