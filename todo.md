@@ -87,28 +87,31 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - Implement status updates
 - Display error messages
 
-## Phase 3: LLM Prompt Engineering
+## Phase 3: LLM Prompt Iteration
 
-### Task 3.1: Source Analysis & Persona Research (P1, L)
-- Develop prompts for text analysis
-- Research personas using internal knowledge
+### Task 3.1: Source Analysis Prompt Iteration (P2, M)
+- Refine prompt for extracting key themes, facts, and insights from source texts (corresponds to `analyze_source_text_async`).
+- Test with diverse source materials (PDFs, YouTube, URLs).
+- Evaluate quality of analysis against PRD requirements (Section 4.2.2).
+- Iterate on prompt based on test results for clarity, comprehensiveness, and accuracy.
 
-### Task 3.2: Podcast Outline Generation Prompt (P1, M)
-- Implement and refine 'Podcast Outline Generation' prompt from PRD 4.2.4
-- Guide content prioritization
-- Test outline generation with various inputs and persona combinations
+### Task 3.2: Persona Research Prompt Iteration (P2, M)
+- Refine prompt for generating persona viewpoints, arguments, and speaking styles (corresponds to `research_persona_async`).
+- Test with various persona types and complexities.
+- Evaluate research quality against PRD requirements (Section 4.2.3).
+- Iterate on prompt based on test results for depth, relevance, and nuance.
 
-### Task 3.3: Dialogue Writing (P1, XL)
-- Develop prompts for conversational dialogue
-- Target specified length
-- Handle speaker attribution
-- Implement disclaimer logic
+### Task 3.3: Podcast Outline Generation Prompt Iteration (P1, L)
+- Refine 'Podcast Outline Generation' prompt from PRD 4.2.4 (corresponds to `generate_podcast_outline_async`).
+- Test with varying numbers of prominent persons, desired podcast lengths, and custom user outline prompts.
+- Evaluate outline structure, content prioritization, adherence to user inputs, and logical flow.
+- Iterate on prompt for improved topic coverage, speaker balance, and overall coherence.
 
-### Task 3.4: Testing (P2, L)
-- Test with various inputs
-- Test disclaimer scenarios
-- Test persona research
-- Test prompt validation
+### Task 3.4: Dialogue Writing Prompt Iteration (P1, XL)
+- Refine 'Dialogue Writing' prompt from PRD 4.2.5.1 (corresponds to `generate_dialogue_async`).
+- Test with different outlines, persona research, prominent person details (including follower names/genders), and desired lengths.
+- Evaluate dialogue naturalness, speaker attribution, character consistency, engagement, and adherence to length.
+- Iterate on prompt for improved conversational flow, realism, and fulfillment of all dialogue requirements (e.g., disclaimers if prompted).
 
 ## Phase 4: Deployment & Security
 
