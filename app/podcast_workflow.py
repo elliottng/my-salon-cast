@@ -65,7 +65,7 @@ class PodcastGeneratorService:
                 source_attributions=[], warnings=["LLM Service failed to initialize."]
             )
 
-        llm_source_analysis_filepath: Optional[str] = None
+        llm_source_analysis_filepaths: List[str] = []
         llm_persona_research_filepaths: List[str] = []
         llm_podcast_outline_filepath: Optional[str] = None
         llm_dialogue_script_filepath: Optional[str] = None # Path for the full dialogue script
@@ -154,6 +154,7 @@ class PodcastGeneratorService:
                         with open(llm_source_analysis_filepath, 'w') as f:
                             json.dump(source_analysis_obj.model_dump(), f, indent=2)
                         logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
+                        llm_source_analysis_filepaths.append(llm_source_analysis_filepath)
                     except Exception as p_error:
                         logger.error(f"Failed to parse LLM analysis into SourceAnalysis: {p_error}")
                         warnings_list.append(f"Source analysis parsing failed: {p_error}")
@@ -298,7 +299,7 @@ class PodcastGeneratorService:
                 audio_filepath="placeholder.mp3", # Placeholder for now
                 source_attributions=[], # Placeholder for now, will be populated from dialogue turns later
                 warnings=warnings_list,
-                llm_source_analysis_path=llm_source_analysis_filepath,
+                llm_source_analysis_paths=llm_source_analysis_filepaths if llm_source_analysis_filepaths else None,
                 llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
                 llm_podcast_outline_path=llm_podcast_outline_filepath,
                 llm_dialogue_turns_path=llm_dialogue_turns_filepath

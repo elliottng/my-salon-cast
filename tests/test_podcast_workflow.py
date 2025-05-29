@@ -311,7 +311,7 @@ class TestPodcastGeneratorService:
                     "detailed_analysis": mock_podcast_data["source_analysis"]["detailed_analysis"]
                 }
                 self.verify_json_file_contents(
-                    episode.llm_source_analysis_path, 
+                    episode.llm_source_analysis_paths[0], 
                     expected_source_analysis_dict
                 )
                 # For persona_research, the mock_podcast_data already matches the simplified PersonaResearch model
@@ -404,7 +404,7 @@ class TestPodcastGeneratorService:
                 for k in expected_keys_from_model:
                     if k in SourceAnalysis.model_fields and SourceAnalysis.model_fields[k].is_required():
                          assert k in saved_data, f"Required key '{k}' from SourceAnalysis model not in saved_data"
-                assert episode.llm_source_analysis_path == expected_json_path
+                assert episode.llm_source_analysis_paths[0] == expected_json_path
         
         mock_extract_url.assert_called_once_with(str(request.source_urls[0])) # Ensure extraction was called
         self.service.llm_service.analyze_source_text_async.assert_called_once_with(extracted_text)
@@ -443,7 +443,7 @@ class TestPodcastGeneratorService:
                 mock_tempdir_context.return_value.__enter__.return_value = tmpdir
                 episode = await self.service.generate_podcast_from_source(request)
         
-        assert episode.llm_source_analysis_path is None
+        assert episode.llm_source_analysis_paths is None
         assert episode.title == expected_title
         # Check if the transcript contains the expected substring, as exact match might be too brittle
         assert expected_transcript_contains in episode.transcript
