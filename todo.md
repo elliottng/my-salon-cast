@@ -170,6 +170,9 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - Document rate limits and file sizes
 
 ### Task 5.2: Code Cleanup (P3, M)
-- Refactor code
-- Add comments
-- Document LLM interactions
+- [x] Refactor test code for improved maintainability
+  - [x] Refactor `test_podcast_workflow.py` to use fixtures and parameterized tests
+  - [x] Refactor `test_content_extractor.py` to use class-based organization and utility methods
+- [ ] Refactor remaining application code
+- [ ] Add comprehensive comments
+- [ ] Document LLM interactions
