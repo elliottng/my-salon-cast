@@ -12,6 +12,7 @@ class PodcastRequest(BaseModel):
     source_urls: List[HttpUrl] = Field(default_factory=list, description="List of URLs to extract content from (maximum 3)")
     source_pdf_path: Optional[str] = None # Assuming a path if a PDF is uploaded
     custom_prompt_for_outline: Optional[str] = None
+    custom_prompt_for_dialogue: Optional[str] = None
     prominent_persons: Optional[List[str]] = Field(default=None, description="List of prominent person names for targeted research.")
     desired_podcast_length: int = Field(default=5, description="Desired length of the podcast in minutes.")
     # Add other user inputs if needed
@@ -191,6 +192,77 @@ class PodcastGeneratorService:
             else:
                 logger.info("No prominent persons requested or no extracted text for persona research.")
 
+            # 4.5. Assign Invented Names and Genders to Personas
+            MALE_INVENTED_NAMES = ["Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Theodore"]
+            FEMALE_INVENTED_NAMES = ["Olivia", "Emma", "Charlotte", "Amelia", "Sophia", "Isabella", "Ava", "Mia", "Evelyn", "Luna"]
+            NEUTRAL_INVENTED_NAMES = ["Kai", "Rowan", "River", "Phoenix", "Sage", "Justice", "Remy", "Dakota", "Skyler", "Alexis"]
+            
+            persona_details_map: dict[str, dict[str, str]] = {}
+            # Ensure Host is always in the map
+            persona_details_map["Host"] = {
+                "invented_name": "Host",
+                "gender": "Male", # Default Host gender, can be made more dynamic
+                "real_name": "Host"
+            }
+
+            last_assigned_gender_index = -1 # -1 for Male, 0 for Female for personas to alternate
+            male_name_idx = 0
+            female_name_idx = 0
+            neutral_name_idx = 0
+
+            processed_persona_research_objects: List[PersonaResearch] = []
+            for pr_json_str in persona_research_docs_content:
+                try:
+                    pr_data = json.loads(pr_json_str)
+                    # Assuming PersonaResearch model can be instantiated from this dict
+                    # This helps if we need the full object later, not just the map
+                    processed_persona_research_objects.append(PersonaResearch(**pr_data))
+                    person_id = pr_data.get("person_id")
+                    real_name = pr_data.get("name", "Unknown Persona")
+
+                    if person_id:
+                        assigned_gender = ""
+                        invented_name = ""
+                        
+                        # Round-robin gender for personas (Male, Female, Male, Female...)
+                        # Host is already set, this applies to other personas
+                        if last_assigned_gender_index == -1: # Assign Male first to persona
+                            assigned_gender = "Male"
+                            last_assigned_gender_index = 0
+                            if male_name_idx < len(MALE_INVENTED_NAMES):
+                                invented_name = MALE_INVENTED_NAMES[male_name_idx]
+                                male_name_idx += 1
+                            else: # Cycle through names if list exhausted
+                                invented_name = MALE_INVENTED_NAMES[male_name_idx % len(MALE_INVENTED_NAMES)]
+                                male_name_idx += 1 
+                        elif last_assigned_gender_index == 0: # Assign Female
+                            assigned_gender = "Female"
+                            last_assigned_gender_index = -1 # Next will be male
+                            if female_name_idx < len(FEMALE_INVENTED_NAMES):
+                                invented_name = FEMALE_INVENTED_NAMES[female_name_idx]
+                                female_name_idx += 1
+                            else:
+                                invented_name = FEMALE_INVENTED_NAMES[female_name_idx % len(FEMALE_INVENTED_NAMES)]
+                                female_name_idx += 1
+                        
+                        # Fallback if name lists are empty or gender assignment is odd
+                        if not invented_name:
+                            invented_name = NEUTRAL_INVENTED_NAMES[neutral_name_idx % len(NEUTRAL_INVENTED_NAMES)]
+                            neutral_name_idx +=1
+                            if not assigned_gender: assigned_gender = "Neutral"
+
+                        persona_details_map[person_id] = {
+                            "invented_name": invented_name,
+                            "gender": assigned_gender,
+                            "real_name": real_name
+                        }
+                        logger.info(f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}', Gender='{assigned_gender}'")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
+                except Exception as e:
+                    logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
+            logger.info(f"Final persona_details_map: {persona_details_map}")
+
             # 5. LLM - Podcast Outline Generation
             podcast_outline_obj: Optional[PodcastOutline] = None
             if extracted_text: # Only proceed if we have text
@@ -204,7 +276,8 @@ class PodcastGeneratorService:
                         desired_podcast_length_str=desired_length_str,
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
-                        user_provided_custom_prompt=request_data.custom_prompt_for_outline
+                        user_provided_custom_prompt=request_data.custom_prompt_for_outline,
+                        persona_details_map=persona_details_map
                     )
                     if podcast_outline_obj:
                         logger.info("Podcast outline generated successfully.")
@@ -227,29 +300,18 @@ class PodcastGeneratorService:
             dialogue_turns_list: Optional[List[DialogueTurn]] = None
             if podcast_outline_obj and extracted_text:
                 try:
-                    # Construct prominent_persons_details for dialogue generation
-                    prominent_persons_details_for_dialogue: List[Tuple[str, str, str]] = []
-                    if request_data.prominent_persons:
-                        for name in request_data.prominent_persons:
-                            initial = name[0].upper() if name else "X"
-                            # TODO: Enhance gender assignment. For now, using 'neutral'.
-                            # This might need to come from PersonaResearch or user input for accurate TTS.
-                            # Consider a mapping if persona research provides gender, or default to 'neutral'.
-                            gender_for_tts = "neutral" # Placeholder
-                            # Example: if persona_research_map.get(name, {}).get('gender'): 
-                            # gender_for_tts = persona_research_map[name]['gender']
-                            prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
+                    # We already have the persona_details_map with invented names and gender
+                    # No need to build prominent_persons_details_for_dialogue anymore
                     
-                    # Convert podcast length from integer to string format for LLM
-                    desired_length_str = f"{request_data.desired_podcast_length} minutes"
+                    # Convert podcast length from integer to string format for LLM (though not needed now)
+                    # desired_length_str = f"{request_data.desired_podcast_length} minutes"
+                    
                     dialogue_turns_list = await self.llm_service.generate_dialogue_async(
-                        podcast_outline=podcast_outline_obj.model_dump_json(), # Pass outline as JSON string
-                        source_analyses=source_analyses_content,
+                        podcast_outline=podcast_outline_obj,  # Pass the actual object, not JSON string
+                        source_analyses=source_analyses_content, 
                         persona_research_docs=persona_research_docs_content,
-                        desired_podcast_length_str=desired_length_str,
-                        num_prominent_persons=len(prominent_persons_details_for_dialogue),
-                        prominent_persons_details=prominent_persons_details_for_dialogue,
-                        user_provided_custom_prompt=None # Assuming no custom prompt for dialogue for now
+                        persona_details_map=persona_details_map,
+                        user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
                     )
 
                     if dialogue_turns_list:
@@ -263,10 +325,19 @@ class PodcastGeneratorService:
                         logger.info(f"Dialogue turns saved to {llm_dialogue_turns_filepath}")
                         podcast_episode_data['llm_dialogue_turns_path'] = llm_dialogue_turns_filepath
                         
-                        # Construct transcript string from dialogue turns
+                        # Construct transcript string from dialogue turns using invented names
                         transcript_parts = []
                         for turn in dialogue_turns_list:
-                            transcript_parts.append(f"{turn.speaker_id}: {turn.text}")
+                            speaker_id = turn.speaker_id
+                            # Look up invented name from persona_details_map
+                            if speaker_id in persona_details_map and "invented_name" in persona_details_map[speaker_id]:
+                                speaker_display_name = persona_details_map[speaker_id]["invented_name"]
+                            else:
+                                # Fallback to raw speaker_id if not found (which shouldn't happen if setup correctly)
+                                logger.warning(f"No invented name found for speaker_id '{speaker_id}' in persona_details_map. Using raw ID.")
+                                speaker_display_name = speaker_id
+                                
+                            transcript_parts.append(f"{speaker_display_name}: {turn.text}")
                         podcast_transcript = "\n".join(transcript_parts)
                         logger.info("Transcript constructed from dialogue turns.")
                         podcast_episode_data['transcript'] = podcast_transcript

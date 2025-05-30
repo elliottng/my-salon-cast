@@ -36,3 +36,6 @@ terraform.rc
 
 # Google Cloud SDK (if vendored)
 mysaloncast/google-cloud-sdk/
+
+# Log files
+server.log

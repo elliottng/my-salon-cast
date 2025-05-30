@@ -615,6 +615,7 @@ Ensure the output is a single, valid JSON object only, with no additional text b
         desired_podcast_length_str: str,
         num_prominent_persons: int,
         names_prominent_persons_list: list[str],
+        persona_details_map: dict[str, dict[str, str]],
         user_provided_custom_prompt: str = None
     ) -> PodcastOutline:
         """
@@ -659,6 +660,31 @@ Ensure the output is a single, valid JSON object only, with no additional text b
                 formatted_persona_research_str_parts.append("No persona research documents provided.")
             input_formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
 
+            # Extract Persona IDs for the prompt
+            available_persona_ids_list = []
+            if persona_research_docs:
+                for doc_json_str in persona_research_docs:
+                    try:
+                        doc_data = json.loads(doc_json_str) # Assuming each doc is a JSON string of PersonaResearch
+                        if 'person_id' in doc_data:
+                            available_persona_ids_list.append(doc_data['person_id'])
+                    except json.JSONDecodeError:
+                        logger.warning(f"Could not parse PersonaResearch JSON string: {doc_json_str[:100]}...")
+            formatted_available_persona_ids_str = ", ".join(available_persona_ids_list) if available_persona_ids_list else "None available"
+
+            # Format Persona Details Map for the prompt
+            formatted_persona_details_str_parts = ["Persona Details (Mappings: Persona ID -> Invented Name, Real Name, Gender):"]
+            if persona_details_map:
+                for p_id, details in persona_details_map.items():
+                    if p_id == "Host": # Skip host for this specific list, it's handled as a generic speaker
+                        continue
+                    formatted_persona_details_str_parts.append(
+                        f"- Persona ID: '{p_id}' represents '{details.get('real_name', 'N/A')}' (Invented Name: '{details.get('invented_name', 'N/A')}', Gender: '{details.get('gender', 'N/A')}')"
+                    )
+            if len(formatted_persona_details_str_parts) == 1: # Only title was added
+                formatted_persona_details_str_parts.append("No specific persona details provided beyond Host.")
+            input_formatted_persona_details_str = "\n".join(formatted_persona_details_str_parts)
+
             # Format Names of Prominent Persons for PRD prompt
             formatted_names_prominent_persons_str: str
             if names_prominent_persons_list:
@@ -666,15 +692,15 @@ Ensure the output is a single, valid JSON object only, with no additional text b
             else:
                 formatted_names_prominent_persons_str = "None"
 
-            # PRD 4.2.4 Prompt Template, simplified for V1 to use a single segment
-            prd_outline_prompt_template = """LLM Prompt: Simplified Podcast Outline Generation
-Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative podcast outline based on the provided materials.
+            # PRD 4.2.4 Prompt Template, MODIFIED for Multi-Segment Outline
+            prd_outline_prompt_template = """LLM Prompt: Multi-Segment Podcast Outline Generation
+Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative multi-segment podcast outline based on the provided materials.
 
 Overall Podcast Goals:
 
 Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
-Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents.
-Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints.
+Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents. Each persona should have opportunities to speak.
+Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints across various segments.
 
 Inputs Provided to You:
 
@@ -687,29 +713,39 @@ Persona Research Documents:
 Desired Podcast Length: {input_desired_podcast_length_str}
 Number of Prominent Persons Specified: {input_num_prominent_persons}
 Names of Prominent People Specified: {input_formatted_names_prominent_persons_str}
+Available Persona IDs (from Persona Research Documents, if any): {input_formatted_available_persona_ids_str}
+Generic Speaker IDs available: "Host" (Invented Name: "Host", Gender: [Host's gender from persona_details_map]), "Narrator" (Typically neutral or assigned as needed)
 
-Task: Generate a Simplified Podcast Outline
+Persona Details:
+{input_formatted_persona_details_str}
 
-Create a comprehensive outline for the entire podcast as a single segment. This outline will serve as the blueprint for the subsequent dialogue writing step.
+Task: Generate a Multi-Segment Podcast Outline
+
+Create a detailed, multi-segment outline for the entire podcast. This outline will serve as the blueprint for the subsequent dialogue writing step. The podcast should be divided into logical segments, each with a clear purpose and speaker focus.
 
 Outline Structure Guidelines:
 
-Your outline should have a natural flow and include these elements:
-- Opening Hook: A compelling question or statement to grab the listener's attention
-- Topic Overview: Brief introduction of the main subject(s) to be discussed
-- Speaker Introduction: Introduce any specified prominent persons, or plan for a "Host" and an "Analyst/Expert"
-- Main Discussion: Cover key themes, facts, and perspectives from the source materials
-- Persona Integration: If prominent persons are specified, include how each will present their perspective
-- Points of Agreement/Conflict: Note where viewpoints align or conflict on important topics
-- Key Evidence: Note important facts or quotes that should be referenced
-- Conclusion: Summarize key takeaways and allow for final thoughts from each persona if applicable
+Your outline must break the podcast into several distinct segments. Each segment should contribute to the overall flow and goals. Consider segments for:
+- Introduction/Opening Hook
+- Topic Overview & Speaker Introductions: The 'Host' must introduce any personas speaking in a segment using their 'Invented Name' and clarifying which 'Real Name' they represent. For example: 'Host: Now, let's hear from Jarvis, an expert representing John Doe on this topic.' This should happen when a persona is first introduced or takes a significant speaking turn in a new context.
+- Deep Dive into Theme 1 (Potentially featuring specific personas)
+- Deep Dive into Theme 2 (Potentially featuring other personas or a debate)
+- Points of Agreement/Conflict
+- Conclusion/Summary
+
+For each segment, you must specify:
+- A unique `segment_id` (e.g., "seg_01_intro", "seg_02_theme1_johndoe").
+- A concise `segment_title`.
+- A `speaker_id` indicating the primary speaker or focus for that segment. This MUST be one of the Available Persona IDs (e.g., "persona_john_doe") or one of the Generic Speaker IDs ("Host", "Narrator").
+- A detailed `content_cue` describing the topics, key points, questions, and discussion flow for that segment.
+- An `estimated_duration_seconds` for the segment. The sum of these durations should approximate the total desired podcast length.
 
 Guiding Principles for Outline Content:
 
 Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
-Authentic Persona Representation: When personas are used, their contributions should be consistent with their researched views and styles, as detailed in their persona research documents.
+Authentic Persona Representation: When a persona's `speaker_id` is used, their contributions (guided by the `content_cue`) should align with their researched views.
 Natural and Engaging Flow: The podcast should feel conversational and engaging throughout.
-Length Adherence: Ensure the outline can be reasonably covered within the target podcast length (approx. 150 words per minute of dialogue).
+Length Adherence: Distribute content appropriately across segments to meet the target podcast length (approx. 150 words per minute of dialogue).
 
 Output Format:
 
@@ -718,18 +754,27 @@ The JSON object must conform to the following structure:
 {{
   "title_suggestion": "string (Suggested title for the podcast episode)",
   "summary_suggestion": "string (Suggested brief summary for the podcast episode)",
-  "segments": [
+  "segments": [ // THIS MUST BE A LIST OF SEGMENT OBJECTS
     {{
-      "segment_id": "full_podcast",
-      "segment_title": "Complete Podcast",
-      "speaker_id": "Host",
-      "content_cue": "string (A comprehensive outline covering the entire podcast content)",
-      "estimated_duration_seconds": integer (The full podcast duration in seconds)
+      "segment_id": "string (Unique ID for this segment, e.g., seg_01_intro)",
+      "segment_title": "string (Title for this segment, e.g., Introduction to Topic X)",
+      "speaker_id": "string (Identifier for the primary speaker/focus, e.g., 'Host', 'persona_john_doe')",
+      "content_cue": "string (Detailed outline of content for this segment, including key points, questions, and flow)",
+      "estimated_duration_seconds": integer (Estimated duration of this segment in seconds)
+    }},
+    {{
+      "segment_id": "string (e.g., seg_02_deepdive)",
+      "segment_title": "string (e.g., Exploring Viewpoint A)",
+      "speaker_id": "string (e.g., 'persona_jane_smith')",
+      "content_cue": "string (Details for segment 2...)",
+      "estimated_duration_seconds": integer
     }}
+    // ... more segments as needed ...
   ]
 }}
 
-Ensure all string fields are properly escaped within the JSON. The 'content_cue' field should be detailed and provide a complete outline of the podcast content.
+Ensure all string fields are properly escaped within the JSON. The 'segments' array should contain multiple segment objects, each detailing a part of the podcast.
+The `speaker_id` in each segment MUST be chosen from the persona IDs provided in the 'Persona Research Documents' (use their 'person_id' field) or be 'Host' or 'Narrator'.
 """
             logger.debug(f"PRD Outline Template Before Formatting:\n{prd_outline_prompt_template}")
             logger.debug(f"Outline Formatting Args - input_formatted_source_analyses_str (type {type(input_formatted_source_analyses_str)}): {input_formatted_source_analyses_str[:200]}...")
@@ -742,7 +787,9 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
                 input_formatted_persona_research_str=input_formatted_persona_research_str,
                 input_desired_podcast_length_str=desired_podcast_length_str,
                 input_num_prominent_persons=num_prominent_persons,
-                input_formatted_names_prominent_persons_str=formatted_names_prominent_persons_str
+                input_formatted_names_prominent_persons_str=formatted_names_prominent_persons_str,
+                input_formatted_available_persona_ids_str=formatted_available_persona_ids_str,
+                input_formatted_persona_details_str=input_formatted_persona_details_str
             )
             logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
 
@@ -791,10 +838,8 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
         podcast_outline: PodcastOutline,
         source_analyses: list[SourceAnalysis],
         persona_research_docs: list[PersonaResearch],
-        desired_podcast_length_str: str,
-        num_prominent_persons: int,
-        prominent_persons_details: list[tuple[str, str, str]], # (prominent_person_name, follower_name_initial, follower_system_assigned_gender)
-        user_provided_custom_prompt: Optional[str] = None
+        persona_details_map: dict[str, dict[str, str]], # (person_id -> {invented_name, gender, real_name})
+        user_custom_prompt_for_dialogue: str = None
     ) -> List[DialogueTurn]:
         """
         Generates dialogue for a podcast episode based on an outline, source analyses,
@@ -806,20 +851,22 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
         """
         logger.info(f"Generating dialogue for podcast outline '{podcast_outline.title_suggestion}' with {len(podcast_outline.segments)} segments")
         
-        # Convert prominent persons details to a more usable format
-        persona_mapping = {}
-        gender_mapping = {}
-        for name, follower_initial, gender in prominent_persons_details:
-            persona_id = f"Persona_{follower_initial}"
-            persona_mapping[persona_id] = name
-            gender_mapping[persona_id] = gender
+        # persona_details_map now directly provides person_id -> {invented_name, gender, real_name}
+        # The speaker_id in OutlineSegment IS the person_id from PersonaResearch.
+        # Generic speakers like "Host", "Narrator" are also expected to be in persona_details_map or handled as fixed entities.
+
+        # Construct a string listing available persona speakers for the prompt, using their invented names.
+        available_persona_speakers_list = []
+        for p_id, details in persona_details_map.items():
+            if p_id.lower() not in ["host", "narrator"]: # Exclude generic roles from this specific list if they are not personas
+                invented_name = details.get("invented_name", p_id)
+                real_name = details.get("real_name", "Unknown")
+                available_persona_speakers_list.append(f"{invented_name} (representing {real_name}, ID: {p_id})")
         
-        # Add host gender mapping if not already included
-        if "Host" not in gender_mapping:
-            # Assign host a gender opposite to the first persona if any exist, otherwise default to "Male"
-            host_gender = "Female" if gender_mapping and list(gender_mapping.values())[0] == "Male" else "Male"
-            gender_mapping["Host"] = host_gender
-        
+        available_persona_speakers_str = ", ".join(available_persona_speakers_list) if available_persona_speakers_list else "No specific personas assigned invented names for dialogue."
+        logger.info(f"Available persona speakers for dialogue prompt: {available_persona_speakers_str}")
+        logger.info(f"Full persona_details_map for dialogue: {persona_details_map}")
+
         # Process each segment and generate dialogue turns
         all_dialogue_turns = []
         current_turn_id = 1
@@ -837,8 +884,8 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
                     podcast_outline=podcast_outline,
                     source_analyses=source_analyses,
                     persona_research_docs=persona_research_docs,
-                    persona_mapping=persona_mapping,
-                    user_provided_custom_prompt=user_provided_custom_prompt
+                    persona_details_map=persona_details_map,
+                    user_provided_custom_prompt=user_custom_prompt_for_dialogue
                 )
                 
                 # Generate dialogue for this segment
@@ -846,7 +893,7 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
                     segment=segment,
                     segment_dialogue_prompt=segment_dialogue_prompt,
                     current_turn_id=current_turn_id,
-                    gender_mapping=gender_mapping
+                    persona_details_map=persona_details_map
                 )
                 
                 # Update current_turn_id for the next segment
@@ -860,7 +907,7 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
                     fallback_turn = DialogueTurn(
                         turn_id=current_turn_id,
                         speaker_id="Host",
-                        speaker_gender=gender_mapping.get("Host", "Male"),
+                        speaker_gender=persona_details_map.get("Host", {}).get("gender", "male"),
                         text=f"Let's talk about {segment.content_cue}",
                         source_mentions=[]
                     )
@@ -880,25 +927,45 @@ Ensure all string fields are properly escaped within the JSON. The 'content_cue'
                                      podcast_outline: PodcastOutline,
                                      source_analyses: list[SourceAnalysis],
                                      persona_research_docs: list[PersonaResearch],
-                                     persona_mapping: dict,
+                                     persona_details_map: dict[str, dict[str, str]],
                                      user_provided_custom_prompt: Optional[str] = None) -> str:
         """
         Build a prompt for generating dialogue specific to a segment of the podcast outline.
         """
         # Get basic podcast information for context
         podcast_title = podcast_outline.title_suggestion
-        segment_context = f"Segment ID: {segment.segment_id}\nTitle: {segment.segment_title}\nSpeaker: {segment.speaker_id}\nContent: {segment.content_cue}\nDuration: {segment.estimated_duration_seconds} seconds"
+        speaker_id_from_segment = segment.speaker_id
+        speaker_details = persona_details_map.get(speaker_id_from_segment, {})
+        invented_name = speaker_details.get("invented_name", speaker_id_from_segment)
+        real_name_of_speaker = speaker_details.get("real_name", "Unknown")
+
+        segment_context = f"Segment ID: {segment.segment_id}\nTitle: {segment.segment_title}\nSpeaker (Invented Name): {invented_name} (ID: {speaker_id_from_segment}, representing views of: {real_name_of_speaker})\nContent: {segment.content_cue}\nDuration: {segment.estimated_duration_seconds} seconds"
         
         # Determine which persona research is relevant for this segment's speaker
         relevant_persona_research = None
-        if segment.speaker_id.startswith("Persona_") and persona_mapping:
-            persona_name = persona_mapping.get(segment.speaker_id)
-            if persona_name:
-                # Find matching persona research
-                for pr in persona_research_docs:
-                    if pr.persona_name.lower() == persona_name.lower():
-                        relevant_persona_research = pr
+        if speaker_id_from_segment in persona_details_map and speaker_id_from_segment.lower() not in ["host", "narrator"]:
+            for pr_json_str in persona_research_docs: # persona_research_docs is a list of JSON strings
+                try:
+                    pr_data = json.loads(pr_json_str)
+                    if pr_data.get('person_id') == speaker_id_from_segment:
+                        # Create a PersonaResearch object from the JSON data for use in the prompt
+                        relevant_persona_research = PersonaResearch(**pr_data)
                         break
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse PersonaResearch JSON string in _build_segment_dialogue_prompt: {pr_json_str[:100]}...")
+                except Exception as e:
+                    logger.warning(f"Error processing persona research JSON: {e}")
+                    continue
+
+        # Build available speakers string for the prompt
+        available_speakers_parts = ["Available Speakers in this Podcast (Invented Name - Representing Real Name - Speaker ID):"]
+        for p_id, details in persona_details_map.items():
+            p_invented = details.get('invented_name', p_id)
+            p_real = details.get('real_name', 'N/A')
+            available_speakers_parts.append(f"- {p_invented} (representing {p_real}, ID: {p_id})")
+        if "Narrator" not in persona_details_map and "narrator" not in persona_details_map: # Add Narrator if not explicitly mapped
+                available_speakers_parts.append(f"- Narrator (ID: Narrator)")
+        available_speakers_prompt_str = "\n".join(available_speakers_parts)
         
         # Create the prompt template
         segment_prompt = f"""
@@ -913,9 +980,11 @@ Podcast Information:
 Current Segment Details:
 {segment_context}
 
+{available_speakers_prompt_str}
+
 Instructions:
 1. Write dialogue ONLY for this specific segment. The dialogue should directly address the content described in the segment's content cue.
-2. The primary speaker for this segment should be {segment.speaker_id}.
+2. The primary speaker for this segment should be {invented_name} (who is speaker ID: {speaker_id_from_segment}, representing the views of {real_name_of_speaker}). Ensure their dialogue reflects their role.
 3. Include appropriate responses or questions from other speakers as needed for natural conversation flow.
 4. The dialogue should take approximately {segment.estimated_duration_seconds} seconds to speak aloud (roughly {segment.estimated_duration_seconds // 2} words).
 5. Ensure the dialogue has a clear beginning and end appropriate for this segment's position in the overall podcast.
@@ -925,12 +994,11 @@ Instructions:
         if relevant_persona_research:
             segment_prompt += f"""
 
-Persona Information for {segment.speaker_id}:
-- Representing: {relevant_persona_research.persona_name}
-- Key Viewpoints: {relevant_persona_research.key_viewpoints}
-- Speaking Style: {relevant_persona_research.characteristic_speaking_style}
+Persona Information for {invented_name} (Speaker ID: {speaker_id_from_segment}):
+- Representing Views Of: {relevant_persona_research.name}
+- Detailed Profile: {relevant_persona_research.detailed_profile}
 
-Important: Ensure the dialogue for {segment.speaker_id} authentically reflects the viewpoints and speaking style of {relevant_persona_research.persona_name}.
+Important: Ensure the dialogue for {invented_name} (Speaker ID: {speaker_id_from_segment}) authentically reflects the viewpoints and speaking style described in the detailed profile.
 """
 
         # Add source guidance
@@ -952,13 +1020,13 @@ Reference these sources appropriately in the dialogue. Be factual and accurate t
 Output Format:
 Provide the dialogue as a JSON array of dialogue turn objects. Each object should have:
 - "turn_id": A sequential number starting from the provided current_turn_id
-- "speaker_id": The ID of the speaker (e.g., "Host", "Persona_J", etc.)
+- "speaker_id": The ID of the speaker (e.g., "Host", "john-doe", "narrator"). This MUST be the actual person_id or generic role ID.
 - "text": The spoken dialogue text
 - "source_mentions": An array of source reference strings (can be empty if no direct citations)
 
 Example format:
 [{"turn_id": 1, "speaker_id": "Host", "text": "Welcome to our discussion on...", "source_mentions": []},
- {"turn_id": 2, "speaker_id": "Persona_J", "text": "I believe that...", "source_mentions": ["Article: The Future of AI"]}]
+ {"turn_id": 2, "speaker_id": "john-doe", "text": "I believe that...", "source_mentions": ["Article: The Future of AI"]}]
 """
 
         # Add any user-provided custom instructions if present
@@ -975,7 +1043,7 @@ Additional User Instructions:
                                       segment: OutlineSegment,
                                       segment_dialogue_prompt: str,
                                       current_turn_id: int,
-                                      gender_mapping: dict) -> List[DialogueTurn]:
+                                      persona_details_map: dict[str, dict[str, str]]) -> List[DialogueTurn]:
         """
         Generate dialogue turns for a specific segment using the LLM.
         """
@@ -1011,8 +1079,22 @@ Additional User Instructions:
                 
                 # Add speaker gender if not present
                 if 'speaker_gender' not in item and 'speaker_id' in item:
-                    item['speaker_gender'] = gender_mapping.get(item['speaker_id'], 
-                                                              "Male" if i % 2 == 0 else "Female")
+                    speaker_id_from_llm = item['speaker_id']
+                    # Look up in persona_details_map
+                    speaker_info = persona_details_map.get(speaker_id_from_llm)
+                    if speaker_info and 'gender' in speaker_info:
+                        item['speaker_gender'] = speaker_info['gender']
+                    else:
+                        # Fallback if speaker_id not in map or gender not specified
+                        # For "Host" or "Narrator", if not in map, assign a default
+                        if speaker_id_from_llm.lower() == "host":
+                            item['speaker_gender'] = "Male"  # Default Host gender
+                        elif speaker_id_from_llm.lower() == "narrator":
+                            item['speaker_gender'] = "Neutral"  # Default Narrator gender
+                        else:
+                            # Fallback for any other unexpected speaker_id
+                            logger.warning(f"Speaker ID '{speaker_id_from_llm}' not found in persona_details_map or gender missing. Defaulting to 'neutral'.")
+                            item['speaker_gender'] = "neutral"
                 
                 # Create the dialogue turn
                 try:

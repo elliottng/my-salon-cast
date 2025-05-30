@@ -276,10 +276,13 @@ class TestPodcastGeneratorService:
                 assert episode.audio_filepath == "placeholder.mp3" # Check for hardcoded placeholder
 
     @pytest.mark.asyncio
-    async def test_generate_podcast_from_source_e2e_success(self, MockGoogleCloudTtsService, MockLLMService, mock_podcast_data, mock_podcast_models):
+    @patch('app.podcast_workflow.extract_content_from_url', new_callable=AsyncMock)
+    async def test_generate_podcast_from_source_e2e_success(self, mock_extract_url, MockGoogleCloudTtsService, MockLLMService, mock_podcast_data, mock_podcast_models):
         """Test a full successful run of generate_podcast_from_source with all mocks."""
         # 1. Setup Mocks
         self.setup_successful_mocks(mock_podcast_data, mock_podcast_models)
+        
+        mock_extract_url.return_value = mock_podcast_data["extracted_text"] # Mock successful extraction
         
         # Create a request with all required fields
         request = PodcastRequest(
@@ -329,6 +332,7 @@ class TestPodcastGeneratorService:
                 )
             
             # 6. Assertions - Service Method Calls
+            mock_extract_url.assert_called_once_with(str(request.source_urls[0]))
             self.service.llm_service.analyze_source_text_async.assert_called_once_with(mock_podcast_data["extracted_text"])
             self.service.llm_service.research_persona_async.assert_called_once_with(
                 source_text=mock_podcast_data["extracted_text"], 
@@ -350,7 +354,7 @@ class TestPodcastGeneratorService:
 
         assert episode.title == "Error"
         assert episode.summary == "Content Extraction Failed"
-        assert "Failed to extract content from URL: URL fetch failed" in episode.warnings
+        assert "Failed to extract content from URLs: Content extraction from URL http://example.com/badurl failed: URL fetch failed" in episode.warnings
         self.service.llm_service.analyze_source_text_async.assert_not_called()
 
     @pytest.mark.asyncio
@@ -360,7 +364,7 @@ class TestPodcastGeneratorService:
 
         assert episode.title == "Error"
         assert episode.summary == "No Source Provided"
-        assert "No source URL or PDF path provided." in episode.warnings
+        assert "No source URLs or PDF path provided." in episode.warnings
         self.service.llm_service.analyze_source_text_async.assert_not_called()
 
     # --- Tests for LLM Source Analysis --- 
@@ -393,10 +397,10 @@ class TestPodcastGeneratorService:
                 assert os.path.exists(expected_json_path)
                 with open(expected_json_path, 'r') as f:
                     saved_data = json.load(f)
-                # Assert that all items in saved_data (from Pydantic model) are present and correct in llm_analysis_response (raw mock)
+                # Assert that all items in saved_data (from Pydantic model) are present and correct in source_analysis_result (raw mock)
                 for key, value in saved_data.items():
-                    assert key in llm_analysis_response, f"Key '{key}' from saved_data not found in llm_analysis_response"
-                    assert llm_analysis_response[key] == value, f"Value for key '{key}' does not match between saved_data and llm_analysis_response"
+                    assert key in source_analysis_result, f"Key '{key}' from saved_data not found in source_analysis_result"
+                    assert source_analysis_result[key] == value, f"Value for key '{key}' does not match between saved_data and source_analysis_result"
                 # Optionally, assert that all *required* fields of SourceAnalysis are present in saved_data
                 # This is implicitly handled by Pydantic validation if the model was created successfully.
                 # However, to be explicit about what we expect to be saved:
