@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, HttpUrl, Field, ValidationError
 from typing import List, Optional, Any # Added Any for potential complex inputs
 
 # --- Pydantic Models for Workflow Data ---
@@ -145,27 +145,27 @@ class PodcastGeneratorService:
             # 3. LLM - Source Analysis
             source_analysis_obj: Optional[SourceAnalysis] = None
             try:
-                analysis_dict = await self.llm_service.analyze_source_text_async(extracted_text)
-                if analysis_dict and "error" not in analysis_dict:
-                    try:
-                        source_analysis_obj = SourceAnalysis(**analysis_dict)
-                        logger.info("Source analysis successful and parsed.")
-                        source_analyses_content.append(source_analysis_obj.model_dump_json())
-                        llm_source_analysis_filepath = os.path.join(tmpdir_path, "source_analysis.json")
-                        with open(llm_source_analysis_filepath, 'w') as f:
-                            json.dump(source_analysis_obj.model_dump(), f, indent=2)
-                        logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
-                        llm_source_analysis_filepaths.append(llm_source_analysis_filepath)
-                    except Exception as p_error:
-                        logger.error(f"Failed to parse LLM analysis into SourceAnalysis: {p_error}")
-                        warnings_list.append(f"Source analysis parsing failed: {p_error}")
-                elif analysis_dict and "error" in analysis_dict:
-                    logger.error(f"LLM source analysis failed: {analysis_dict.get('error')}")
-                    warnings_list.append(f"LLM source analysis error: {analysis_dict.get('error')}")
+                # llm_service.analyze_source_text_async now returns a SourceAnalysis object directly or raises an error
+                source_analysis_obj = await self.llm_service.analyze_source_text_async(extracted_text)
+                if source_analysis_obj:
+                    logger.info("Source analysis successful.")
+                    source_analyses_content.append(source_analysis_obj.model_dump_json()) # For LLM input
+                    llm_source_analysis_filepath = os.path.join(tmpdir_path, "source_analysis.json")
+                    with open(llm_source_analysis_filepath, 'w') as f:
+                        json.dump(source_analysis_obj.model_dump(), f, indent=2) # Save the model dump
+                    logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
+                    llm_source_analysis_filepaths.append(llm_source_analysis_filepath)
                 else:
-                    logger.error("LLM source analysis returned no data.")
+                    # This case should ideally not be reached if analyze_source_text_async raises an error on failure
+                    logger.error("LLM source analysis returned no data (or None unexpectedly).")
                     warnings_list.append("LLM source analysis returned no data.")
-            except Exception as e:
+            except LLMProcessingError as llm_e: # Catch specific LLM errors from the service
+                logger.error(f"LLM processing error during source analysis: {llm_e}")
+                warnings_list.append(f"LLM source analysis failed: {llm_e}")
+            except ValidationError as val_e: # Catch Pydantic validation errors if they occur here
+                logger.error(f"Validation error during source analysis processing: {val_e}")
+                warnings_list.append(f"Source analysis validation failed: {val_e}")
+            except Exception as e: # Catch any other unexpected errors
                 logger.error(f"Error during source analysis: {e}")
                 warnings_list.append(f"Critical error during source analysis: {e}")
 
@@ -276,8 +276,8 @@ class PodcastGeneratorService:
                         desired_podcast_length_str=desired_length_str,
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
-                        user_provided_custom_prompt=request_data.custom_prompt_for_outline,
-                        persona_details_map=persona_details_map
+                        persona_details_map=persona_details_map,
+                        user_provided_custom_prompt=request_data.custom_prompt_for_outline
                     )
                     if podcast_outline_obj:
                         logger.info("Podcast outline generated successfully.")

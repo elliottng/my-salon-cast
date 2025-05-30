@@ -5,16 +5,17 @@ import os
 import tempfile
 import sys
 from typing import List, Optional, Any, Tuple
+from pydantic import ValidationError
 
 # Add the project root to the Python path so we can import modules correctly
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Now we can import from app directly
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel
-from app.common_exceptions import LLMProcessingError, ExtractionError
-from app.content_extraction import extract_content_from_url, extract_text_from_pdf_path
-from app.llm_service import GeminiService
-from app.tts_service import GoogleCloudTtsService
+from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel
+from .common_exceptions import LLMProcessingError, ExtractionError
+from .content_extractor import extract_content_from_url, extract_text_from_pdf_path
+from .llm_service import GeminiService
+from .tts_service import GoogleCloudTtsService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -27,6 +28,9 @@ class PodcastRequest(BaseModel):
     prominent_persons: Optional[List[str]] = None
     desired_podcast_length_str: Optional[str] = None
     custom_prompt_for_outline: Optional[str] = None
+    host_invented_name: Optional[str] = None # Added for host persona customization
+    host_gender: Optional[str] = None # Added for host persona customization
+    custom_prompt_for_dialogue: Optional[str] = None # Added for dialogue generation customization
 
 class PodcastGeneratorService:
     def __init__(self):
@@ -158,44 +162,32 @@ class PodcastGeneratorService:
             
             # 3. LLM - Source Analysis
             logger.info("STEP: Starting Source Analysis...")
-            source_analysis_obj: Optional[SourceAnalysis] = None # Keep for potential use
+            source_analysis_obj: Optional[SourceAnalysis] = None
             try:
                 logger.info("STEP: Attempting LLM Source Analysis...")
-                analysis_json_str = await self.llm_service.analyze_source_text_async(extracted_text)
+                # llm_service.analyze_source_text_async now returns a SourceAnalysis object directly or raises an error
+                source_analysis_obj = await self.llm_service.analyze_source_text_async(extracted_text)
                 
-                if not analysis_json_str: # Check if the LLM returned an empty string
-                    logger.warning("LLM source analysis returned an empty string.")
-                    warnings_list.append("LLM source analysis returned an empty string.")
+                if source_analysis_obj:
+                    logger.info("Source analysis successful.")
+                    source_analyses_content.append(source_analysis_obj.model_dump_json()) # For LLM input
+                    llm_source_analysis_filepath = os.path.join(tmpdir_path, "source_analysis.json")
+                    with open(llm_source_analysis_filepath, 'w') as f:
+                        json.dump(source_analysis_obj.model_dump(), f, indent=2) # Save the model dump
+                    logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
+                    logger.info(f"STEP: Source Analysis object created successfully: {source_analysis_obj is not None}")
                 else:
-                    try:
-                        # Attempt to parse the JSON string from LLM
-                        parsed_analysis_data = json.loads(analysis_json_str)
+                    # This case should ideally not be reached if analyze_source_text_async raises an error on failure or returns None
+                    logger.error("LLM source analysis returned no data (or None unexpectedly).")
+                    warnings_list.append("LLM source analysis returned no data.")
 
-                        # Attempt to create SourceAnalysis object using Pydantic model
-                        # Pydantic will raise ValidationError if data doesn't match schema
-                        source_analysis_obj_parsed = SourceAnalysis(**parsed_analysis_data)
-                        
-                        logger.info("Source analysis successful and parsed into SourceAnalysis object.")
-                        source_analyses_content.append(source_analysis_obj_parsed.model_dump_json())
-                        llm_source_analysis_filepath = os.path.join(tmpdir_path, "source_analysis.json")
-                        with open(llm_source_analysis_filepath, 'w') as f:
-                            json.dump(source_analysis_obj_parsed.model_dump(), f, indent=2)
-                        logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
-                        source_analysis_obj = source_analysis_obj_parsed # Assign to the variable in the broader scope
-                        logger.info(f"STEP: Source Analysis object created successfully: {source_analysis_obj is not None}")
-
-                    except json.JSONDecodeError as jd_error:
-                        logger.error(f"Failed to decode LLM source analysis JSON: {jd_error}. Raw LLM response (first 200 chars): '{analysis_json_str[:200]}'")
-                        warnings_list.append(f"Source analysis JSON decoding failed: {jd_error}")
-                        logger.error("STEP: LLM Source Analysis JSON decoding FAILED.")
-                    except ValidationError as val_error: # Specifically catch Pydantic validation errors
-                        logger.error(f"LLM source analysis data failed Pydantic validation: {val_error}. Data: {parsed_analysis_data if 'parsed_analysis_data' in locals() else 'N/A'}")
-                        warnings_list.append(f"Source analysis data validation failed: {val_error}")
-                        logger.error("STEP: LLM Source Analysis Pydantic validation FAILED.")
-                    except Exception as e_parse: # Catch any other unexpected errors during processing
-                        logger.error(f"Unexpected error processing LLM source analysis: {e_parse}. Raw LLM response (first 200 chars): '{analysis_json_str[:200]}'")
-                        warnings_list.append(f"Unexpected error processing source analysis: {e_parse}")
-            except Exception as e:
+            except LLMProcessingError as llm_e: # Catch specific LLM errors from the service
+                logger.error(f"LLM processing error during source analysis: {llm_e}")
+                warnings_list.append(f"LLM source analysis failed: {llm_e}")
+            except ValidationError as val_e: # Catch Pydantic validation errors (e.g., if service returns malformed data that passes initial parsing but fails model validation)
+                logger.error(f"Validation error during source analysis processing: {val_e}")
+                warnings_list.append(f"Source analysis validation failed: {val_e}")
+            except Exception as e: # Catch any other unexpected errors
                 logger.error(f"Error during source analysis: {e}", exc_info=True)
                 warnings_list.append(f"Critical error during source analysis: {e}")
 
@@ -232,7 +224,62 @@ class PodcastGeneratorService:
             else:
                 logger.info("No prominent persons requested or no extracted text for persona research.")
 
-            logger.info(f"STEP: Persona Research complete. Found {len(persona_research_objects)} personas.")
+            logger.info(f"STEP: Persona Research complete. Found {len(persona_research_docs_content)} personas researched.")
+
+            # 4.5. Assign Invented Names and Genders to Personas (mirroring podcast_workflow.py)
+            logger.info("STEP: Assigning invented names and genders to personas...")
+            persona_details_map: dict[str, dict[str, str]] = {}
+            # Ensure Host is always in the map with a default or assigned invented name/gender
+            persona_details_map["Host"] = {
+                "invented_name": request_data.host_invented_name or "Alex",
+                "gender": request_data.host_gender or "neutral",
+                "real_name": "Host"
+            }
+
+            MALE_INVENTED_NAMES = ["Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Theodore"]
+            FEMALE_INVENTED_NAMES = ["Olivia", "Emma", "Charlotte", "Amelia", "Sophia", "Isabella", "Ava", "Mia", "Evelyn", "Luna"]
+            NEUTRAL_INVENTED_NAMES = ["Kai", "Rowan", "River", "Phoenix", "Sage", "Justice", "Remy", "Dakota", "Skyler", "Alexis"]
+            used_male_names = set()
+            used_female_names = set()
+            used_neutral_names = set()
+
+            for idx, pr_json_str in enumerate(persona_research_docs_content):
+                try:
+                    pr_data = json.loads(pr_json_str)
+                    persona_research_obj_temp = PersonaResearch(**pr_data)
+                    person_id = persona_research_obj_temp.person_id
+                    real_name = persona_research_obj_temp.name
+                    # Defaulting gender as current PersonaResearch model has no 'attributes' field for gender
+                    assigned_gender = "neutral"
+                    
+                    invented_name = "Unknown Person"
+                    if assigned_gender == "male":
+                        available_names = [name for name in MALE_INVENTED_NAMES if name not in used_male_names]
+                        if not available_names: available_names = MALE_INVENTED_NAMES # fallback if all used
+                        invented_name = available_names[idx % len(available_names)]
+                        used_male_names.add(invented_name)
+                    elif assigned_gender == "female":
+                        available_names = [name for name in FEMALE_INVENTED_NAMES if name not in used_female_names]
+                        if not available_names: available_names = FEMALE_INVENTED_NAMES
+                        invented_name = available_names[idx % len(available_names)]
+                        used_female_names.add(invented_name)
+                    else: # neutral or unknown
+                        available_names = [name for name in NEUTRAL_INVENTED_NAMES if name not in used_neutral_names]
+                        if not available_names: available_names = NEUTRAL_INVENTED_NAMES
+                        invented_name = available_names[idx % len(available_names)]
+                        used_neutral_names.add(invented_name)
+
+                    persona_details_map[person_id] = {
+                        "invented_name": invented_name,
+                        "gender": assigned_gender,
+                        "real_name": real_name
+                    }
+                    logger.info(f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}', Gender='{assigned_gender}'")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
+                except Exception as e:
+                    logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
+            logger.info(f"Final persona_details_map: {persona_details_map}")
             
             # 5. LLM - Podcast Outline Generation
             logger.info("STEP: Starting Podcast Outline Generation...")
@@ -241,12 +288,16 @@ class PodcastGeneratorService:
                 try:
                     logger.info("STEP: Attempting LLM Podcast Outline Generation...")
                     num_persons = len(request_data.prominent_persons) if request_data.prominent_persons else 0
+                    # Use desired_podcast_length_str directly from request_data as PodcastRequest model defines it as such
+                    desired_length_str = request_data.desired_podcast_length_str
+
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
                         source_analyses=source_analyses_content, 
                         persona_research_docs=persona_research_docs_content,
-                        desired_podcast_length_str=request_data.desired_podcast_length_str or "5-7 minutes",
+                        desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
+                        persona_details_map=persona_details_map, # ADDED THIS ARGUMENT
                         user_provided_custom_prompt=request_data.custom_prompt_for_outline
                     )
                     if podcast_outline_obj:
@@ -281,14 +332,35 @@ class PodcastGeneratorService:
                             gender_for_tts = "neutral" # Default
                             prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
                     
+                    logger.info("STEP: Attempting LLM Dialogue Turns Generation...")
+
+                    # Convert JSON strings to Pydantic objects for generate_dialogue_async
+                    source_analysis_objects = []
+                    if source_analyses_content: # Should always be true if we reached here
+                        try:
+                            sa_data = json.loads(source_analyses_content[0]) # Expecting only one source analysis doc
+                            source_analysis_objects.append(SourceAnalysis(**sa_data))
+                        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+                            logger.error(f"Failed to parse source_analyses_content for dialogue generation: {e}", exc_info=True)
+                            warnings_list.append("Failed to process source analysis for dialogue generation.")
+                            # Potentially raise or handle error to prevent proceeding with bad data
+                    
+                    persona_research_objects_for_dialogue = []
+                    for pr_json_str in persona_research_docs_content:
+                        try:
+                            pr_data = json.loads(pr_json_str)
+                            persona_research_objects_for_dialogue.append(PersonaResearch(**pr_data))
+                        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+                            logger.error(f"Failed to parse a persona_research_doc for dialogue generation: {e}", exc_info=True)
+                            warnings_list.append("Failed to process one or more persona research docs for dialogue.")
+                            # Potentially skip this persona or handle error
+
                     dialogue_turns_list = await self.llm_service.generate_dialogue_async(
-                        podcast_outline=podcast_outline_obj.model_dump_json(),
-                        source_analyses=source_analyses_content,
-                        persona_research_docs=persona_research_docs_content,
-                        desired_podcast_length_str=request_data.desired_podcast_length_str or "5-7 minutes",
-                        num_prominent_persons=len(prominent_persons_details_for_dialogue),
-                        prominent_persons_details=prominent_persons_details_for_dialogue,
-                        user_provided_custom_prompt=None
+                        podcast_outline=podcast_outline_obj,
+                        source_analyses=source_analysis_objects, 
+                        persona_research_docs=persona_research_objects_for_dialogue,
+                        persona_details_map=persona_details_map,
+                        user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
                     )
 
                     if dialogue_turns_list:
@@ -411,24 +483,42 @@ class PodcastGeneratorService:
 
 # Example usage for testing
 async def main_workflow_test():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Configure logging if not already configured by the module-level basicConfig
+    # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger.info("Initializing PodcastGeneratorService for test run...")
     generator = PodcastGeneratorService()
+    
+    logger.info("Defining sample request data...")
     sample_request = PodcastRequest(
-        source_url="https://www.google.com/robots.txt", # Using Google's robots.txt as a stable small text file
-        prominent_persons=["Host"], # Just a single generic persona for testing
-        desired_podcast_length_str="1 minute"
+        source_url="https://www.britannica.com/event/Battle-of-Jutland",
+        prominent_persons=["Horatio Nelson", "Andrew Cunningham"],
+        desired_podcast_length_str="10 minutes"
     )
-    print("Starting podcast generation test...")
+    print(f"Starting podcast generation test with URL: {sample_request.source_url}, Persons: {sample_request.prominent_persons}, Length: {sample_request.desired_podcast_length_str}")
     try:
         episode = await generator.generate_podcast_from_source(sample_request)
-        print("--- Generated Episode ---")
-        print(episode.model_dump_json(indent=2))
+        print("\n--- Podcast Generation Test Complete ---")
+        print(f"Episode Title: {episode.title}")
+        print(f"Episode Summary: {episode.summary}")
+        print(f"Audio File Path: {episode.audio_filepath}")
+        if episode.warnings:
+            print("Warnings:")
+            for warning in episode.warnings:
+                print(f"  - {warning}")
+        else:
+            print("Warnings: None")
+        
+        print("\n--- Generated Transcript ---")
+        print(episode.transcript)
+        print("--- End of Transcript ---")
+
+        # The temporary directory path is logged by the generate_podcast_from_source method's finally block.
+        # Search for 'Temporary directory (NOT cleaned up)' in the logs.
+        print("\nIntermediate files (JSON, audio segments) are in the temporary directory logged above (search for 'podcast_job_').")
     except Exception as e:
         print(f"An error occurred during the test workflow: {e}")
         import traceback
         traceback.print_exc()
 
 if __name__ == "__main__":
-    # Run the test workflow
-    import asyncio
     asyncio.run(main_workflow_test())

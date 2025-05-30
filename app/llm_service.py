@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any, Union, Tuple
 import asyncio
 
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from google.api_core.exceptions import (
@@ -329,7 +330,7 @@ Ensure the output is a single, valid JSON object only, with no additional text b
         
             # Add a log to see what exactly is being passed to json.loads
             logger.debug(f"String to be parsed by json.loads for '{person_name}': '{json_response_str}'")
-            cleaned_response_text = self._clean_llm_json_response(json_response_str)
+            cleaned_response_text = self._clean_json_string_from_markdown(json_response_str)
             logger.debug(f"Cleaned persona research response: {cleaned_response_text[:200]}...")
             
             parsed_json = json.loads(cleaned_response_text)
