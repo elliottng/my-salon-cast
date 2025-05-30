@@ -294,19 +294,76 @@ class GeminiService:
         person_id = person_name.lower().replace(' ', '_').replace('.', '')
 
         prompt = f"""
-Given the following source text, conduct detailed persona research for the individual named: '{person_name}'.
+You are preparing {person_name} for a podcast appearance. Your work will contribute to a podcast aiming to be educational, entertaining, and to highlight viewpoint diversity by authentically representing {person_name}'s perspectives.
+
+IMPORTANT DISTINCTION:
+You have two separate tasks:
+1. First, establish a detailed profile of {person_name} based on general historical knowledge (not limited to the source text)
+2. Then, have this established persona analyze and engage with the specific topics in the source text
+3. When the source text contains topics with minimal obvious connection to {person_name}'s known interests:
+   - First identify the underlying principles, values, or frameworks that guided their thinking
+   - Then apply these fundamental principles to the new topic rather than inventing specific opinions
+   - Clearly indicate the level of confidence in your extrapolations (e.g., "Based on their views on X, they would likely approach Y by...")
+   - Focus on methodological similarities rather than speculating about specific technical details beyond their era
 
 Source Text:
 ---
 {source_text}
 ---
 
-Please provide your research as a JSON object with the following structure and fields:
+Please provide your research as a JSON object with the following structure:
 {{
   "person_id": "{person_id}",
   "name": "{person_name}",
-  "detailed_profile": "Provide a comprehensive textual profile of {person_name} based on the source text. This profile should synthesize their key viewpoints, opinions, or arguments. Also, describe their observed or inferred speaking style (e.g., 'analytical', 'passionate', 'cautious', 'storytelling'). Include any direct memorable quotes if they are prominent and illustrative of the persona. Combine all this information into a coherent narrative or summary string for this field."
+  "detailed_profile": "Your detailed profile should be organized into the following five distinct sections, each clearly labeled:
+
+  ### PART 1: PROFILE OF {person_name.upper()} (250 words)
+  Provide a concise biography highlighting their significance, background, key accomplishments, and historical context. This should be based on general historical knowledge, not limited to the source text. Include 1-2 authentic quotes if available with contextual explanation.
+
+  ### PART 2: CORE VIEWPOINTS AND BELIEFS (400 words)
+  Detail {person_name}'s most strongly held viewpoints, ideas, and opinions based on historical record and general knowledge. Focus on their fundamental principles, philosophical stance, and value system. Include both mainstream and controversial positions they advocated for. Preserve the authenticity of their perspectives even when they differ from contemporary views.
+
+  ### PART 3: TOPIC ANALYSIS FROM {person_name.upper()}'S PERSPECTIVE (1000 words)
+  First, identify 2-6 primary topics from the source text that {person_name} would find most compelling or contentious based on their background and beliefs. These should be topics where their perspective would be most distinctive or valuable.
+  
+  For each identified topic:
+  - Identify what aspect would interest or concern them most
+  - Explain what positions they would likely take based on their known principles
+  - Describe how they would frame arguments in support of these positions
+  - Address how they might handle counterarguments
+  
+  For topics with minimal connection to {person_name}'s known interests:
+  - Focus on how their fundamental values and thinking methods would apply
+  - Draw parallels between their known positions and the unfamiliar topic
+  - Identify aspects they would recognize as familiar despite the different context
+  - Be transparent about the degree of extrapolation required (e.g., \"While [topic] didn't exist in their time, their approach to [analogous issue] suggests...\")
+  
+  If the source topics emerged after their lifetime, extrapolate their views based on their established principles and thinking patterns.
+
+  ### PART 4: DEBATE PREPARATION AND ADVICE (250 words)
+  Provide specific strategies for {person_name} to effectively communicate their positions during a podcast discussion about the source material. Include:
+  - Compelling talking points they could use
+  - Potential questions they might pose to other speakers
+  - How to address likely challenges to their viewpoints
+  - Ways to leverage their unique expertise and perspective
+
+  ### PART 5: SPEAKING STYLE AND EXPRESSION (250 words)
+  Describe {person_name}'s observed or inferred communication style based on historical accounts. Include:
+  - Characteristic patterns in their rhetoric and argumentation
+  - Tone and emotional qualities of their speech
+  - Distinctive vocabulary, phrases, or sentence structures they favor
+  - 3-5 example sentence templates that capture their authentic voice
+  - How they engage with opponents or contrasting viewpoints
+
+  Format all five parts as a single cohesive document with clear section headings."
 }}
+
+Important guidelines:
+1. Parts 1, 2, and 5 should draw primarily from general historical knowledge about {person_name}, not from the source text.
+2. Parts 3 and 4 should have the established persona engage with the specific source text content.
+3. Present {person_name}'s authentic viewpoints and beliefs even if they differ from contemporary views or standards.
+4. Adhere closely to the word count guidelines for each section.
+5. Ensure all analysis is substantiated by known facts about {person_name} or reasonable extrapolation from their documented views.
 
 ⚠️ CRITICALLY IMPORTANT JSON FORMAT INSTRUCTIONS ⚠️ 
 Your output MUST be a single, valid JSON object only, with no additional text before or after the JSON. 
