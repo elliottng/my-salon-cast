@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Placeholder for the input data model to generate_podcast_from_source
 class PodcastRequest(BaseModel):
-    source_url: Optional[str] = None
+    source_urls: Optional[List[str]] = None  # Support for multiple source URLs
     source_pdf_path: Optional[str] = None
     prominent_persons: Optional[List[str]] = None
     desired_podcast_length_str: Optional[str] = None
@@ -31,6 +31,11 @@ class PodcastRequest(BaseModel):
     host_invented_name: Optional[str] = None # Added for host persona customization
     host_gender: Optional[str] = None # Added for host persona customization
     custom_prompt_for_dialogue: Optional[str] = None # Added for dialogue generation customization
+    
+    @property
+    def has_valid_sources(self) -> bool:
+        """Check if the request has at least one valid source."""
+        return (self.source_urls and len(self.source_urls) > 0) or (self.source_pdf_path is not None)
 
 class PodcastGeneratorService:
     def __init__(self):
@@ -129,34 +134,56 @@ class PodcastGeneratorService:
         logger.info(f"Created NON-CLEANING temporary directory for podcast job: {tmpdir_path}")
         
         try:
-            logger.info(f"STEP_ENTRY: generate_podcast_from_source for request_data.source_url: {request_data.source_url}, request_data.source_pdf_path: {request_data.source_pdf_path}")
+            logger.info(f"STEP_ENTRY: generate_podcast_from_source for request_data.source_urls: {request_data.source_urls}, request_data.source_pdf_path: {request_data.source_pdf_path}")
             
             # 2. Content Extraction
             logger.info("STEP: Starting Content Extraction...")
-            extracted_text: Optional[str] = None
-            if request_data.source_url:
-                try:
-                    extracted_text = await extract_content_from_url(str(request_data.source_url))
-                    logger.info(f"Successfully extracted text from URL: {request_data.source_url}")
-                except ExtractionError as e:
-                    logger.error(f"Content extraction from URL {request_data.source_url} failed: {e}")
-                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", source_attributions=[], warnings=[f"Failed to extract content from URL: {e}"])
-            elif request_data.source_pdf_path:
+            extracted_texts: List[str] = []
+            source_attributions: List[str] = []
+            
+            # Process multiple URLs if provided
+            if request_data.source_urls:
+                for url in request_data.source_urls:
+                    try:
+                        text = await extract_content_from_url(str(url))
+                        if text:
+                            extracted_texts.append(text)
+                            source_attributions.append(url)
+                            logger.info(f"Successfully extracted text from URL: {url}")
+                        else:
+                            logger.warning(f"Empty content extracted from URL: {url}")
+                    except ExtractionError as e:
+                        logger.error(f"Content extraction from URL {url} failed: {e}")
+                        warnings_list.append(f"Failed to extract content from URL {url}: {e}")
+            
+            # Process PDF if provided (as a fallback or additional source)
+            if request_data.source_pdf_path and not extracted_texts:  # Only use PDF if no URLs worked
                 try:
                     pdf_path_str = str(request_data.source_pdf_path)
-                    extracted_text = await extract_text_from_pdf_path(pdf_path_str)
-                    logger.info(f"Successfully extracted text from PDF path: {pdf_path_str}")
+                    text = await extract_text_from_pdf_path(pdf_path_str)
+                    if text:
+                        extracted_texts.append(text)
+                        source_attributions.append(pdf_path_str)
+                        logger.info(f"Successfully extracted text from PDF path: {pdf_path_str}")
+                    else:
+                        logger.warning(f"Empty content extracted from PDF: {pdf_path_str}")
                 except ExtractionError as e:
                     logger.error(f"Content extraction from PDF path {request_data.source_pdf_path} failed: {e}")
-                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", source_attributions=[], warnings=[f"Failed to extract content from PDF: {e}"])
+                    warnings_list.append(f"Failed to extract content from PDF: {e}")
+            
+            # Combine all extracted texts with source markers
+            combined_text = ""
+            if extracted_texts:
+                for i, text in enumerate(extracted_texts):
+                    source_marker = f"\n\n--- SOURCE {i+1}: {source_attributions[i]} ---\n\n"
+                    combined_text += source_marker + text
+                logger.info(f"Combined {len(extracted_texts)} sources into a single text for analysis.")
             else:
-                logger.warning("No source URL or PDF path provided for content extraction.")
-                return PodcastEpisode(title="Error", summary="No Source Provided", transcript="", audio_filepath="", source_attributions=[], warnings=["No source URL or PDF path provided."])
-
-            if not extracted_text:
-                logger.error("Content extraction resulted in empty text.")
-                logger.info("STEP: Exiting due to empty extracted text after content extraction attempt.")
-                return PodcastEpisode(title="Error", summary="Empty Content Extracted", transcript="", audio_filepath="", source_attributions=[], warnings=["Content extraction resulted in empty text."])
+                logger.warning("No content could be extracted from any sources.")
+                return PodcastEpisode(title="Error", summary="No Content Extracted", transcript="", audio_filepath="", 
+                                     source_attributions=[], warnings=["No content could be extracted from any sources."])
+                
+            extracted_text = combined_text  # Use the combined text for subsequent processing
 
             logger.info("STEP: Text extraction phase complete. Extracted text is present. Moving to Source Analysis.")
             
@@ -459,7 +486,7 @@ class PodcastGeneratorService:
                 summary=podcast_summary,
                 transcript=podcast_transcript,
                 audio_filepath=final_audio_filepath, 
-                source_attributions=[], # Placeholder - to be implemented from source_mentions in DialogueTurn
+                source_attributions=source_attributions,  # Now includes all source URLs
                 warnings=warnings_list,
                 llm_source_analysis_path=llm_source_analysis_filepath,
                 llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
@@ -479,7 +506,8 @@ class PodcastGeneratorService:
                 summary=f"A critical error occurred: {main_e}",
                 transcript="",
                 audio_filepath=final_audio_filepath, # Might still be placeholder
-                source_attributions=[str(request_data.source_url)] if request_data.source_url else ([str(request_data.source_pdf_path)] if request_data.source_pdf_path else []),
+                source_attributions=source_attributions if source_attributions else 
+                    ([str(request_data.source_pdf_path)] if request_data.source_pdf_path else []),
                 warnings=warnings_list
             )
         finally:
@@ -495,11 +523,15 @@ async def main_workflow_test():
     
     logger.info("Defining sample request data...")
     sample_request = PodcastRequest(
-        source_url="https://www.britannica.com/event/Battle-of-Jutland",
+        source_urls=[
+            "https://www.britannica.com/event/Battle-of-Jutland",
+            "https://en.wikipedia.org/wiki/Battle_of_Jutland",
+            "https://www.naval-history.net/WW1Battle1605Jutland1.htm"  # Third source for more detailed naval history
+        ],
         prominent_persons=["Horatio Nelson", "Andrew Cunningham"],
-        desired_podcast_length_str="10 minutes"
+        desired_podcast_length_str="30 minutes"
     )
-    print(f"Starting podcast generation test with URL: {sample_request.source_url}, Persons: {sample_request.prominent_persons}, Length: {sample_request.desired_podcast_length_str}")
+    print(f"Starting podcast generation test with URLs: {sample_request.source_urls}, Persons: {sample_request.prominent_persons}, Length: {sample_request.desired_podcast_length_str}")
     try:
         episode = await generator.generate_podcast_from_source(sample_request)
         print("\n--- Podcast Generation Test Complete ---")

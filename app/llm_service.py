@@ -82,7 +82,7 @@ class GeminiService:
             f"(Reason: {retry_state.outcome.exception()}). Attempt #{retry_state.attempt_number}"
         )
     )
-    async def generate_text_async(self, prompt: str, timeout_seconds: int = 120) -> str:
+    async def generate_text_async(self, prompt: str, timeout_seconds: int = 180) -> str:
         """
         Asynchronously generates text based on the given prompt using the configured Gemini model.
         
@@ -673,6 +673,11 @@ Ensure the output is a single, valid JSON object only, with no additional text b
                         logger.warning(f"Could not parse PersonaResearch JSON string: {doc_json_str[:100]}...")
             formatted_available_persona_ids_str = ", ".join(available_persona_ids_list) if available_persona_ids_list else "None available"
 
+            # Calculate total seconds from desired podcast length string
+            calculated_total_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
+            # Calculate target word count based on 150 words per minute
+            calculated_total_words = int(calculated_total_seconds / 60 * 150)
+
             # Format Persona Details Map for the prompt
             formatted_persona_details_str_parts = ["Persona Details (Mappings: Persona ID -> Invented Name, Real Name, Gender):"]
             if persona_details_map:
@@ -700,8 +705,8 @@ Role: You are an expert podcast script developer and debate moderator. Your prim
 Overall Podcast Goals:
 
 Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
-Explore Perspectives: If prominent persons are specified, the podcast must clearly articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents. Each persona should have opportunities to speak.
-Facilitate Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints across various segments.
+Explore Perspectives: If prominent persons are specified, the podcast must clearly and forcefully articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents. Each persona should have opportunities to speak.
+Facilitate Viewpoint Diversity and Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints across various segments.  If the personas have differing points of view, please find opportunities for a persona to directly respond to the other persona with counterarguments
 
 Inputs Provided to You:
 
@@ -712,6 +717,8 @@ Persona Research Documents:
 {input_formatted_persona_research_str}
 
 Desired Podcast Length: {input_desired_podcast_length_str}
+Total Podcast Duration (seconds): {calculated_total_seconds}
+Target Total Word Count: {calculated_total_words} words (based on 150 words per minute)
 Number of Prominent Persons Specified: {input_num_prominent_persons}
 Names of Prominent People Specified: {input_formatted_names_prominent_persons_str}
 Available Persona IDs (from Persona Research Documents, if any): {input_formatted_available_persona_ids_str}
@@ -739,16 +746,20 @@ For each segment, you must specify:
 - A concise `segment_title`.
 - A `speaker_id` indicating the primary speaker or focus for that segment. This MUST be one of the Available Persona IDs (e.g., "persona_john_doe") or one of the Generic Speaker IDs ("Host", "Narrator").
 - A detailed `content_cue` describing the topics, key points, questions, and discussion flow for that segment.
-- An `estimated_duration_seconds` for the segment. The sum of these durations should approximate the total desired podcast length.
+- A `target_word_count` for the segment's dialogue. This is the number of words you expect will be in the dialogue for this segment.
+- An `estimated_duration_seconds` for the segment, calculated as (target_word_count / 150 * 60). This means each word takes 0.4 seconds (60 / 150) on average.
 
 Guiding Principles for Outline Content:
 
 Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
 Authentic Persona Representation: When a persona's `speaker_id` is used, their contributions (guided by the `content_cue`) should align with their researched views.
 Natural and Engaging Flow: The podcast should feel conversational and engaging throughout.
-Length Adherence: Distribute content appropriately across segments to meet the target podcast length (approx. 150 words per minute of dialogue).
+Length Adherence: The sum of all segment 'target_word_count' values MUST EXACTLY EQUAL {calculated_total_words} words. This is a non-negotiable constraint. Distribute content appropriately across segments to meet this total word count.
 
 Output Format:
+
+⚠️ CRITICALLY IMPORTANT ⚠️
+You MUST include BOTH the "target_word_count" AND "estimated_duration_seconds" fields for EACH segment. This is a non-negotiable requirement.
 
 VERY IMPORTANT: You MUST output your response as a single, valid JSON object. Do NOT use markdown formatting around the JSON.
 The JSON object must conform to the following structure:
@@ -761,14 +772,16 @@ The JSON object must conform to the following structure:
       "segment_title": "string (Title for this segment, e.g., Introduction to Topic X)",
       "speaker_id": "string (Identifier for the primary speaker/focus, e.g., 'Host', 'persona_john_doe')",
       "content_cue": "string (Detailed outline of content for this segment, including key points, questions, and flow)",
-      "estimated_duration_seconds": integer (Estimated duration of this segment in seconds)
+      "target_word_count": integer (Target number of words for this segment's dialogue),
+      "estimated_duration_seconds": integer (Calculated as target_word_count / 150 * 60)
     }},
     {{
       "segment_id": "string (e.g., seg_02_deepdive)",
       "segment_title": "string (e.g., Exploring Viewpoint A)",
       "speaker_id": "string (e.g., 'persona_jane_smith')",
       "content_cue": "string (Details for segment 2...)",
-      "estimated_duration_seconds": integer
+      "target_word_count": integer (Target number of words for this segment),
+      "estimated_duration_seconds": integer (Calculated from target_word_count)
     }}
     // ... more segments as needed ...
   ]
@@ -790,7 +803,9 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
                 input_num_prominent_persons=num_prominent_persons,
                 input_formatted_names_prominent_persons_str=formatted_names_prominent_persons_str,
                 input_formatted_available_persona_ids_str=formatted_available_persona_ids_str,
-                input_formatted_persona_details_str=input_formatted_persona_details_str
+                input_formatted_persona_details_str=input_formatted_persona_details_str,
+                calculated_total_seconds=calculated_total_seconds,
+                calculated_total_words=calculated_total_words
             )
             logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
 

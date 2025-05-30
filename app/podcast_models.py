@@ -25,6 +25,7 @@ class OutlineSegment(BaseModel):
     segment_title: Optional[str] = Field(default=None, description="The title or topic of this podcast segment.")
     speaker_id: str = Field(..., description="Identifier for the speaker (e.g., 'Host', 'Persona_JohnDoe', 'Narrator').")
     content_cue: str = Field(..., description="A brief cue or summary of the content to be covered in this segment.")
+    target_word_count: Optional[int] = Field(default=None, description="Target number of words for this segment's dialogue.")
     estimated_duration_seconds: Optional[int] = Field(default=None, description="Estimated duration for this segment in seconds.")
 
 class DialogueTurn(BaseModel):
@@ -81,6 +82,8 @@ class PodcastOutline(BaseModel):
                 lines.append(f"### {i}. {segment.segment_title or 'Untitled Segment'} ({duration_min}:{duration_sec:02d})")
                 lines.append(f"**ID**: `{segment.segment_id}`")
                 lines.append(f"**Speaker**: {segment.speaker_id}")
+                if segment.target_word_count:
+                    lines.append(f"**Target Word Count**: {segment.target_word_count} words")
                 lines.append(f"**Duration**: {duration_min} min {duration_sec} sec ({segment.estimated_duration_seconds} seconds)")
                 lines.append(f"")
                 lines.append(f"**Content**:")
@@ -106,6 +109,8 @@ class PodcastOutline(BaseModel):
             lines.append(f"{i}. {segment.segment_title or 'Untitled Segment'} ({duration_min}:{duration_sec:02d})")
             lines.append(f"   ID: {segment.segment_id}")
             lines.append(f"   Speaker: {segment.speaker_id}")
+            if segment.target_word_count:
+                lines.append(f"   Target Word Count: {segment.target_word_count} words")
             lines.append(f"   Duration: {duration_min} min {duration_sec} sec ({segment.estimated_duration_seconds} seconds)")
             lines.append(f"   Content:")
             
