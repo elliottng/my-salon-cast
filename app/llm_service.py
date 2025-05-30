@@ -755,13 +755,15 @@ Educational Priority: The primary goal is to make complex information accessible
 Authentic Persona Representation: When a persona's `speaker_id` is used, their contributions (guided by the `content_cue`) should align with their researched views.
 Natural and Engaging Flow: The podcast should feel conversational and engaging throughout.
 Length Adherence: The sum of all segment 'target_word_count' values MUST EXACTLY EQUAL {calculated_total_words} words. This is a non-negotiable constraint. Distribute content appropriately across segments to meet this total word count.
-Detailed Content Cues: Each segment's content_cue MUST be comprehensive (at least 100-150 words) and specific, including: 
+⚠️ CRITICALLY IMPORTANT: DETAILED CONTENT CUES ⚠️
+Each segment's content_cue MUST be EXTREMELY comprehensive (MINIMUM 300 WORDS, NO EXCEPTIONS) and specific, including: 
    - Key talking points in detail
-   - Questions to be addressed
+   - Questions or controversies to be addressed
    - Specific facts or insights to include
+   - Important insights, theories, beliefs or arguments
    - Dialog flow and transitions
    - References to source material where relevant
-   The content_cue serves as a detailed blueprint for the segment and should be thorough enough that another writer could create the same segment based solely on your cue.
+   Content cues shorter than 300 words will be rejected as insufficient. The content_cue serves as a detailed blueprint for the segment and MUST be thorough enough that another writer could create the same segment based solely on your cue.
 
 Output Format:
 
@@ -778,7 +780,7 @@ The JSON object must conform to the following structure:
       "segment_id": "string (Unique ID for this segment, e.g., seg_01_intro)",
       "segment_title": "string (Title for this segment, e.g., Introduction to Topic X)",
       "speaker_id": "string (Identifier for the primary speaker/focus, e.g., 'Host', 'persona_john_doe')",
-      "content_cue": "string (MUST be comprehensive (100-150+ words) with detailed talking points, questions, specific facts, dialog flow, and source references)",
+      "content_cue": "string (MUST be MINIMUM 300 WORDS - NO EXCEPTIONS with detailed talking points, questions, specific facts, dialog flow, and source references)",
       "target_word_count": integer (Target number of words for this segment's dialogue),
       "estimated_duration_seconds": integer (Calculated as target_word_count / 150 * 60)
     }},
@@ -786,7 +788,7 @@ The JSON object must conform to the following structure:
       "segment_id": "string (e.g., seg_02_deepdive)",
       "segment_title": "string (e.g., Exploring Viewpoint A)",
       "speaker_id": "string (e.g., 'persona_jane_smith')",
-      "content_cue": "string (MUST be comprehensive (100-150+ words) with detailed talking points, questions, specific facts, dialog flow, and source references)",
+      "content_cue": "string (MUST be MINIMUM 300 WORDS - NO EXCEPTIONS with detailed talking points, questions, specific facts, dialog flow, and source references)",
       "target_word_count": integer (Target number of words for this segment),
       "estimated_duration_seconds": integer (Calculated from target_word_count)
     }}
