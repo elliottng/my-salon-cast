@@ -1,3 +1,4 @@
+import json
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -43,6 +44,79 @@ class PodcastOutline(BaseModel):
     title_suggestion: str = Field(..., description="Suggested title for the podcast episode.")
     summary_suggestion: str = Field(..., description="Suggested brief summary for the podcast episode.")
     segments: List[OutlineSegment] = Field(..., description="List of podcast segments in order.")
+    
+    def format_for_display(self, format_type: str = "text") -> str:
+        """
+        Format the podcast outline for display in various formats.
+        
+        Args:
+            format_type: The format to use ("text", "markdown", or "json")
+            
+        Returns:
+            A formatted string representation of the podcast outline
+        """
+        if format_type == "json":
+            return json.dumps(self.model_dump(), indent=2)
+            
+        # Calculate total duration
+        total_duration_seconds = sum(segment.estimated_duration_seconds or 0 for segment in self.segments)
+        total_minutes = total_duration_seconds // 60
+        total_seconds = total_duration_seconds % 60
+        
+        if format_type == "markdown":
+            lines = []
+            lines.append(f"# {self.title_suggestion}")
+            lines.append(f"")
+            lines.append(f"**Summary**: {self.summary_suggestion}")
+            lines.append(f"")
+            lines.append(f"**Total Duration**: {total_minutes} min {total_seconds} sec ({total_duration_seconds} seconds)")
+            lines.append(f"**Number of Segments**: {len(self.segments)}")
+            lines.append(f"")
+            lines.append(f"## Segments")
+            
+            for i, segment in enumerate(self.segments, 1):
+                duration_min = (segment.estimated_duration_seconds or 0) // 60
+                duration_sec = (segment.estimated_duration_seconds or 0) % 60
+                
+                lines.append(f"### {i}. {segment.segment_title or 'Untitled Segment'} ({duration_min}:{duration_sec:02d})")
+                lines.append(f"**ID**: `{segment.segment_id}`")
+                lines.append(f"**Speaker**: {segment.speaker_id}")
+                lines.append(f"**Duration**: {duration_min} min {duration_sec} sec ({segment.estimated_duration_seconds} seconds)")
+                lines.append(f"")
+                lines.append(f"**Content**:")
+                lines.append(f"{segment.content_cue}")
+                lines.append(f"")
+            
+            return "\n".join(lines)
+        
+        # Default to text format
+        lines = []
+        lines.append(f"Title: {self.title_suggestion}")
+        lines.append(f"Summary: {self.summary_suggestion}")
+        lines.append(f"Total Duration: {total_minutes} min {total_seconds} sec ({total_duration_seconds} seconds)")
+        lines.append(f"Number of Segments: {len(self.segments)}")
+        lines.append("")
+        lines.append("SEGMENTS:")
+        lines.append("-" * 80)
+        
+        for i, segment in enumerate(self.segments, 1):
+            duration_min = (segment.estimated_duration_seconds or 0) // 60
+            duration_sec = (segment.estimated_duration_seconds or 0) % 60
+            
+            lines.append(f"{i}. {segment.segment_title or 'Untitled Segment'} ({duration_min}:{duration_sec:02d})")
+            lines.append(f"   ID: {segment.segment_id}")
+            lines.append(f"   Speaker: {segment.speaker_id}")
+            lines.append(f"   Duration: {duration_min} min {duration_sec} sec ({segment.estimated_duration_seconds} seconds)")
+            lines.append(f"   Content:")
+            
+            # Indent content for readability
+            content_lines = segment.content_cue.split("\n")
+            for content_line in content_lines:
+                lines.append(f"     {content_line}")
+            
+            lines.append("-" * 80)
+        
+        return "\n".join(lines)
 
 
 class PodcastEpisode(BaseModel):

@@ -308,6 +308,11 @@ class PodcastGeneratorService:
                         with open(llm_podcast_outline_filepath, 'w') as f:
                             json.dump(podcast_outline_obj.model_dump(), f, indent=2)
                         logger.info(f"Podcast outline saved to {llm_podcast_outline_filepath}")
+                        
+                        # Display the formatted outline in the terminal
+                        print("\n=== Generated Podcast Outline ===\n")
+                        print(podcast_outline_obj.format_for_display())
+                        print("\n=== End of Outline ===\n")
                     else:
                         logger.error("Podcast outline generation returned None.")
                         warnings_list.append("Podcast outline generation failed to produce an outline.")

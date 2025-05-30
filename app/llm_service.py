@@ -82,7 +82,7 @@ class GeminiService:
             f"(Reason: {retry_state.outcome.exception()}). Attempt #{retry_state.attempt_number}"
         )
     )
-    async def generate_text_async(self, prompt: str, timeout_seconds: int = 60) -> str:
+    async def generate_text_async(self, prompt: str, timeout_seconds: int = 120) -> str:
         """
         Asynchronously generates text based on the given prompt using the configured Gemini model.
         
