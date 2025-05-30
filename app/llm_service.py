@@ -164,15 +164,37 @@ class GeminiService:
         """
         Extracts a JSON string from a Markdown code block if present.
         Handles blocks like ```json ... ``` or ``` ... ```.
+        Includes advanced recovery for malformed responses.
         """
         if not text:
             return ""
+        
+        cleaned_text = text.strip()
+        
         # Regex to find content within ```json ... ``` or ``` ... ```
         # Making it non-greedy and handling potential leading/trailing whitespace within the block
-        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text, re.DOTALL)
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned_text, re.DOTALL)
         if match:
-            return match.group(1).strip()
-        return text.strip() # Fallback if no markdown block found, just strip whitespace
+            cleaned_text = match.group(1).strip()
+            
+        # Advanced recovery: Try to find a JSON object even in malformed responses
+        try:
+            # Look for the first { and last } to extract potential JSON
+            start_idx = cleaned_text.find('{')
+            end_idx = cleaned_text.rfind('}')
+            if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+                potential_json = cleaned_text[start_idx:end_idx+1]
+                # Validate if this is parseable JSON
+                json.loads(potential_json)
+                # If we reach here, it's valid JSON
+                logger.info(f"Successfully extracted valid JSON from potentially malformed response")
+                return potential_json
+        except json.JSONDecodeError:
+            # If extraction attempt fails, fall back to original cleaned text
+            logger.warning(f"JSON extraction recovery attempt failed, falling back to original cleaned text")
+            pass
+            
+        return cleaned_text
 
     async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> SourceAnalysis:
         """
@@ -286,7 +308,12 @@ Please provide your research as a JSON object with the following structure and f
   "detailed_profile": "Provide a comprehensive textual profile of {person_name} based on the source text. This profile should synthesize their key viewpoints, opinions, or arguments. Also, describe their observed or inferred speaking style (e.g., 'analytical', 'passionate', 'cautious', 'storytelling'). Include any direct memorable quotes if they are prominent and illustrative of the persona. Combine all this information into a coherent narrative or summary string for this field."
 }}
 
-Ensure the output is a single, valid JSON object only, with no additional text before or after the JSON.
+⚠️ CRITICALLY IMPORTANT JSON FORMAT INSTRUCTIONS ⚠️ 
+Your output MUST be a single, valid JSON object only, with no additional text before or after the JSON. 
+- The detailed_profile field must be a simple string (not a nested object or array)
+- Use proper JSON escaping for quotes and special characters in the detailed_profile string
+- Do not include any markdown formatting markers like ```json or ``` in your response
+- Double-check that your final output is parseable by JavaScript's JSON.parse()
 """
 
         json_response_str: str = None  # Initialize
