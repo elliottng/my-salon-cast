@@ -10,9 +10,9 @@ import shutil
 from typing import Dict, List, Optional, Any, Tuple, Set
 
 # --- Pydantic Models for Workflow Data ---
-# Models like SourceAnalysis, PersonaResearch, etc., are now imported from .podcast_models
-from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode
-from .common_exceptions import LLMProcessingError
+# Models like SourceAnalysis, PersonaResearch, etc., are now imported from podcast_models
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode
+from app.common_exceptions import LLMProcessingError
 
 # Placeholder for the input data model to generate_podcast_from_source
 # This will likely be defined more concretely when we build the API endpoint (Task 1.8)
@@ -34,10 +34,10 @@ import json
 import logging
 
 # Assuming these services are in the same app directory
-from .llm_service import GeminiService as LLMService, LLMNotInitializedError
-from .tts_service import GoogleCloudTtsService # Will be used later
-from .audio_utils import AudioPathManager, AudioStitchingService
-from .content_extractor import (
+from app.llm_service import GeminiService as LLMService, LLMNotInitializedError
+from app.tts_service import GoogleCloudTtsService # Will be used later
+from app.audio_utils import AudioPathManager, AudioStitchingService
+from app.content_extractor import (
     extract_content_from_url, 
     extract_text_from_pdf_path, 
     extract_transcript_from_youtube, # Added for completeness, though not used yet

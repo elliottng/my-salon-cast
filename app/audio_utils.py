@@ -8,7 +8,7 @@ import os
 from typing import List, Tuple, Optional
 
 from pydub import AudioSegment
-from .podcast_models import DialogueTurn
+from app.podcast_models import DialogueTurn
 
 logger = logging.getLogger(__name__)
 

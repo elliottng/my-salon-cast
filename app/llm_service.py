@@ -23,8 +23,8 @@ from google.api_core.exceptions import (
 from google.ai.generativelanguage_v1beta.types import GenerationConfig
 from pydantic import ValidationError
 
-from .podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis, OutlineSegment
-from .common_exceptions import LLMProcessingError
+from app.podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis, OutlineSegment
+from app.common_exceptions import LLMProcessingError
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class GeminiService:
         Initializes the Gemini Service.
         API key is read from GOOGLE_API_KEY environment variable if not provided.
         """
-        load_dotenv() # Load environment variables from .env file
+        load_dotenv() # Load environment variables from env file
         
         if api_key is None:
             api_key = os.getenv("GOOGLE_API_KEY")

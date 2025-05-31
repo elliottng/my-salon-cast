@@ -11,11 +11,11 @@ from pydantic import ValidationError
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Now we can import from app directly
-from .podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel
-from .common_exceptions import LLMProcessingError, ExtractionError
-from .content_extractor import extract_content_from_url, extract_text_from_pdf_path
-from .llm_service import GeminiService
-from .tts_service import GoogleCloudTtsService
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel
+from app.common_exceptions import LLMProcessingError, ExtractionError
+from app.content_extractor import extract_content_from_url, extract_text_from_pdf_path
+from app.llm_service import GeminiService
+from app.tts_service import GoogleCloudTtsService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

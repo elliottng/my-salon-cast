@@ -6,7 +6,7 @@ import os
 from google.cloud import texttospeech
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables from env file
 load_dotenv()
 
 # Configure logger
