@@ -1095,7 +1095,7 @@ Instructions:
 1. Write dialogue ONLY for this specific segment. The dialogue should directly address the content described in the segment's content cue.
 2. The primary speaker for this segment should be {invented_name} (who is speaker ID: {speaker_id_from_segment}, representing the views of {real_name_of_speaker}). Ensure their dialogue reflects their role.
 3. Include appropriate responses or questions from other speakers as needed for natural conversation flow.
-4. The dialogue should take approximately {segment.estimated_duration_seconds} seconds to speak aloud (roughly {segment.estimated_duration_seconds // 2} words).
+4. The dialogue should be approximately {segment.target_word_count if segment.target_word_count is not None else int(segment.estimated_duration_seconds / 60 * 150)} words in length.
 5. Ensure the dialogue has a clear beginning and end appropriate for this segment's position in the overall podcast.
 """
 
