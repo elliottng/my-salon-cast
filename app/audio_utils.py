@@ -5,7 +5,7 @@ Contains classes for managing audio paths and stitching audio segments.
 
 import logging
 import os
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 from pydub import AudioSegment
 from app.podcast_models import DialogueTurn

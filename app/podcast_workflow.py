@@ -50,15 +50,19 @@ logger = logging.getLogger(__name__)
 
 class PodcastGeneratorService:
     def __init__(self):
+        # Initialize TTS service first so we can pass it to the LLM service
+        self.tts_service = GoogleCloudTtsService() # Initialize TTS service with voice caching
+        logger.info("TTS service initialized with voice cache support")
+        
+        # Now initialize LLM service with TTS service for voice profile selection
         try:
-            self.llm_service = LLMService()
-            logger.info("LLMService initialized successfully.")
+            self.llm_service = LLMService(tts_service=self.tts_service)
+            logger.info("LLMService initialized successfully with TTS service integration")
         except LLMNotInitializedError as e:
             logger.error(f"Failed to initialize LLMService: {e}")
             # Depending on desired behavior, could re-raise or set self.llm_service to None
             # For now, let's allow it to be None and handle it in generate_podcast_from_source
-            self.llm_service = None 
-        self.tts_service = GoogleCloudTtsService() # Assuming it can be initialized without immediate errors
+            self.llm_service = None
         
         # Initialize audio stitching services
         self.path_manager = AudioPathManager()

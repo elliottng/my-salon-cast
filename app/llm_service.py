@@ -45,29 +45,8 @@ neutral_names = [
     "Emerson", "Jamie", "Kai", "Reese"
 ]
 
-# TTS voice profiles by gender (These are Google Cloud TTS voice IDs with additional parameters)
-male_voice_profiles = [
-    {"voice_id": "en-US-Neural2-A", "speaking_rate": 0.95, "pitch": -1.0},
-    {"voice_id": "en-US-Neural2-D", "speaking_rate": 1.05, "pitch": 0.0},
-    {"voice_id": "en-US-Neural2-J", "speaking_rate": 1.0, "pitch": 1.0},
-    {"voice_id": "en-GB-Neural2-B", "speaking_rate": 0.97, "pitch": -0.5},
-    {"voice_id": "en-GB-Neural2-D", "speaking_rate": 1.02, "pitch": 0.5}
-]
-
-female_voice_profiles = [
-    {"voice_id": "en-US-Neural2-C", "speaking_rate": 0.97, "pitch": 0.5},
-    {"voice_id": "en-US-Neural2-E", "speaking_rate": 1.03, "pitch": 0.0},
-    {"voice_id": "en-US-Neural2-F", "speaking_rate": 1.0, "pitch": -0.5},
-    {"voice_id": "en-US-Neural2-G", "speaking_rate": 0.99, "pitch": 1.0},
-    {"voice_id": "en-GB-Neural2-A", "speaking_rate": 1.01, "pitch": 0.3},
-    {"voice_id": "en-GB-Neural2-C", "speaking_rate": 0.98, "pitch": -0.2}
-]
-
-neutral_voice_profiles = [
-    {"voice_id": "en-US-Neural2-C", "speaking_rate": 1.0, "pitch": 0.0},
-    {"voice_id": "en-US-Neural2-F", "speaking_rate": 0.98, "pitch": -0.3},
-    {"voice_id": "en-GB-Neural2-A", "speaking_rate": 1.02, "pitch": 0.2}
-]
+# Names for personae are defined here, but voice profiles are now fetched from the TTS service
+# to ensure we always have valid voice IDs
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -93,7 +72,7 @@ class GeminiService:
             return [GeminiService._clean_keys_recursive(element) for element in obj]
         return obj
 
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: Optional[str] = None, tts_service=None):
         """
         Initializes the Gemini Service.
         API key is read from GOOGLE_API_KEY environment variable if not provided.
@@ -110,6 +89,9 @@ class GeminiService:
         # Using gemini-1.5-pro-latest as per discussion.
         # Consider making the model name configurable if needed in the future.
         self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        
+        # Store TTS service for voice profile lookup
+        self.tts_service = tts_service
 
     @retry(
         stop=stop_after_attempt(3),  # Retry up to 3 times (total of 4 attempts)
@@ -495,28 +477,52 @@ Your output MUST be a single, valid JSON object only, with no additional text be
                 
             # Select an invented name based on gender
             import random
-            # Select voice profile which includes additional parameters like speaking_rate and pitch
+            # Select voice profile from TTS service cache which includes additional parameters
+            # like speaking_rate and pitch
             if gender == 'Male':
                 invented_name = random.choice(male_names)
-                voice_profile = random.choice(male_voice_profiles)
             elif gender == 'Female':
                 invented_name = random.choice(female_names)
-                voice_profile = random.choice(female_voice_profiles)
             else:  # Neutral
                 invented_name = random.choice(neutral_names)
-                voice_profile = random.choice(neutral_voice_profiles)
+            
+            # Get voice profile from TTS service if available
+            voice_profile = None
+            if self.tts_service:
+                # Get list of voices for this gender from the TTS service cache
+                voices = self.tts_service.get_voices_by_gender(gender)
+                if voices:
+                    voice_profile = random.choice(voices)
+                    tts_voice_id = voice_profile['voice_id']
+                    logger.info(f"Using cached voice profile from TTS service for {gender} gender: {tts_voice_id}")
+                else:
+                    logger.warning(f"No voice profiles available for {gender} gender in TTS service cache")
+                    # Create a fallback voice profile
+                    voice_profile = {
+                        'voice_id': None,  # Will use gender-based selection
+                        'speaking_rate': 1.0,
+                        'pitch': 0.0
+                    }
+                    tts_voice_id = None
+            else:
+                logger.warning("TTS service not available, using gender-based voice selection only")
+                # Create a fallback voice profile
+                voice_profile = {
+                    'voice_id': None,  # Will use gender-based selection
+                    'speaking_rate': 1.0,
+                    'pitch': 0.0
+                }
+                tts_voice_id = None
                 
-            # Extract the voice ID from the profile
-            tts_voice_id = voice_profile['voice_id']
-                
-            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id}, speaking_rate={voice_profile['speaking_rate']}, pitch={voice_profile['pitch']}")
+            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id if tts_voice_id else 'based on gender'}, speaking_rate={voice_profile['speaking_rate']}, pitch={voice_profile['pitch']}")
             
             # Store the full voice profile parameters for future use
-            voice_params = {
-                'voice_id': tts_voice_id,
-                'speaking_rate': voice_profile['speaking_rate'],
-                'pitch': voice_profile['pitch']
-            }
+            voice_params = {}
+            # Copy all parameters from the voice profile
+            if voice_profile:
+                for key, value in voice_profile.items():
+                    if key != 'language_codes':  # Skip language_codes, we don't need it in the params
+                        voice_params[key] = value
             
             # Update the parsed JSON with the additional fields
             parsed_json['invented_name'] = invented_name

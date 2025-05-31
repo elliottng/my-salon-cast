@@ -548,7 +548,7 @@ async def main_workflow_test():
             "https://en.wikipedia.org/wiki/Battle_of_Jutland",
             "https://www.naval-history.net/WW1Battle1605Jutland1.htm"  # Third source for more detailed naval history
         ],
-        prominent_persons=["Karl Donitz", "Erwin Rommel"],
+        prominent_persons=["John Arbuthnot Fisher", "Sarah C. M. Paine"],
         desired_podcast_length_str="2 minutes"
     )
     print(f"Starting podcast generation test with URLs: {sample_request.source_urls}, Persons: {sample_request.prominent_persons}, Length: {sample_request.desired_podcast_length_str}")
