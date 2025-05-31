@@ -23,6 +23,7 @@ class PersonaResearch(BaseModel):
     invented_name: Optional[str] = Field(None, description="An assigned podcast speaker name (may differ from historical name)")
     gender: Optional[str] = Field(None, description="Assigned gender for TTS voice selection (Male, Female, or Neutral)")
     tts_voice_id: Optional[str] = Field(None, description="The specific TTS voice identifier assigned to this persona")
+    tts_voice_params: Optional[dict] = Field(None, description="Additional TTS voice parameters including speaking_rate and pitch")
     source_context: Optional[str] = Field(None, description="The context or source material this persona was researched from")
     creation_date: Optional[datetime] = Field(None, description="When this persona research was created")
 

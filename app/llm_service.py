@@ -45,19 +45,28 @@ neutral_names = [
     "Emerson", "Jamie", "Kai", "Reese"
 ]
 
-# TTS voice IDs by gender (These are Google Cloud TTS voice IDs)
-male_voices = [
-    "en-US-Neural2-A", "en-US-Neural2-D", "en-US-Neural2-J",
-    "en-GB-Neural2-B", "en-GB-Neural2-D"
+# TTS voice profiles by gender (These are Google Cloud TTS voice IDs with additional parameters)
+male_voice_profiles = [
+    {"voice_id": "en-US-Neural2-A", "speaking_rate": 0.95, "pitch": -1.0},
+    {"voice_id": "en-US-Neural2-D", "speaking_rate": 1.05, "pitch": 0.0},
+    {"voice_id": "en-US-Neural2-J", "speaking_rate": 1.0, "pitch": 1.0},
+    {"voice_id": "en-GB-Neural2-B", "speaking_rate": 0.97, "pitch": -0.5},
+    {"voice_id": "en-GB-Neural2-D", "speaking_rate": 1.02, "pitch": 0.5}
 ]
 
-female_voices = [
-    "en-US-Neural2-C", "en-US-Neural2-E", "en-US-Neural2-F", "en-US-Neural2-G",
-    "en-GB-Neural2-A", "en-GB-Neural2-C"
+female_voice_profiles = [
+    {"voice_id": "en-US-Neural2-C", "speaking_rate": 0.97, "pitch": 0.5},
+    {"voice_id": "en-US-Neural2-E", "speaking_rate": 1.03, "pitch": 0.0},
+    {"voice_id": "en-US-Neural2-F", "speaking_rate": 1.0, "pitch": -0.5},
+    {"voice_id": "en-US-Neural2-G", "speaking_rate": 0.99, "pitch": 1.0},
+    {"voice_id": "en-GB-Neural2-A", "speaking_rate": 1.01, "pitch": 0.3},
+    {"voice_id": "en-GB-Neural2-C", "speaking_rate": 0.98, "pitch": -0.2}
 ]
 
-neutral_voices = [
-    "en-US-Neural2-C", "en-US-Neural2-F", "en-GB-Neural2-A"
+neutral_voice_profiles = [
+    {"voice_id": "en-US-Neural2-C", "speaking_rate": 1.0, "pitch": 0.0},
+    {"voice_id": "en-US-Neural2-F", "speaking_rate": 0.98, "pitch": -0.3},
+    {"voice_id": "en-GB-Neural2-A", "speaking_rate": 1.02, "pitch": 0.2}
 ]
 
 # Configure logger
@@ -327,22 +336,18 @@ class GeminiService:
         # Create a simple person_id from the name (e.g., for filenames or internal references)
         # This can be made more robust if needed (e.g., handling special characters, ensuring uniqueness)
         person_id = person_name.lower().replace(' ', '_').replace('.', '')
-        
-        # Define name lists for different genders
-        male_names = ["Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Theodore"]
-        female_names = ["Olivia", "Emma", "Charlotte", "Amelia", "Sophia", "Isabella", "Ava", "Mia", "Evelyn", "Luna"]
-        neutral_names = ["Kai", "Rowan", "River", "Phoenix", "Sage", "Justice", "Remy", "Dakota", "Skyler", "Alexis"]
-        
-        # Define TTS voice IDs for different genders
-        # These would be replaced with actual Google Cloud TTS voice IDs
-        male_voices = ["en-US-Neural2-D", "en-US-Neural2-J"]
-        female_voices = ["en-US-Neural2-E", "en-US-Neural2-F"]
-        neutral_voices = ["en-US-Neural2-A"]
+
+        # We'll use the global name and voice profile lists defined at the top of the file
 
         prompt = f"""
 You are preparing {person_name} for a podcast appearance. Your work will contribute to a podcast aiming to be educational, entertaining, and to highlight viewpoint diversity by authentically representing {person_name}'s perspectives.
 
-As part of your research, also determine the gender of {person_name} (male, female, or non-binary/neutral) based on the provided text and your knowledge. This will be used for voice selection in the podcast.
+GENDER DETERMINATION:
+As a critical step, determine the gender of {person_name} based on historical facts and biographical information.
+- For historical or public figures, use verified biographical information.
+- For fictional characters or less documented individuals, base this on the source text.
+- Assign EXACTLY ONE of these values: "male", "female", or "neutral" (for non-binary or cases with insufficient information).
+- This determination will be used for voice assignment in the podcast, so accuracy is important.
 
 IMPORTANT DISTINCTION:
 You have two separate tasks:
@@ -363,7 +368,7 @@ Please provide your research as a JSON object with the following structure:
 {{
   "person_id": "{person_id}",
   "name": "{person_name}",
-  "gender": "Determine the gender of {person_name} as 'male', 'female', or 'neutral'. This will be used for voice selection.",
+  "gender": "REQUIRED: Use verified biographical information to determine {person_name}'s gender. Assign EXACTLY one value: 'male', 'female', or 'neutral'. This is critical for voice selection.",
   "detailed_profile": "Your detailed profile should be organized into the following five distinct sections, each clearly labeled:
 
   ### PART 1: PROFILE OF {person_name.upper()} (250 words)
@@ -478,22 +483,34 @@ Your output MUST be a single, valid JSON object only, with no additional text be
                 
             # Select an invented name based on gender
             import random
+            # Select voice profile which includes additional parameters like speaking_rate and pitch
             if gender == 'male':
                 invented_name = random.choice(male_names)
-                tts_voice_id = random.choice(male_voices)
+                voice_profile = random.choice(male_voice_profiles)
             elif gender == 'female':
                 invented_name = random.choice(female_names)
-                tts_voice_id = random.choice(female_voices)
+                voice_profile = random.choice(female_voice_profiles)
             else:  # neutral
                 invented_name = random.choice(neutral_names)
-                tts_voice_id = random.choice(neutral_voices)
+                voice_profile = random.choice(neutral_voice_profiles)
                 
-            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id}")
+            # Extract the voice ID from the profile
+            tts_voice_id = voice_profile['voice_id']
+                
+            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id}, speaking_rate={voice_profile['speaking_rate']}, pitch={voice_profile['pitch']}")
+            
+            # Store the full voice profile parameters for future use
+            voice_params = {
+                'voice_id': tts_voice_id,
+                'speaking_rate': voice_profile['speaking_rate'],
+                'pitch': voice_profile['pitch']
+            }
             
             # Update the parsed JSON with the additional fields
             parsed_json['invented_name'] = invented_name
             parsed_json['gender'] = gender  # Ensure normalized lowercase gender
             parsed_json['tts_voice_id'] = tts_voice_id
+            parsed_json['tts_voice_params'] = voice_params  # Store full voice parameters
             parsed_json['creation_date'] = datetime.now().isoformat()
             parsed_json['source_context'] = source_text[:500] + ('...' if len(source_text) > 500 else '')  # Add source context
             
