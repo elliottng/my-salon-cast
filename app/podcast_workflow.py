@@ -1,6 +1,13 @@
 from pydantic import BaseModel, HttpUrl, Field, ValidationError
 from typing import List, Optional, Any # Added Any for potential complex inputs
 import uuid
+import asyncio
+import logging
+import os
+import tempfile
+import json
+import shutil
+from typing import Dict, List, Optional, Any, Tuple, Set
 
 # --- Pydantic Models for Workflow Data ---
 # Models like SourceAnalysis, PersonaResearch, etc., are now imported from .podcast_models
@@ -121,7 +128,57 @@ class PodcastGeneratorService:
             logger.error("[AUDIO_STITCH] Failed to stitch audio segments")
             # Return first segment as fallback if available, otherwise empty string
             return segment_paths[0] if segment_paths else ""
-    
+
+    def copy_audio_files_from_temp(self, tmp_dir: str, podcast_id: str) -> bool:
+        """
+        Copy audio files from temporary directory to permanent outputs location.
+        
+        Args:
+            tmp_dir: Path to the temporary directory containing audio files
+            podcast_id: Unique identifier for the podcast
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info(f"[AUDIO_COPY] Copying audio files from {tmp_dir} to permanent location")
+            
+            # Create podcast directories
+            podcast_dir, segments_dir = self.path_manager.create_podcast_directories(podcast_id)
+            
+            # Check if we have a final podcast file to copy
+            temp_final_path = os.path.join(tmp_dir, "final_podcast.mp3")
+            if os.path.exists(temp_final_path):
+                final_path = self.path_manager.get_final_audio_path(podcast_id)
+                shutil.copy2(temp_final_path, final_path)
+                logger.info(f"[AUDIO_COPY] Copied final podcast audio to {final_path}")
+            else:
+                logger.warning(f"[AUDIO_COPY] Final podcast audio not found at {temp_final_path}")
+                return False
+                
+            # Copy segment files if they exist
+            temp_segments_dir = os.path.join(tmp_dir, "audio_segments")
+            if os.path.exists(temp_segments_dir) and os.path.isdir(temp_segments_dir):
+                for filename in os.listdir(temp_segments_dir):
+                    if filename.endswith(".mp3"):
+                        src_path = os.path.join(temp_segments_dir, filename)
+                        # Extract turn_id from filename
+                        try:
+                            turn_id = int(filename.split("_")[1].split(".")[0])
+                            dest_path = self.path_manager.get_segment_path(podcast_id, turn_id)
+                            shutil.copy2(src_path, dest_path)
+                            logger.info(f"[AUDIO_COPY] Copied segment {filename} to {dest_path}")
+                        except (IndexError, ValueError):
+                            # If filename doesn't match expected format, copy to segments dir with original name
+                            dest_path = os.path.join(segments_dir, filename)
+                            shutil.copy2(src_path, dest_path)
+                            logger.info(f"[AUDIO_COPY] Copied segment with original name {filename} to {dest_path}")
+            
+            return True
+        except Exception as e:
+            logger.error(f"[AUDIO_COPY] Error copying audio files: {e}")
+            return False
+
     async def generate_podcast_from_source(
         self,
         request_data: PodcastRequest

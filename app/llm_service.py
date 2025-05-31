@@ -818,12 +818,12 @@ Create a detailed, multi-segment outline for the entire podcast. This outline wi
 Outline Structure Guidelines:
 
 Your outline must break the podcast into several distinct segments. Each segment should contribute to the overall flow and goals. Consider segments for:
-- Introduction/Opening Hook
+- Introduction/Opening Hook (approximately 10% of total word count)
 - Topic Overview & Speaker Introductions: The 'Host' must introduce any personas speaking in a segment using their 'Invented Name' and clarifying which 'Real Name' they represent. For example: 'Host: Now, let's hear from Jarvis, an expert representing John Doe on this topic.' This should happen when a persona is first introduced or takes a significant speaking turn in a new context.
-- Deep Dive into Theme 1 (Potentially featuring specific personas)
-- Deep Dive into Theme 2 (Potentially featuring other personas or a debate)
-- Points of Agreement/Conflict
-- Conclusion/Summary
+- Deep Dive into Theme 1 (Potentially featuring specific personas) (approximately 10-15% of total word count)
+- Deep Dive into Theme 2 (Potentially featuring other personas) (approximately 10-15% of total word count)
+- Points of Agreement/Conflict (IMPORTANT: allocate approximately 40-50% of total word count to this segment, as this is where the most valuable insights and engaging discussions emerge)
+- Conclusion/Summary (approximately 10% of total word count)
 
 For each segment, you must specify:
 - A unique `segment_id` (e.g., "seg_01_intro", "seg_02_theme1_johndoe").
@@ -838,6 +838,7 @@ Guiding Principles for Outline Content:
 Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
 Authentic Persona Representation: When a persona's `speaker_id` is used, their contributions (guided by the `content_cue`) should align with their researched views.
 Natural and Engaging Flow: The podcast should feel conversational and engaging throughout.
+Prioritize Points of Agreement/Conflict: The most engaging and illuminating parts of the podcast often come from the segments where different viewpoints interact, either finding common ground or respectfully disagreeing. These segments should be given substantial word count allocation (40-50% of total) to allow for thorough exploration of different perspectives.
 Length Adherence: The sum of all segment 'target_word_count' values MUST EXACTLY EQUAL {calculated_total_words} words. This is a non-negotiable constraint. Distribute content appropriately across segments to meet this total word count.
 ⚠️ CRITICALLY IMPORTANT: DETAILED CONTENT CUES ⚠️
 Each segment's content_cue MUST be EXTREMELY comprehensive (MINIMUM 300 WORDS, NO EXCEPTIONS) and specific, including: 

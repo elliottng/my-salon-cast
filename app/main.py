@@ -135,6 +135,7 @@ async def generate_podcast_elements_endpoint(request: PodcastRequest):
 
 
 @app.get("/podcast/{podcast_id}/audio")
+@app.get("/listen/{podcast_id}")
 async def get_podcast_audio(podcast_id: str):
     """
     Endpoint to get the complete podcast audio file.
@@ -184,6 +185,7 @@ async def get_podcast_audio(podcast_id: str):
 
 
 @app.get("/podcast/{podcast_id}/segments/{segment_id}")
+@app.get("/listen/{podcast_id}/segment/{segment_id}")
 async def get_segment_audio(podcast_id: str, segment_id: int):
     """
     Endpoint to get an individual segment audio file.
