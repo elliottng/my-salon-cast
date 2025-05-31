@@ -902,7 +902,8 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
             )
             logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
 
-            raw_response_text = await self.generate_text_async(final_prompt)
+            # Use extended timeout (300s) for podcast outline generation as it's a complex prompt
+            raw_response_text = await self.generate_text_async(final_prompt, timeout_seconds=300)
             
             # Attempt to strip markdown fences if present
             cleaned_response_text = raw_response_text.strip()

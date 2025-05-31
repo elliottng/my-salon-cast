@@ -233,11 +233,31 @@ class PodcastGeneratorService:
                         if persona_research_obj:
                             logger.info(f"STEP: Persona Research for '{person_name}' successful. Object created.")
                             persona_research_docs_content.append(persona_research_obj.model_dump_json())
-                            filepath = os.path.join(tmpdir_path, f"persona_research_{persona_research_obj.person_id.replace(' ','_')}.json")
-                            with open(filepath, 'w') as f:
-                                json.dump(persona_research_obj.model_dump(), f, indent=2)
-                            llm_persona_research_filepaths.append(filepath)
-                            logger.info(f"Persona research for {person_name} saved to {filepath}")
+                            # Save persona research to file
+                            persona_research_filepath = os.path.join(tmpdir_path, f"persona_research_{persona_research_obj.person_id}.json")
+                            with open(persona_research_filepath, "w") as f:
+                                json.dump(json.loads(persona_research_obj.model_dump_json()), f, indent=2)
+                            llm_persona_research_filepaths.append(persona_research_filepath)
+                            logger.info(f"Persona research for {person_name} saved to {persona_research_filepath}")
+                            
+                            # Print detailed information about the PersonaResearch object
+                            print(f"\n============ PersonaResearch for {person_name} ============")
+                            print(f"Person ID: {persona_research_obj.person_id}")
+                            print(f"Name: {persona_research_obj.name}")
+                            # Print the first 500 characters of the detailed profile, then first 50 chars of each additional 1000 chars
+                            profile = persona_research_obj.detailed_profile
+                            print(f"Detailed Profile (first 500 chars):\n{profile[:500]}...")
+                            
+                            # For very long profiles, print previews of each section
+                            if len(profile) > 500:
+                                sections = ["PART 1:", "PART 2:", "PART 3:", "PART 4:", "PART 5:"]
+                                for section in sections:
+                                    pos = profile.find(section)
+                                    if pos > -1:
+                                        print(f"\n{section} Preview: {profile[pos:pos+100]}...")
+                            
+                            print(f"Full PersonaResearch saved to: {persona_research_filepath}")
+                            print("="*60 + "\n")
                         else:
                             logger.error(f"Persona research for {person_name} returned None.")
                             warnings_list.append(f"Persona research for {person_name} failed to produce a result.")
@@ -528,8 +548,8 @@ async def main_workflow_test():
             "https://en.wikipedia.org/wiki/Battle_of_Jutland",
             "https://www.naval-history.net/WW1Battle1605Jutland1.htm"  # Third source for more detailed naval history
         ],
-        prominent_persons=["Horatio Nelson", "Andrew Cunningham"],
-        desired_podcast_length_str="30 minutes"
+        prominent_persons=["Bernard Montgomery", "Erwin Rommel"],
+        desired_podcast_length_str="5 minutes"
     )
     print(f"Starting podcast generation test with URLs: {sample_request.source_urls}, Persons: {sample_request.prominent_persons}, Length: {sample_request.desired_podcast_length_str}")
     try:

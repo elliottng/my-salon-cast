@@ -80,7 +80,19 @@ class TestPodcastGeneratorService:
         """Set up mocks for a successful podcast generation flow"""
         # Mock LLM service methods
         self.service.llm_service.analyze_source_text_async = AsyncMock(return_value=mock_data["source_analysis"])
-        self.service.llm_service.research_persona_async = AsyncMock(return_value=PersonaResearch(**mock_data["persona_research"]))
+        
+        # Create a wrapper that prints the PersonaResearch before returning it
+        async def research_persona_mock(source_text, person_name):
+            persona = PersonaResearch(**mock_data["persona_research"])
+            print(f"\n==== PersonaResearch for {person_name} ====")
+            print(f"Person ID: {persona.person_id}")
+            print(f"Name: {persona.name}")
+            print(f"Detailed Profile Preview (first 200 chars): {persona.detailed_profile[:200]}...")
+            print(f"Full PersonaResearch object saved to: {os.path.join(self.service.tmpdir_path, f'persona_research_{persona.person_id}.json')}")
+            print("="*50 + "\n")
+            return persona
+            
+        self.service.llm_service.research_persona_async = AsyncMock(side_effect=research_persona_mock)
         self.service.llm_service.generate_podcast_outline_async = AsyncMock(return_value=mock_models["outline"])
         self.service.llm_service.generate_dialogue_async = AsyncMock(return_value=mock_models["dialogue_turns"])
         
