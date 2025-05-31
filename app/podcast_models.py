@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -11,11 +12,19 @@ class SourceAnalysis(BaseModel):
 
 class PersonaResearch(BaseModel):
     """
-    Simplified profile of a prominent person identified in the source material.
+    Profile of a prominent person identified in the source material.
+    Extended with additional fields for MCP integration.
     """
     person_id: str = Field(..., description="A unique identifier for the person (e.g., a slugified name).")
     name: str = Field(..., description="The full name of the prominent person.")
     detailed_profile: str = Field(..., description="A comprehensive textual profile of the person, summarizing their viewpoints, inferred speaking style, and any notable quotes or statements derived from the source text.")
+    
+    # MCP integration extensions - all optional with defaults
+    invented_name: Optional[str] = Field(None, description="An assigned podcast speaker name (may differ from historical name)")
+    gender: Optional[str] = Field(None, description="Assigned gender for TTS voice selection (Male, Female, or Neutral)")
+    tts_voice_id: Optional[str] = Field(None, description="The specific TTS voice identifier assigned to this persona")
+    source_context: Optional[str] = Field(None, description="The context or source material this persona was researched from")
+    creation_date: Optional[datetime] = Field(None, description="When this persona research was created")
 
 class OutlineSegment(BaseModel):
     """

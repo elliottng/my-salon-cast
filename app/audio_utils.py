@@ -81,7 +81,8 @@ class AudioStitchingService:
     async def generate_audio_for_dialogue_turn(self, 
                                          turn: DialogueTurn, 
                                          podcast_id: str,
-                                         persona_details_map: dict) -> Tuple[bool, str]:
+                                         persona_details_map: dict,
+                                         persona_research_map: Optional[Dict[str, 'PersonaResearch']] = None) -> Tuple[bool, str]:
         """
         Generate audio for a single dialogue turn.
         
@@ -97,22 +98,45 @@ class AudioStitchingService:
             # Get the output path for this turn
             output_path = self.path_manager.get_segment_path(podcast_id, turn.turn_id)
             
-            # Get speaker gender from persona_details_map
+            # Initialize variables for TTS parameters
             speaker_gender = None
-            if turn.speaker_id in persona_details_map:
+            tts_voice_id = None
+            
+            # PRIORITY 1: Check PersonaResearch objects first (new approach)
+            if persona_research_map and turn.speaker_id in persona_research_map:
+                persona = persona_research_map[turn.speaker_id]
+                if persona.gender:
+                    speaker_gender = persona.gender
+                if persona.tts_voice_id:
+                    tts_voice_id = persona.tts_voice_id
+                self.logger.info(f"[AUDIO_STITCH] Using PersonaResearch data for {turn.speaker_id}: gender={speaker_gender}, voice_id={tts_voice_id}")
+            
+            # PRIORITY 2: Fall back to persona_details_map (legacy approach)
+            elif turn.speaker_id in persona_details_map:
                 speaker_gender = persona_details_map[turn.speaker_id].get("gender")
+                self.logger.info(f"[AUDIO_STITCH] Using persona_details_map for {turn.speaker_id}: gender={speaker_gender}")
             
-            # Use turn.speaker_gender if available, otherwise use from persona_details_map
-            gender = turn.speaker_gender or speaker_gender
+            # PRIORITY 3: Use turn.speaker_gender as last resort
+            if not speaker_gender and turn.speaker_gender:
+                speaker_gender = turn.speaker_gender
             
-            self.logger.info(f"[AUDIO_STITCH] Generating audio for turn {turn.turn_id} (speaker: {turn.speaker_id}, gender: {gender})")
+            self.logger.info(f"[AUDIO_STITCH] Generating audio for turn {turn.turn_id} (speaker: {turn.speaker_id}, gender: {speaker_gender}, voice_id: {tts_voice_id})")
             
-            # Generate audio using TTS service
-            success = await self.tts_service.text_to_audio_async(
-                text_input=turn.text,
-                output_filepath=output_path,
-                speaker_gender=gender
-            )
+            # Generate audio using TTS service with enhanced parameters when available
+            if tts_voice_id:
+                # Future enhancement: Pass voice_id to TTS service when supported
+                success = await self.tts_service.text_to_audio_async(
+                    text_input=turn.text,
+                    output_filepath=output_path,
+                    speaker_gender=speaker_gender
+                )
+            else:
+                # Current implementation: Use gender only
+                success = await self.tts_service.text_to_audio_async(
+                    text_input=turn.text,
+                    output_filepath=output_path,
+                    speaker_gender=speaker_gender
+                )
             
             if success:
                 self.logger.info(f"[AUDIO_STITCH] Generated audio for turn {turn.turn_id} at {output_path}")

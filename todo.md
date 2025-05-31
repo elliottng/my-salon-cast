@@ -72,8 +72,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [ ] `GET /api/v1/podcasts/{id}/status` (progress monitoring)
   - [ ] `GET /api/v1/podcasts/{id}/audio` (file download)
   - [ ] `GET /api/v1/podcasts/{id}/transcript` (text download)
-  - [ ] `GET /api/v1/podcasts/{id}/metadata` (episode details)
-- [ ] Implement async job queue system for long-running podcast generation
+
 - [ ] Add rate limiting (IP-based, 5 requests/day for anonymous users)
 - [ ] Integrate with existing `PodcastGeneratorService` workflow
 
