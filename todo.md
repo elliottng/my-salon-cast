@@ -26,8 +26,8 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Basic error handling for failed extractions
 - [x] Handle errors gracefully
 
-### Task 1.4: LLM Interaction Service Wrapper (P1, M)
-- Create Google Gemini 2.5 Pro API wrapper
+### Task 1.4: LLM Interaction Service Wrapper (P1, M) ✓
+- [x] Create Google Gemini 2.5 Pro API wrapper
 - [x] Implement method for source analysis
 - [x] Implement method for persona research
 - [x] Implement method for podcast outline generation (Ref: PRD 4.2.4 detailed prompt)
@@ -55,12 +55,12 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Utilize `PersonaResearch` data for podcast outline and dialogue generation
 - [x] Implement LLM-driven detailed podcast outline generation (multi-segment).
 - [x] Refine LLM dialogue writing to iterate through outline segments, producing `DialogueTurn` objects.
-- [ ] Implement audio stitching of multiple `DialogueTurn` audio segments using `pydub`.
-- [ ] Enhance transcript generation by concatenating text from `DialogueTurn` objects.
+- [x] Implement audio stitching of multiple `DialogueTurn` audio segments using `pydub`.
+- [x] Enhance transcript generation by concatenating text from `DialogueTurn` objects.
 - [ ] Implement detailed source attribution: LLM-provided mentions compiled into `PodcastEpisode.source_attributions` and appended to transcript.
 - [ ] Implement robust content flag checking based on LLM safety ratings, populating `PodcastEpisode.warnings`.
-- [ ] Implement serialization of all specified intermediate LLM outputs (source analysis, persona research, outline, dialogue turns) to temp JSON files.
-- [ ] Ensure `PodcastEpisode` includes file paths to all serialized intermediate LLM outputs.
+- [x] Implement serialization of all specified intermediate LLM outputs (source analysis, persona research, outline, dialogue turns) to temp JSON files.
+- [x] Ensure `PodcastEpisode` includes file paths to all serialized intermediate LLM outputs.
 - [ ] Improve PDF content extraction to correctly handle file paths (currently expects `UploadFile`).
 
 ### Task 1.8: Model Context Protocol (MCP) Server and API Endpoint Definition (P1, M)
@@ -174,6 +174,8 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Refactor test code for improved maintainability
   - [x] Refactor `test_podcast_workflow.py` to use fixtures and parameterized tests
   - [x] Refactor `test_content_extractor.py` to use class-based organization and utility methods
-- [ ] Refactor remaining application code
+- [x] Refactor remaining application code
+  - [x] Fix import paths for consistent execution across environments
+  - [x] Add utility script for import path fixing
 - [ ] Add comprehensive comments
 - [ ] Document LLM interactions
