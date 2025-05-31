@@ -39,3 +39,4 @@ mysaloncast/google-cloud-sdk/
 
 # Log files
 server.log
+outputs/

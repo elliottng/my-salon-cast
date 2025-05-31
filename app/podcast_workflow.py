@@ -1,5 +1,6 @@
 from pydantic import BaseModel, HttpUrl, Field, ValidationError
 from typing import List, Optional, Any # Added Any for potential complex inputs
+import uuid
 
 # --- Pydantic Models for Workflow Data ---
 # Models like SourceAnalysis, PersonaResearch, etc., are now imported from .podcast_models
@@ -28,6 +29,7 @@ import logging
 # Assuming these services are in the same app directory
 from .llm_service import GeminiService as LLMService, LLMNotInitializedError
 from .tts_service import GoogleCloudTtsService # Will be used later
+from .audio_utils import AudioPathManager, AudioStitchingService
 from .content_extractor import (
     extract_content_from_url, 
     extract_text_from_pdf_path, 
@@ -48,9 +50,78 @@ class PodcastGeneratorService:
             # For now, let's allow it to be None and handle it in generate_podcast_from_source
             self.llm_service = None 
         self.tts_service = GoogleCloudTtsService() # Assuming it can be initialized without immediate errors
+        
+        # Initialize audio stitching services
+        self.path_manager = AudioPathManager()
+        self.audio_stitching_service = AudioStitchingService(
+            tts_service=self.tts_service,
+            path_manager=self.path_manager
+        )
+        
         # ContentExtractionService is no longer instantiated; its functions are called directly.
-        logger.info("PodcastGeneratorService initialized with LLM and TTS services.")
-
+        logger.info("PodcastGeneratorService initialized with LLM, TTS, and Audio Stitching services.")
+    
+    async def _process_audio_for_podcast(self, 
+                                      dialogue_turns: List[DialogueTurn],
+                                      podcast_id: str,
+                                      persona_details_map: dict,
+                                      silence_duration_ms: int = 500) -> str:
+        """
+        Process audio for all dialogue turns and stitch them together.
+        
+        Args:
+            dialogue_turns: List of dialogue turns to process
+            podcast_id: Unique identifier for this podcast
+            persona_details_map: Map of speaker IDs to details (for gender)
+            silence_duration_ms: Duration of silence between turns in milliseconds
+            
+        Returns:
+            Path to the final stitched audio file, or empty string if failed
+        """
+        logger.info(f"[AUDIO_STITCH] Starting audio processing for podcast {podcast_id}")
+        
+        # Create directory structure
+        podcast_dir, segments_dir = self.path_manager.create_podcast_directories(podcast_id)
+        logger.info(f"[AUDIO_STITCH] Created directory structure at {podcast_dir}")
+        
+        # Generate audio for each turn
+        segment_paths = []
+        failed_segments = []
+        
+        for turn in dialogue_turns:
+            success, segment_path = await self.audio_stitching_service.generate_audio_for_dialogue_turn(
+                turn, podcast_id, persona_details_map
+            )
+            
+            if success:
+                segment_paths.append(segment_path)
+                logger.info(f"[AUDIO_STITCH] Generated audio for turn {turn.turn_id}: {segment_path}")
+            else:
+                failed_segments.append(turn.turn_id)
+                logger.error(f"[AUDIO_STITCH] Failed to generate audio for turn {turn.turn_id}")
+        
+        # If all segments failed, return error
+        if not segment_paths:
+            logger.error("[AUDIO_STITCH] All audio segments failed to generate")
+            return ""
+        
+        if failed_segments:
+            logger.warning(f"[AUDIO_STITCH] Failed to generate audio for {len(failed_segments)} segments: {failed_segments}")
+        
+        # Stitch audio segments
+        final_audio_path = self.path_manager.get_final_audio_path(podcast_id)
+        success = await self.audio_stitching_service.stitch_audio_segments(
+            segment_paths, final_audio_path, silence_duration_ms
+        )
+        
+        if success:
+            logger.info(f"[AUDIO_STITCH] Successfully stitched {len(segment_paths)} audio segments to {final_audio_path}")
+            return final_audio_path
+        else:
+            logger.error("[AUDIO_STITCH] Failed to stitch audio segments")
+            # Return first segment as fallback if available, otherwise empty string
+            return segment_paths[0] if segment_paths else ""
+    
     async def generate_podcast_from_source(
         self,
         request_data: PodcastRequest
@@ -341,33 +412,65 @@ class PodcastGeneratorService:
                         podcast_transcript = "\n".join(transcript_parts)
                         logger.info("Transcript constructed from dialogue turns.")
                         podcast_episode_data['transcript'] = podcast_transcript
+                        
+                        # Process audio for the podcast
+                        try:
+                            # Generate a unique ID for this podcast
+                            podcast_id = str(uuid.uuid4())
+                            logger.info(f"[AUDIO_STITCH] Generated podcast ID: {podcast_id}")
+                            
+                            # Configure silence duration between segments (in milliseconds)
+                            silence_duration_ms = 500
+                            
+                            # Process audio for the podcast
+                            audio_filepath = await self._process_audio_for_podcast(
+                                dialogue_turns_list, 
+                                podcast_id,
+                                persona_details_map,
+                                silence_duration_ms
+                            )
+                            
+                            if audio_filepath:
+                                logger.info(f"Final podcast audio available at: {audio_filepath}")
+                                podcast_episode_data['audio_filepath'] = audio_filepath
+                            else:
+                                warnings_list.append("Failed to generate stitched audio file")
+                                logger.error("Audio stitching failed, no audio file produced")
+                                podcast_episode_data['audio_filepath'] = "" # Empty string if audio generation failed
+                        except Exception as e:
+                            logger.error(f"Error during audio processing: {e}", exc_info=True)
+                            warnings_list.append(f"Audio processing error: {e}")
+                            podcast_episode_data['audio_filepath'] = "" # Empty string if audio generation failed
                     else:
                         logger.error("Dialogue generation returned None or empty list of turns.")
                         warnings_list.append("Dialogue generation failed to produce turns.")
                         podcast_transcript = "Error: Dialogue generation failed."
                         podcast_episode_data['transcript'] = podcast_transcript
+                        podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation failed
 
                 except LLMProcessingError as e:
                     logger.error(f"LLMProcessingError during dialogue generation: {e}")
                     warnings_list.append(f"LLM processing error during dialogue generation: {e}")
                     podcast_episode_data['transcript'] = f"Error: LLM processing failed during dialogue generation. Details: {e}"
+                    podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation failed
                 except Exception as e:
                     logger.error(f"Unexpected error during dialogue generation: {e}", exc_info=True)
                     warnings_list.append(f"Critical error during dialogue generation: {e}")
                     podcast_transcript = f"Error: Critical error during dialogue generation. Details: {e}"
                     podcast_episode_data['transcript'] = podcast_transcript
+                    podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation failed
             else:
                 warnings_list.append("Skipping dialogue generation as outline or extracted_text is missing.")
                 podcast_transcript = "Dialogue generation skipped due to missing prerequisites."
                 podcast_episode_data['transcript'] = podcast_transcript
+                podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation was skipped
 
-            # (Future steps: TTS, audio stitching, final attributions)
-
+            # Return the final podcast episode
             return PodcastEpisode(
                 title=podcast_title,
                 summary=podcast_summary,
                 transcript=podcast_transcript,
-                audio_filepath="placeholder.mp3", # Placeholder for now
+                audio_filepath=podcast_episode_data.get('audio_filepath', ""),
                 source_attributions=[], # Placeholder for now, will be populated from dialogue turns later
                 warnings=warnings_list,
                 llm_source_analysis_paths=llm_source_analysis_filepaths if llm_source_analysis_filepaths else None,

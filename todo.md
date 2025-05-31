@@ -63,10 +63,11 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Ensure `PodcastEpisode` includes file paths to all serialized intermediate LLM outputs.
 - [ ] Improve PDF content extraction to correctly handle file paths (currently expects `UploadFile`).
 
-### Task 1.8: API Endpoint Definition (P1, M)
+### Task 1.8: Model Context Protocol (MCP) Server and API Endpoint Definition (P1, M)
+- Design and implement MCP server
 - Design and implement main API endpoint
-- Include validation for custom prompts
-- Handle file uploads and responses
+
+
 
 ### Task 1.9: Temporary File Management (P2, M)
 - Implement temporary file storage
