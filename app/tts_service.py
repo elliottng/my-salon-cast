@@ -32,7 +32,9 @@ class GoogleCloudTtsService:
         text_input: str,
         output_filepath: str,
         language_code: str = "en-US",
-        speaker_gender: str = None  # e.g., "Male", "Female", or None for default
+        speaker_gender: str = None,  # e.g., "Male", "Female", "Neutral", or None for default
+        voice_name: str = None,      # e.g., "en-US-Neural2-F", overrides gender if provided
+        voice_params: dict = None    # Optional additional voice parameters like speaking_rate and pitch
     ) -> bool:
         """
         Synthesizes speech from text and saves it to an audio file.
@@ -41,8 +43,13 @@ class GoogleCloudTtsService:
             text_input: The text to synthesize.
             output_filepath: The path to save the output audio file (e.g., 'output.mp3').
             language_code: The language code (e.g., 'en-US').
-            speaker_gender: Optional gender of the speaker ('Male', 'Female'). 
+            speaker_gender: Optional gender of the speaker ('Male', 'Female', 'Neutral'). 
                             If None, a default voice for the language will be used.
+            voice_name: Optional specific voice name (e.g., 'en-US-Neural2-F'). 
+                       If provided, this overrides the speaker_gender setting.
+            voice_params: Optional dictionary of additional voice parameters such as:
+                         - 'speaking_rate': Speed of speech (0.25 to 4.0, default 1.0)
+                         - 'pitch': Voice pitch (-20.0 to 20.0, default 0.0)
         
         Returns:
             True if synthesis was successful and file was saved, False otherwise.
@@ -54,31 +61,58 @@ class GoogleCloudTtsService:
         try:
             synthesis_input = texttospeech.SynthesisInput(text=text_input)
 
-            voice_params = texttospeech.VoiceSelectionParams(
+            voice_selection_params = texttospeech.VoiceSelectionParams(
                 language_code=language_code
             )
 
-            if speaker_gender:
+            # If voice_name is provided, use it (overrides gender)
+            if voice_name:
+                voice_selection_params.name = voice_name
+                logger.info(f"Using specific voice: {voice_name}")
+            # Otherwise use gender if provided
+            elif speaker_gender:
                 if speaker_gender.lower() == "male":
-                    voice_params.ssml_gender = texttospeech.SsmlVoiceGender.MALE
+                    voice_selection_params.ssml_gender = texttospeech.SsmlVoiceGender.MALE
                 elif speaker_gender.lower() == "female":
-                    voice_params.ssml_gender = texttospeech.SsmlVoiceGender.FEMALE
+                    voice_selection_params.ssml_gender = texttospeech.SsmlVoiceGender.FEMALE
+                elif speaker_gender.lower() == "neutral":
+                    voice_selection_params.ssml_gender = texttospeech.SsmlVoiceGender.NEUTRAL
                 else:
                     logger.warning(f"Unsupported speaker_gender '{speaker_gender}'. Using default voice.")
-            # If speaker_gender is None, the API will use a default voice for the language.
+            # If neither voice_name nor speaker_gender is provided, the API will use a default voice for the language.
 
             audio_config = texttospeech.AudioConfig(
                 audio_encoding=texttospeech.AudioEncoding.MP3
             )
 
-            logger.info(f"Requesting speech synthesis for text: '{text_input[:50]}...' with lang='{language_code}', gender='{speaker_gender or 'default'}'")
+            if voice_params:
+                if 'speaking_rate' in voice_params:
+                    audio_config.speaking_rate = voice_params['speaking_rate']
+                if 'pitch' in voice_params:
+                    audio_config.pitch = voice_params['pitch']
+
+            # Enhanced logging with all voice parameters
+            log_message = f"Requesting speech synthesis for text: '{text_input[:50]}...' with "
+            log_message += f"lang='{language_code}'"
+            if voice_name:
+                log_message += f", voice='{voice_name}'"
+            elif speaker_gender:
+                log_message += f", gender='{speaker_gender}'"
+            else:
+                log_message += ", using default voice"
+                
+            if voice_params:
+                params_str = ', '.join([f"{k}={v}" for k, v in voice_params.items()])
+                log_message += f", params={{{params_str}}}"
+                
+            logger.info(log_message)
 
             # The synthesize_speech method is blocking, so run it in a separate thread
             response = await asyncio.to_thread(
                 self.client.synthesize_speech,
                 request={
                     "input": synthesis_input,
-                    "voice": voice_params,
+                    "voice": voice_selection_params,
                     "audio_config": audio_config,
                 }
             )
