@@ -63,11 +63,131 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Ensure `PodcastEpisode` includes file paths to all serialized intermediate LLM outputs.
 - [ ] Improve PDF content extraction to correctly handle file paths (currently expects `UploadFile`).
 
-### Task 1.8: Model Context Protocol (MCP) Server and API Endpoint Definition (P1, M)
-- Design and implement MCP server
-- Design and implement main API endpoint
+# Task 1.8: Model Context Protocol Server and API Implementation
 
+## Task 1.8.1: FastAPI v.1 Extension (P1, L)
 
+- [ ] Extend existing `app/main.py` with minimal API endpoints:
+  - [ ] `POST /api/v1/podcasts/generate` (async job creation)
+  - [ ] `GET /api/v1/podcasts/{id}/status` (progress monitoring)
+  - [ ] `GET /api/v1/podcasts/{id}/audio` (file download)
+  - [ ] `GET /api/v1/podcasts/{id}/transcript` (text download)
+  - [ ] `GET /api/v1/podcasts/{id}/metadata` (episode details)
+- [ ] Implement async job queue system for long-running podcast generation
+- [ ] Add rate limiting (IP-based, 5 requests/day for anonymous users)
+- [ ] Integrate with existing `PodcastGeneratorService` workflow
+
+## Task 1.8.2: Data Model Migration (P1, L)
+
+### Phase 1: Extend PersonaResearch model in `app/podcast_models.py`
+- [ ] Add `invented_name: str` field
+- [ ] Add `gender: str` field
+- [ ] Add `tts_voice_id: str` field
+- [ ] Add `source_context: str` field
+- [ ] Add `creation_date: datetime` field
+
+### Phase 2: Update `app/llm_service.py`
+- [ ] Modify `research_persona_async()` to assign invented names during creation
+- [ ] Implement deterministic gender assignment logic
+- [ ] Add Google TTS voice selection logic
+- [ ] Update PersonaResearch creation to populate new fields
+
+### Phase 3: Migrate `app/podcast_workflow.py`
+- [ ] Remove temporary `persona_details_map` logic (~lines 180-220)
+- [ ] Update dialogue generation to use PersonaResearch model fields
+- [ ] Remove hardcoded name/gender assignment lists
+- [ ] Update TTS integration to use `PersonaResearch.tts_voice_id`
+
+### Phase 4: Update dependent services
+- [ ] Modify `app/tts_service.py` to use PersonaResearch voice assignments
+- [ ] Update `app/audio_utils.py` DialogueTurn creation logic
+
+### Phase 5: Create PodcastStatus model
+- [ ] Create PodcastStatus model for comprehensive status tracking
+- [ ] Implement status tracking in workflow
+
+## Task 1.8.3: FastMCP Auto-Generation (P1, M)
+
+- [ ] Install FastMCP dependency: `pip install fastmcp`
+- [ ] Create MCP server auto-generation from FastAPI:
+  - [ ] Configure `FastMCP.from_fastapi()` with route mapping
+  - [ ] Map POST endpoints → MCP Tools
+  - [ ] Map GET endpoints → MCP Resources
+  - [ ] Set up proper component naming conventions
+- [ ] Configure transport options:
+  - [ ] STDIO transport for Claude Desktop integration
+  - [ ] HTTP transport for web deployment flexibility
+- [ ] Test auto-generated MCP server functionality
+
+## Task 1.8.4: Direct FastMCP Implementation (P1, L)
+
+### Implement rich content resources
+- [ ] `@mcp.resource("persona://{podcast_id}/{person_id}/profile")`
+- [ ] `@mcp.resource("podcast://{podcast_id}/outline")`
+- [ ] `@mcp.resource("podcast://{podcast_id}/transcript")`
+- [ ] `@mcp.resource("prompts://templates/{template_type}")`
+
+### Implement AI-optimized tools
+- [ ] `@mcp.tool() subscribe_to_podcast_updates()`
+- [ ] `@mcp.tool() extract_content_preview()`
+
+### Create interaction prompt templates
+- [ ] `@mcp.prompt() create_podcast_from_url()`
+- [ ] `@mcp.prompt() create_podcast_from_pdf()`
+- [ ] `@mcp.prompt() discuss_persona_viewpoint()`
+
+### Implementation
+- [ ] Implement status subscription and smart polling system
+
+## Task 1.8.5: Claude Desktop Integration (P1, M)
+
+- [ ] Create MCP server entry point script for standalone execution
+- [ ] Write Claude Desktop MCP configuration:
+  - [ ] JSON configuration file
+  - [ ] Environment variable setup
+  - [ ] Installation and setup documentation
+- [ ] Test end-to-end workflows:
+  - [ ] Basic podcast generation through Claude
+  - [ ] Status monitoring and polling
+  - [ ] Persona profile access and discussion
+  - [ ] Outline review and interaction
+  - [ ] File download and access patterns
+- [ ] Create user interaction templates and examples
+
+## Task 1.8.6: Testing & Validation (P1, M)
+
+### Create MCP client testing framework
+- [ ] Tool invocation testing
+- [ ] Resource access testing
+- [ ] Prompt template validation
+
+### Implement integration tests
+- [ ] FastAPI ↔ MCP server integration
+- [ ] Data model migration validation
+- [ ] End-to-end podcast generation workflows
+
+### Performance testing
+- [ ] MCP server response times
+- [ ] Status polling efficiency
+- [ ] Resource access performance
+
+### Documentation
+- [ ] MCP server setup guide
+- [ ] Claude Desktop integration guide
+- [ ] Troubleshooting and debugging guide
+
+## Task 1.8.7: Documentation & Deployment (P2, S)
+
+- [ ] Update API documentation with new endpoints
+- [ ] Create MCP server deployment guide
+- [ ] Document data model migration process
+- [ ] Update todo.md with future v.2 features (Wikipedia integration, standalone persona research)
+
+---
+
+**Total Estimated Effort:** ~6-8 weeks for complete implementation
+
+**Critical Path:** Data model migration (Task 1.8.2) must complete before MCP implementation
 
 ### Task 1.9: Temporary File Management (P2, M)
 - Implement temporary file storage
