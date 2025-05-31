@@ -279,7 +279,7 @@ class PodcastGeneratorService:
             # Ensure Host is always in the map with a default or assigned invented name/gender
             persona_details_map["Host"] = {
                 "invented_name": request_data.host_invented_name or "Alex",
-                "gender": request_data.host_gender or "neutral",
+                "gender": request_data.host_gender or "Neutral",
                 "real_name": "Host"
             }
 
@@ -297,20 +297,20 @@ class PodcastGeneratorService:
                     person_id = persona_research_obj_temp.person_id
                     real_name = persona_research_obj_temp.name
                     # Defaulting gender as current PersonaResearch model has no 'attributes' field for gender
-                    assigned_gender = "neutral"
+                    assigned_gender = "Neutral"
                     
                     invented_name = "Unknown Person"
-                    if assigned_gender == "male":
+                    if assigned_gender == "Male":
                         available_names = [name for name in MALE_INVENTED_NAMES if name not in used_male_names]
                         if not available_names: available_names = MALE_INVENTED_NAMES # fallback if all used
                         invented_name = available_names[idx % len(available_names)]
                         used_male_names.add(invented_name)
-                    elif assigned_gender == "female":
+                    elif assigned_gender == "Female":
                         available_names = [name for name in FEMALE_INVENTED_NAMES if name not in used_female_names]
                         if not available_names: available_names = FEMALE_INVENTED_NAMES
                         invented_name = available_names[idx % len(available_names)]
                         used_female_names.add(invented_name)
-                    else: # neutral or unknown
+                    else: # Neutral or unknown
                         available_names = [name for name in NEUTRAL_INVENTED_NAMES if name not in used_neutral_names]
                         if not available_names: available_names = NEUTRAL_INVENTED_NAMES
                         invented_name = available_names[idx % len(available_names)]
@@ -381,7 +381,7 @@ class PodcastGeneratorService:
                     if request_data.prominent_persons:
                         for name in request_data.prominent_persons:
                             initial = name[0].upper() if name else "X"
-                            gender_for_tts = "neutral" # Default
+                            gender_for_tts = "Neutral" # Default
                             prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
                     
                     logger.info("STEP: Attempting LLM Dialogue Turns Generation...")
@@ -461,7 +461,7 @@ class PodcastGeneratorService:
                         success = await self.tts_service.text_to_audio_async(
                             text_input=turn.text,
                             output_filepath=turn_audio_filepath,
-                            speaker_gender=turn.speaker_gender if hasattr(turn, 'speaker_gender') else "neutral"
+                            speaker_gender=turn.speaker_gender if hasattr(turn, 'speaker_gender') else "Neutral"
                         )
                         if success:
                             individual_turn_audio_paths.append(turn_audio_filepath)

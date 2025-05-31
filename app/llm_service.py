@@ -476,21 +476,33 @@ Your output MUST be a single, valid JSON object only, with no additional text be
             logger.debug(f"Attempting to create PersonaResearch with (cleaned) keys: {list(parsed_json.keys()) if isinstance(parsed_json, dict) else 'Not a dict'}")
             
             # Process gender and assign appropriate invented name and TTS voice ID
-            gender = parsed_json.get('gender', '').lower()
-            if not gender or gender not in ['male', 'female', 'neutral']:
-                logger.warning(f"Invalid or missing gender '{gender}' for {person_name}, defaulting to 'neutral'")
-                gender = 'neutral'
+            # First normalize to lowercase for validation
+            raw_gender = parsed_json.get('gender', '').lower()
+            
+            # Then capitalize for TTS service compatibility
+            if not raw_gender or raw_gender not in ['male', 'female', 'neutral']:
+                logger.warning(f"Invalid or missing gender '{raw_gender}' for {person_name}, defaulting to 'Neutral'")
+                gender = 'Neutral'
+            elif raw_gender == 'male':
+                gender = 'Male'
+            elif raw_gender == 'female':
+                gender = 'Female'
+            else:  # neutral
+                gender = 'Neutral'
+                
+            logger.info(f"Normalized gender for {person_name}: '{raw_gender}' -> '{gender}'")
+            
                 
             # Select an invented name based on gender
             import random
             # Select voice profile which includes additional parameters like speaking_rate and pitch
-            if gender == 'male':
+            if gender == 'Male':
                 invented_name = random.choice(male_names)
                 voice_profile = random.choice(male_voice_profiles)
-            elif gender == 'female':
+            elif gender == 'Female':
                 invented_name = random.choice(female_names)
                 voice_profile = random.choice(female_voice_profiles)
-            else:  # neutral
+            else:  # Neutral
                 invented_name = random.choice(neutral_names)
                 voice_profile = random.choice(neutral_voice_profiles)
                 
