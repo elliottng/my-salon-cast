@@ -4,7 +4,7 @@ import requests
 import json
 import time
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
 
 print("1. Creating a podcast through the REST API...")
 

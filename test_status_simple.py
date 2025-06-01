@@ -6,7 +6,7 @@ import json
 import time
 import asyncio
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
 
 # First, let's check if we have the async endpoint by looking at the available endpoints
 print("1. Creating a test task using the workflow...")
@@ -15,7 +15,8 @@ print("1. Creating a test task using the workflow...")
 import sys
 sys.path.insert(0, '/home/elliottng/CascadeProjects/mysaloncast')
 
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 
 async def create_test_task():
     # Create a test request
@@ -92,4 +93,4 @@ else:
     print(f"   ✗ Task still exists? Status: {response.status_code}")
 
 print("\n✅ All tests completed!")
-print("\nYou can also check the interactive API docs at: http://localhost:8000/docs")
+print("\nYou can also check the interactive API docs at: http://localhost:8080/docs")

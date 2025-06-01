@@ -322,7 +322,7 @@ class GeminiService:
         # We'll use the global name and voice profile lists defined at the top of the file
 
         prompt = f"""
-You are preparing {person_name} for a podcast appearance. Your work will contribute to a podcast aiming to be educational, entertaining, and to highlight viewpoint diversity by authentically representing {person_name}'s perspectives.
+You are a debate coach and you are preparing {person_name} for a podcast appearance. Your work will contribute to a podcast aiming to be educational, entertaining, and to highlight viewpoint diversity by authentically representing {person_name}'s perspectives.
 
 GENDER DETERMINATION:
 As a critical step, determine the gender of {person_name} based on historical facts and biographical information.
@@ -366,6 +366,7 @@ Please provide your research as a JSON object with the following structure:
   - Identify what aspect would interest or concern them most
   - Explain what positions they would likely take based on their known principles
   - Describe how they would frame arguments in support of these positions
+  - Find the facts, figures, and statistics that most powerfully support these positions
   - Address how they might handle counterarguments
   
   For topics with minimal connection to {person_name}'s known interests:
@@ -935,7 +936,7 @@ Your outline must break the podcast into several distinct segments. Each segment
 - Topic Overview & Speaker Introductions: The 'Host' must introduce any personas speaking in a segment using their 'Invented Name' and clarifying which 'Real Name' they represent. For example: 'Host: Now, let's hear from Jarvis, an expert representing John Doe on this topic.' This should happen when a persona is first introduced or takes a significant speaking turn in a new context.
 - Deep Dive into Theme 1 (Potentially featuring specific personas) (approximately 10-15% of total word count)
 - Deep Dive into Theme 2 (Potentially featuring other personas) (approximately 10-15% of total word count)
-- Points of Agreement/Conflict (IMPORTANT: allocate approximately 40-50% of total word count to this segment, as this is where the most valuable insights and engaging discussions emerge)
+- Points of Agreement/Conflict (IMPORTANT: allocate approximately 30-50% of total word count to this segment, as this is where the most valuable insights and engaging discussions emerge)
 - Conclusion/Summary (approximately 10% of total word count)
 
 For each segment, you must specify:
@@ -957,7 +958,7 @@ Length Adherence: The sum of all segment 'target_word_count' values MUST EXACTLY
 Each segment's content_cue MUST be EXTREMELY comprehensive (MINIMUM 300 WORDS, NO EXCEPTIONS) and specific, including: 
    - Key talking points in detail
    - Questions or controversies to be addressed
-   - Specific facts or insights to include
+   - Specific facts, figures, and statistics to include
    - Important insights, theories, beliefs or arguments
    - Dialog flow and transitions
    - References to source material where relevant

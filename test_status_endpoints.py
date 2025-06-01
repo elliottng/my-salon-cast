@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 import sys
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "http://localhost:8080"
 
 async def test_status_endpoints():
     """Test all status endpoints."""
@@ -151,7 +151,7 @@ if __name__ == "__main__":
             print("ERROR: Server not responding correctly")
             sys.exit(1)
     except requests.exceptions.ConnectionError:
-        print("ERROR: Could not connect to server at http://localhost:8000")
+        print("ERROR: Could not connect to server at http://localhost:8080")
         print("Please ensure the FastAPI server is running with: uvicorn app.main:app --reload")
         sys.exit(1)
     
