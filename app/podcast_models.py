@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 class SourceAnalysis(BaseModel):
@@ -145,4 +145,89 @@ class PodcastEpisode(BaseModel):
     llm_persona_research_paths: Optional[List[str]] = None
     llm_podcast_outline_path: Optional[str] = None
     llm_dialogue_turns_path: Optional[str] = None
+
+
+# --- Asynchronous Task Management Models ---
+
+class PodcastTaskCreationResponse(BaseModel):
+    """
+    Response model for the immediate acknowledgment of a podcast generation task.
+    """
+    task_id: str = Field(..., description="Unique identifier for the podcast generation task.")
+    status: Literal["queued"] = Field(default="queued", description="Initial status of the task, always 'queued' on creation.")
+    message: str = Field(default="Podcast generation task has been successfully queued.", description="A human-readable message.")
+    queued_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when the task was queued (UTC).")
+
+    class Config:
+        use_enum_values = True
+
+
+PodcastProgressStatus = Literal[
+    "queued",
+    "preprocessing_sources",
+    "analyzing_sources",
+    "researching_personas",
+    "generating_outline",
+    "generating_dialogue",
+    "generating_audio_segments",
+    "stitching_audio",
+    "postprocessing_final_episode",
+    "completed",
+    "failed",
+    "cancelled"
+]
+
+
+class ArtifactAvailability(BaseModel):
+    """
+    Tracks the availability of various intermediate and final artifacts generated during podcast creation.
+    """
+    source_content_extracted: bool = Field(default=False, description="Source materials downloaded and text extracted.")
+    source_analysis_complete: bool = Field(default=False, description="Source material analysis artifacts available.")
+    persona_research_complete: bool = Field(default=False, description="Persona research artifacts available.")
+    podcast_outline_complete: bool = Field(default=False, description="Podcast outline artifact available.")
+    dialogue_script_complete: bool = Field(default=False, description="Full dialogue script artifact available.")
+    individual_audio_segments_complete: bool = Field(default=False, description="Individual dialogue turn audio segments generated.")
+    final_podcast_audio_available: bool = Field(default=False, description="Final stitched podcast audio MP3 available.")
+    final_podcast_transcript_available: bool = Field(default=False, description="Final full transcript (from dialogue) available.")
+
+
+class PodcastStatus(BaseModel):
+    """
+    Comprehensive model for tracking the status and progress of an asynchronous podcast generation task.
+    """
+    task_id: str = Field(..., description="Unique identifier for the podcast generation task.")
+    status: PodcastProgressStatus = Field(default="queued", description="Current detailed status of the podcast generation task.")
+    status_description: Optional[str] = Field(None, description="Human-readable description of the current status or step.")
+    progress_percentage: float = Field(default=0.0, ge=0, le=100, description="Overall progress percentage (0-100).")
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when the task was created/queued (UTC).")
+    last_updated_at: datetime = Field(default_factory=datetime.utcnow, description="Timestamp when the status was last updated (UTC).")
+    
+    # Using Any for request_data to avoid direct import of PodcastRequest from app.podcast_workflow here,
+    # which can lead to circular dependencies. The actual type is app.podcast_workflow.PodcastRequest.
+    request_data: Optional[Any] = Field(None, description="The original PodcastRequest data that initiated this task.")
+    
+    # PodcastEpisode is defined in this file. Using string literal for robustness against definition order.
+    result_episode: Optional['PodcastEpisode'] = Field(None, description="The final PodcastEpisode object if generation is successful.")
+    
+    error_message: Optional[str] = Field(None, description="A summary of the error, if the task failed.")
+    error_details: Optional[str] = Field(None, description="Detailed error information (e.g., a traceback snippet), if the task failed.")
+    
+    logs: List[str] = Field(default_factory=list, description="A list of key log messages or events during the task execution.")
+    artifacts: ArtifactAvailability = Field(default_factory=ArtifactAvailability, description="Status of various generated artifacts.")
+
+    class Config:
+        use_enum_values = True # Ensures Literal values are used as strings
+
+    def update_status(self, new_status: PodcastProgressStatus, description: Optional[str] = None, progress: Optional[float] = None):
+        """Helper method to update status, progress, and last_updated_at timestamp."""
+        self.status = new_status
+        if description is not None:
+            self.status_description = description
+        if progress is not None:
+            self.progress_percentage = min(max(progress, 0.0), 100.0) # Clamp progress to 0-100
+        self.last_updated_at = datetime.utcnow()
+        self.logs.append(f"{self.last_updated_at.isoformat()}Z - Status: {self.status}, Progress: {self.progress_percentage:.1f}%, Description: {self.status_description or 'N/A'}")
+
 
