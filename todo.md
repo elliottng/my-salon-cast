@@ -109,16 +109,16 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 ## Task 1.8.3: Direct FastMCP Implementation (P1, L)
 
 ### Phase 1.1: Install and Configure FastMCP 2.0 (P1, S)
-- [ ] Install FastMCP 2.0: `uv add fastmcp`
-- [ ] Verify installation with `fastmcp version`
-- [ ] Update requirements.txt to include fastmcp
-- [ ] Create basic MCP server structure
+- [x] Install FastMCP 2.0: `pip install fastmcp`
+- [x] Verify installation with `fastmcp version`
+- [x] Update requirements.txt to include fastmcp
+- [x] Create basic MCP server structure
 
 ### Phase 1.2: Create Base MCP Server Module (P1, M)
-- [ ] Create `app/mcp_server.py` as the main MCP interface
-- [ ] Initialize FastMCP server with appropriate name and instructions
-- [ ] Set up proper logging and error handling
-- [ ] Create basic server lifecycle management
+- [x] Create `app/mcp_server.py` as the main MCP interface
+- [x] Initialize FastMCP server with appropriate name and instructions
+- [x] Set up proper logging and error handling
+- [x] Create basic server lifecycle management
 
 ### Phase 1.3: Tool Implementation - Core Podcast Generation (P1, L)
 - [ ] Create `@mcp.tool()` for `generate_podcast_from_source`
