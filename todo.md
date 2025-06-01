@@ -80,64 +80,147 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 ## Task 1.8.2: Data Model Migration (P1, L)
 
 ### Phase 1: Extend PersonaResearch model in `app/podcast_models.py`
-- [ ] Add `invented_name: str` field
-- [ ] Add `gender: str` field
-- [ ] Add `tts_voice_id: str` field
-- [ ] Add `source_context: str` field
-- [ ] Add `creation_date: datetime` field
+- [x] Add `invented_name: str` field
+- [x] Add `gender: str` field
+- [x] Add `tts_voice_id: str` field
+- [x] Add `source_context: str` field
+- [x] Add `creation_date: datetime` field
 
 ### Phase 2: Update `app/llm_service.py`
-- [ ] Modify `research_persona_async()` to assign invented names during creation
-- [ ] Implement deterministic gender assignment logic
-- [ ] Add Google TTS voice selection logic
-- [ ] Update PersonaResearch creation to populate new fields
+- [x] Modify `research_persona_async()` to assign invented names during creation
+- [x] Implement deterministic gender assignment logic
+- [x] Add Google TTS voice selection logic
+- [x] Update PersonaResearch creation to populate new fields
 
 ### Phase 3: Migrate `app/podcast_workflow.py`
-- [ ] Remove temporary `persona_details_map` logic (~lines 180-220)
-- [ ] Update dialogue generation to use PersonaResearch model fields
-- [ ] Remove hardcoded name/gender assignment lists
-- [ ] Update TTS integration to use `PersonaResearch.tts_voice_id`
+- [x] Remove temporary `persona_details_map` logic (~lines 180-220)
+- [x] Update dialogue generation to use PersonaResearch model fields
+- [x] Remove hardcoded name/gender assignment lists
+- [x] Update TTS integration to use `PersonaResearch.tts_voice_id`
 
 ### Phase 4: Update dependent services
-- [ ] Modify `app/tts_service.py` to use PersonaResearch voice assignments
-- [ ] Update `app/audio_utils.py` DialogueTurn creation logic
+- [x] Modify `app/tts_service.py` to use PersonaResearch voice assignments
+- [x] Update `app/audio_utils.py` DialogueTurn creation logic
 
 ### Phase 5: Create PodcastStatus model
 - [ ] Create PodcastStatus model for comprehensive status tracking
 - [ ] Implement status tracking in workflow
 
-## Task 1.8.3: FastMCP Auto-Generation (P1, M)
+## Task 1.8.3: Direct FastMCP Implementation (P1, L)
 
-- [ ] Install FastMCP dependency: `pip install fastmcp`
-- [ ] Create MCP server auto-generation from FastAPI:
-  - [ ] Configure `FastMCP.from_fastapi()` with route mapping
-  - [ ] Map POST endpoints → MCP Tools
-  - [ ] Map GET endpoints → MCP Resources
-  - [ ] Set up proper component naming conventions
-- [ ] Configure transport options:
-  - [ ] STDIO transport for Claude Desktop integration
-  - [ ] HTTP transport for web deployment flexibility
-- [ ] Test auto-generated MCP server functionality
+### Phase 1.1: Install and Configure FastMCP 2.0 (P1, S)
+- [ ] Install FastMCP 2.0: `uv add fastmcp`
+- [ ] Verify installation with `fastmcp version`
+- [ ] Update requirements.txt to include fastmcp
+- [ ] Create basic MCP server structure
 
-## Task 1.8.4: Direct FastMCP Implementation (P1, L)
+### Phase 1.2: Create Base MCP Server Module (P1, M)
+- [ ] Create `app/mcp_server.py` as the main MCP interface
+- [ ] Initialize FastMCP server with appropriate name and instructions
+- [ ] Set up proper logging and error handling
+- [ ] Create basic server lifecycle management
 
-### Implement rich content resources
-- [ ] `@mcp.resource("persona://{podcast_id}/{person_id}/profile")`
-- [ ] `@mcp.resource("podcast://{podcast_id}/outline")`
-- [ ] `@mcp.resource("podcast://{podcast_id}/transcript")`
-- [ ] `@mcp.resource("prompts://templates/{template_type}")`
+### Phase 1.3: Tool Implementation - Core Podcast Generation (P1, L)
+- [ ] Create `@mcp.tool()` for `generate_podcast_from_source`
+  - [ ] Define proper Pydantic model for input parameters
+  - [ ] Handle multiple source URLs (max 3)
+  - [ ] Support PDF file path (max 1)
+  - [ ] Include prominent persons list
+  - [ ] Include podcast length specification
+- [ ] Implement proper error handling with ToolError
+- [ ] Add progress reporting via Context for long-running operations
+- [ ] Return structured podcast episode data
 
-### Implement AI-optimized tools
-- [ ] `@mcp.tool() subscribe_to_podcast_updates()`
-- [ ] `@mcp.tool() extract_content_preview()`
+### Phase 2.1: Static Resources (P1, M)
+- [ ] Expose configuration as `@mcp.resource("config://app")`
+- [ ] Expose API documentation as `@mcp.resource("docs://api")`
+- [ ] Expose example requests as `@mcp.resource("examples://requests")`
+- [ ] Create resource for supported file formats
 
-### Create interaction prompt templates
-- [ ] `@mcp.prompt() create_podcast_from_url()`
-- [ ] `@mcp.prompt() create_podcast_from_pdf()`
-- [ ] `@mcp.prompt() discuss_persona_viewpoint()`
+### Phase 2.2: Dynamic Resources - Podcast Data (P1, L)
+- [ ] Create `@mcp.resource("podcast://{podcast_id}/transcript")` for transcripts
+- [ ] Create `@mcp.resource("podcast://{podcast_id}/audio")` for audio files
+- [ ] Create `@mcp.resource("podcast://{podcast_id}/outline")` for outlines
 
-### Implementation
-- [ ] Implement status subscription and smart polling system
+### Phase 2.3: Dynamic Resources - Job Status (P2, M)
+- [ ] Create `@mcp.resource("jobs://{job_id}/status")` for generation progress status
+- [ ] Create `@mcp.resource("jobs://{job_id}/logs")` for processing logs
+- [ ] Create `@mcp.resource("jobs://{job_id}/warnings")` for warnings/errors
+- [ ] Implement proper error handling for missing resources
+
+### Phase 2.4: Dynamic Resources - LLM Outputs (P3, M)
+- [ ] Create `@mcp.resource("research://{job_id}/{person_id}")` for persona research
+
+### Phase 3.1: Core Prompt Templates (P2, M)
+- [ ] Create `@mcp.prompt()` for podcast generation requests
+- [ ] Create `@mcp.prompt()` for persona research prompts
+- [ ] Include proper parameter validation and descriptions
+
+### Phase 4.1: Service Integration (P1, L)
+- [ ] Integrate with existing `PodcastGeneratorService`
+
+### Phase 4.2: Model Compatibility (P1, M)
+- [ ] Ensure MCP models work with existing Pydantic models
+- [ ] If needed, create adapters for `PodcastRequest` → MCP tool parameters
+- [ ] Maintain compatibility with `PodcastEpisode` output format
+- [ ] If needed, handle type conversions between MCP and internal models
+
+### Phase 4.3: File Management (P1, M)
+- [ ] Integrate with existing temporary file management
+- [ ] Expose generated audio files through MCP resources
+- [ ] Handle cleanup of temporary directories appropriately
+- [ ] Ensure proper file permissions and access
+
+### Phase 5.1: MCP Context Integration (P1, M)
+- [ ] Add Context parameter to tools for logging
+- [ ] Implement progress reporting for podcast generation stages
+- [ ] Add resource access for reading intermediate files
+- [ ] Include request ID tracking for job correlation
+
+### Phase 5.2: Error Handling and Validation (P1, M)
+- [ ] Implement comprehensive error handling with ToolError/ResourceError
+- [ ] Add input validation for all tool parameters
+- [ ] Create meaningful error messages for clients
+- [ ] Handle service initialization failures gracefully
+
+### Phase 5.3: Authentication and Security (P2, M)
+- [ ] Consider adding basic authentication if needed
+- [ ] Implement rate limiting for resource-intensive operations
+- [ ] Secure file access and temporary directory management
+- [ ] Validate and sanitize all input parameters
+
+### Phase 6.1: MCP-Specific Testing (P1, M)
+- [ ] Create test suite for MCP tools using FastMCP Client
+- [ ] Test resource access patterns
+- [ ] Test prompt generation functionality
+- [ ] Create integration tests with existing workflow
+
+### Phase 6.2: Server Configuration (P1, S)
+- [ ] Configure server for appropriate transport (stdio, HTTP)
+- [ ] Set up proper logging levels
+- [ ] Configure duplicate handling policies
+- [ ] Set up custom error masking if needed
+
+### Phase 6.3: Documentation and Examples (P2, S)
+- [ ] Create usage examples for MCP clients
+- [ ] Document available tools, resources, and prompts
+
+### Phase 6.4: Deployment Integration (P1, M)
+- [ ] Update existing deployment scripts to support MCP mode
+- [ ] Create option to run as MCP server vs. HTTP API
+- [ ] Ensure proper environment variable handling
+- [ ] Test with actual MCP clients (Claude Desktop, etc.)
+
+#### Implementation Notes
+
+1. **Maintain Backward Compatibility**: Ensure existing HTTP API continues to work alongside MCP interface
+2. **Leverage Existing Code**: Reuse as much of the current podcast generation logic as possible
+3. **Progressive Implementation**: Start with core tools and add resources/prompts incrementally. Test along the way.
+4. **Error Handling**: Implement comprehensive error handling for robust client experience
+5. **Documentation**: Provide clear examples and documentation for MCP client integration
+## Task 1.8.4: FastMCP Auto-Generation (P2, M)
+
+
 
 ## Task 1.8.5: Claude Desktop Integration (P1, M)
 
