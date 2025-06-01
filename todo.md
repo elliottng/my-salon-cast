@@ -103,8 +103,72 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Update `app/audio_utils.py` DialogueTurn creation logic
 
 ### Phase 5: Create PodcastStatus model
-- [ ] Create PodcastStatus model for comprehensive status tracking
-- [ ] Implement status tracking in workflow
+- [x] Create PodcastStatus model for comprehensive status tracking (COMPLETED)
+  - [x] Define PodcastProgressStatus Literal type with all status states
+  - [x] Create PodcastStatus Pydantic model with all fields
+  - [x] Add ArtifactAvailability tracking model
+  - [x] Include update_status() helper method
+- [x] Create StatusManager for thread-safe status management (COMPLETED)
+  - [x] Implement singleton pattern with get_status_manager()
+  - [x] Add CRUD operations: create, get, update, delete
+  - [x] Include artifact tracking and error handling
+  - [x] Write comprehensive test coverage
+- [x] Implement dual sync/async API support in workflow (COMPLETED)
+  - [x] Refactor to _generate_podcast_internal() 
+  - [x] Keep generate_podcast_from_source() backwards compatible
+  - [x] Add generate_podcast_async() for async mode
+  - [x] Create and update status in both modes
+
+### Phase 5.1: Add Status Updates Throughout Workflow (P1, M) ✅ COMPLETED
+- [x] Add status update after source extraction completes
+  - [x] Update to "analyzing_sources" with progress ~15%
+  - [x] Set artifact: source_content_extracted = True
+- [x] Add status update after source analysis
+  - [x] Update to "researching_personas" with progress ~30%
+  - [x] Set artifact: source_analysis_complete = True
+- [x] Add status update after persona research
+  - [x] Update to "generating_outline" with progress ~45%
+  - [x] Set artifact: persona_research_complete = True
+- [x] Add status update after outline generation
+  - [x] Update to "generating_dialogue" with progress ~60%
+  - [x] Set artifact: podcast_outline_complete = True
+- [x] Add status update after dialogue generation
+  - [x] Update to "generating_audio_segments" with progress ~75%
+  - [x] Set artifact: dialogue_script_complete = True
+- [x] Add status update during audio generation
+  - [x] Update progress incrementally as segments complete
+  - [x] Set artifact: individual_audio_segments_complete = True
+- [x] Add status update after audio stitching
+  - [x] Update to "postprocessing_final_episode" with progress ~95%
+  - [x] Set artifact: final_podcast_audio_available = True
+- [x] Update to "completed" with episode result at 100%
+
+### Phase 5.2: Create Status Check REST Endpoint (P1, S)
+- [ ] Add GET `/status/{task_id}` endpoint to main.py
+  - [ ] Return PodcastStatus model directly
+  - [ ] Handle 404 if task_id not found
+  - [ ] Include all status fields and artifacts
+- [ ] Add GET `/status` endpoint to list all statuses
+  - [ ] Support pagination parameters
+  - [ ] Return list of PodcastStatus objects
+- [ ] Add DELETE `/status/{task_id}` for cleanup
+- [ ] Update API documentation
+
+### Phase 5.3: Add Status Persistence (P2, M)
+- [ ] Evaluate persistence options (SQLite, PostgreSQL, Redis)
+- [ ] Create database schema for PodcastStatus
+- [ ] Update StatusManager to use persistent storage
+- [ ] Add migration scripts
+- [ ] Handle server restart scenarios
+- [ ] Add cleanup for old/completed tasks
+
+### Phase 5.4: Implement True Async Processing (P2, L)
+- [ ] Add background task processing with asyncio
+- [ ] Update _generate_podcast_internal to spawn background task when async_mode=True
+- [ ] Implement proper task cancellation support
+- [ ] Add task queue management
+- [ ] Handle concurrent task limits
+- [ ] Add webhook/callback support for completion notifications
 
 ## Task 1.8.3: Direct FastMCP Implementation (P1, L)
 

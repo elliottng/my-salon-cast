@@ -260,6 +260,18 @@ class PodcastGeneratorService:
 
             logger.info("STEP: Text extraction phase complete. Extracted text is present. Moving to Source Analysis.")
             
+            # Update status after content extraction
+            status_manager.update_status(
+                task_id,
+                "analyzing_sources",
+                "Content extracted successfully, analyzing sources",
+                15.0
+            )
+            status_manager.update_artifacts(
+                task_id,
+                source_content_extracted=True
+            )
+            
             # 3. LLM - Source Analysis
             logger.info("STEP: Starting Source Analysis...")
             source_analysis_obj: Optional[SourceAnalysis] = None
@@ -292,6 +304,19 @@ class PodcastGeneratorService:
                 warnings_list.append(f"Critical error during source analysis: {e}")
 
             logger.info("STEP: Source Analysis phase complete.")
+            
+            # Update status after source analysis
+            if source_analysis_obj:
+                status_manager.update_status(
+                    task_id,
+                    "researching_personas",
+                    "Source analysis complete, researching personas",
+                    30.0
+                )
+                status_manager.update_artifacts(
+                    task_id,
+                    source_analysis_complete=True
+                )
             
             # 4. LLM - Persona Research (Iterative)
             logger.info("STEP: Starting Persona Research...")
@@ -345,6 +370,18 @@ class PodcastGeneratorService:
                 logger.info("No prominent persons requested or no extracted text for persona research.")
 
             logger.info(f"STEP: Persona Research complete. Found {len(persona_research_docs_content)} personas researched.")
+
+            # Update status after persona research
+            status_manager.update_status(
+                task_id,
+                "generating_outline",
+                f"Researched {len(persona_research_docs_content)} personas, generating outline",
+                45.0
+            )
+            status_manager.update_artifacts(
+                task_id,
+                persona_research_complete=True
+            )
 
             # 4.5. Assign Invented Names and Genders to Personas (mirroring podcast_workflow.py)
             logger.info("STEP: Assigning invented names and genders to personas...")
@@ -548,6 +585,19 @@ class PodcastGeneratorService:
 
             logger.info("STEP: Podcast Outline Generation phase complete.")
             
+            # Update status after outline generation
+            if podcast_outline_obj:
+                status_manager.update_status(
+                    task_id,
+                    "generating_dialogue",
+                    "Outline complete, generating dialogue script",
+                    60.0
+                )
+                status_manager.update_artifacts(
+                    task_id,
+                    podcast_outline_complete=True
+                )
+            
             # 6. LLM - Dialogue Turns Generation
             logger.info("STEP: Starting Dialogue Turns Generation...")
             dialogue_turns_list: Optional[List[DialogueTurn]] = None
@@ -624,6 +674,19 @@ class PodcastGeneratorService:
 
             logger.info("STEP: Dialogue Turns Generation phase complete.")
             
+            # Update status after dialogue generation
+            if dialogue_turns_list:
+                status_manager.update_status(
+                    task_id,
+                    "generating_audio_segments",
+                    f"Generated {len(dialogue_turns_list)} dialogue turns, creating audio",
+                    75.0
+                )
+                status_manager.update_artifacts(
+                    task_id,
+                    dialogue_script_complete=True
+                )
+            
             # 7. TTS Generation for Dialogue Turns
             logger.info("STEP: Starting TTS generation for dialogue turns...")
             if dialogue_turns_list and self.tts_service:
@@ -631,7 +694,17 @@ class PodcastGeneratorService:
                 os.makedirs(audio_segments_dir, exist_ok=True)
                 logger.info(f"Created directory for audio segments: {audio_segments_dir}")
 
+                total_turns = len(dialogue_turns_list)
                 for i, turn in enumerate(dialogue_turns_list):
+                    # Update status with incremental progress
+                    progress = 75.0 + (15.0 * (i / total_turns))  # Progress from 75% to 90%
+                    status_manager.update_status(
+                        task_id,
+                        "generating_audio_segments",
+                        f"Generating audio {i+1}/{total_turns} - {turn.speaker_id}",
+                        progress
+                    )
+                    
                     turn_audio_filename = f"turn_{i:03d}_{turn.speaker_id.replace(' ','_')}.mp3"
                     turn_audio_filepath = os.path.join(audio_segments_dir, turn_audio_filename)
                     logger.info(f"Generating TTS for turn {i} (Speaker: {turn.speaker_id}): {turn.text[:50]}...")
@@ -688,6 +761,18 @@ class PodcastGeneratorService:
                         warnings_list.append(f"TTS critical error for turn {i}: {e}")
                 
                 logger.info(f"STEP: TTS generation for all turns complete. {len(individual_turn_audio_paths)} audio files generated.")
+                
+                # Update status after TTS generation completes
+                status_manager.update_status(
+                    task_id,
+                    "stitching_audio",
+                    "Audio segments complete, stitching final podcast",
+                    90.0
+                )
+                status_manager.update_artifacts(
+                    task_id,
+                    individual_audio_segments_complete=True
+                )
             else:
                 logger.warning("No dialogue turns available for TTS processing or TTS service missing.")
                 warnings_list.append("TTS skipped: No dialogue turns or TTS service missing.")
@@ -712,6 +797,19 @@ class PodcastGeneratorService:
                 warnings_list.append("Audio stitching skipped: No audio segments available.")
             logger.info("STEP: Audio stitching phase complete.")
 
+            # Update status after audio stitching
+            if final_audio_filepath != "placeholder_error.mp3":
+                status_manager.update_status(
+                    task_id,
+                    "postprocessing_final_episode",
+                    "Audio stitched successfully, finalizing episode",
+                    95.0
+                )
+                status_manager.update_artifacts(
+                    task_id,
+                    final_podcast_audio_available=True
+                )
+
             # Final PodcastEpisode construction
             podcast_episode = PodcastEpisode(
                 title=podcast_title,
@@ -727,23 +825,46 @@ class PodcastGeneratorService:
                 dialogue_turn_audio_paths=individual_turn_audio_paths
             )
             logger.info(f"STEP_COMPLETED_TRY_BLOCK: PodcastEpisode object created. Title: {podcast_episode.title}, Audio: {podcast_episode.audio_filepath}, Warnings: {len(podcast_episode.warnings)}")
+            
+            # Update status to completed with final episode
+            status_manager.update_status(
+                task_id,
+                "completed",
+                f"Podcast generation complete: {podcast_episode.title}",
+                100.0
+            )
+            status_manager.update_artifacts(
+                task_id,
+                final_podcast_transcript_available=True
+            )
+            
+            # Update the result in the status
+            status = status_manager.get_status(task_id)
+            if status:
+                status.result_episode = podcast_episode
+                status.last_updated_at = datetime.utcnow()
+            
             return task_id, podcast_episode
 
         except Exception as main_e:
             logger.critical(f"STEP_CRITICAL_FAILURE: Unhandled exception in generate_podcast_from_source: {main_e}", exc_info=True)
             warnings_list.append(f"CRITICAL FAILURE: {main_e}")
-            # Return a minimal error episode
+            
+            # Update status to failed
+            status_manager.set_error(task_id, str(main_e))
+            
+            # Return a minimal error episode with safe defaults
             return task_id, PodcastEpisode(
                 title="Critical Generation Error",
                 summary=f"A critical error occurred: {main_e}",
                 transcript="",
-                audio_filepath=final_audio_filepath, # Might still be placeholder
-                source_attributions=source_attributions if source_attributions else 
-                    ([str(request_data.source_pdf_path)] if request_data.source_pdf_path else []),
+                audio_filepath="placeholder_error.mp3",  # Safe default
+                source_attributions=source_attributions if 'source_attributions' in locals() else [],
                 warnings=warnings_list
             )
         finally:
-            logger.info(f"STEP_FINALLY: Temporary directory (NOT cleaned up): {tmpdir_path}")
+            if 'tmpdir_path' in locals():
+                logger.info(f"STEP_FINALLY: Temporary directory (NOT cleaned up): {tmpdir_path}")
             # Note: We're NOT removing tmpdir_path for debugging purposes
 
 # Example usage (for development testing purposes)
