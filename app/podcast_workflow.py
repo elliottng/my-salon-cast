@@ -18,11 +18,12 @@ from pydantic import ValidationError
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Now we can import from app directly
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastStatus
 from app.common_exceptions import LLMProcessingError, ExtractionError
 from app.content_extractor import extract_content_from_url, extract_text_from_pdf_path
 from app.llm_service import GeminiService
 from app.tts_service import GoogleCloudTtsService
+from app.status_manager import get_status_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -110,15 +111,80 @@ class PodcastGeneratorService:
         request_data: PodcastRequest
     ) -> PodcastEpisode:
         """
-        Main orchestration method to generate a podcast episode.
-        Follows the sequence outlined in designdoc1-7.md.
+        Main orchestration method to generate a podcast episode synchronously.
+        Maintains backwards compatibility with existing REST API.
+        
+        Returns:
+            PodcastEpisode - The completed podcast episode
         """
+        # Use the async method internally but only return the episode
+        task_id, episode = await self._generate_podcast_internal(request_data, async_mode=False)
+        return episode
+    
+    async def generate_podcast_async(
+        self,
+        request_data: PodcastRequest
+    ) -> str:
+        """
+        Generate a podcast episode asynchronously.
+        Returns immediately with a task_id for status tracking.
+        
+        Returns:
+            str - The task_id for status tracking
+        """
+        task_id, _ = await self._generate_podcast_internal(request_data, async_mode=True)
+        return task_id
+    
+    async def _generate_podcast_internal(
+        self,
+        request_data: PodcastRequest,
+        async_mode: bool = False
+    ) -> Tuple[str, PodcastEpisode]:
+        """
+        Internal method that handles both sync and async podcast generation.
+        
+        Args:
+            request_data: The podcast generation request
+            async_mode: If True, will return immediately and process in background (future implementation)
+        
+        Returns:
+            Tuple of (task_id, PodcastEpisode)
+        """
+        # Create a unique task ID and initialize status
+        task_id = str(uuid.uuid4())
+        status_manager = get_status_manager()
+        
+        # Create initial status with request data
+        status = status_manager.create_status(task_id, request_data.dict())
+        logger.info(f"Created podcast generation task with ID: {task_id}")
+        
+        # Update status to preprocessing
+        status_manager.update_status(
+            task_id, 
+            "preprocessing_sources",
+            "Validating request and preparing sources",
+            5.0
+        )
+        
+        # TODO: In async_mode, this is where we would spawn a background task
+        # and return immediately. For now, we continue synchronously.
+        
         if not self.llm_service:
             logger.error("LLMService not available. Cannot generate podcast.")
-            return PodcastEpisode(
+            status_manager.set_error(
+                task_id,
+                "LLM Service Not Initialized",
+                "The LLM service failed to initialize properly"
+            )
+            error_episode = PodcastEpisode(
                 title="Error", summary="LLM Service Not Initialized", transcript="", audio_filepath="",
                 source_attributions=[], warnings=["LLM Service failed to initialize."]
             )
+            # Update the status with the error episode
+            status = status_manager.get_status(task_id)
+            if status:
+                status.result_episode = error_episode
+            return task_id, error_episode
 
         llm_source_analysis_filepath: Optional[str] = None
         llm_persona_research_filepaths: List[str] = []
@@ -187,7 +253,7 @@ class PodcastGeneratorService:
                 logger.info(f"Combined {len(extracted_texts)} sources into a single text for analysis.")
             else:
                 logger.warning("No content could be extracted from any sources.")
-                return PodcastEpisode(title="Error", summary="No Content Extracted", transcript="", audio_filepath="", 
+                return task_id, PodcastEpisode(title="Error", summary="No Content Extracted", transcript="", audio_filepath="", 
                                      source_attributions=[], warnings=["No content could be extracted from any sources."])
                 
             extracted_text = combined_text  # Use the combined text for subsequent processing
@@ -661,13 +727,13 @@ class PodcastGeneratorService:
                 dialogue_turn_audio_paths=individual_turn_audio_paths
             )
             logger.info(f"STEP_COMPLETED_TRY_BLOCK: PodcastEpisode object created. Title: {podcast_episode.title}, Audio: {podcast_episode.audio_filepath}, Warnings: {len(podcast_episode.warnings)}")
-            return podcast_episode
+            return task_id, podcast_episode
 
         except Exception as main_e:
             logger.critical(f"STEP_CRITICAL_FAILURE: Unhandled exception in generate_podcast_from_source: {main_e}", exc_info=True)
             warnings_list.append(f"CRITICAL FAILURE: {main_e}")
             # Return a minimal error episode
-            return PodcastEpisode(
+            return task_id, PodcastEpisode(
                 title="Critical Generation Error",
                 summary=f"A critical error occurred: {main_e}",
                 transcript="",
@@ -698,7 +764,8 @@ async def main_workflow_test():
     
     try:
         episode = await generator.generate_podcast_from_source(sample_request)
-        logger.info(f"Test generation complete. Title: {episode.title}, Audio: {episode.audio_filepath}")
+        logger.info(f"Test generation complete.")
+        logger.info(f"Title: {episode.title}, Audio: {episode.audio_filepath}")
         return episode
     except Exception as e:
         logger.error(f"Test workflow error: {e}", exc_info=True)
