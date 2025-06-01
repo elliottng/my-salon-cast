@@ -5,7 +5,10 @@ import os
 from app.validations import is_valid_pdf, is_valid_url, is_valid_youtube_url
 from app.content_extractor import extract_text_from_pdf, extract_content_from_url, extract_transcript_from_youtube, ExtractionError
 from app.podcast_workflow import PodcastRequest, PodcastGeneratorService
-from app.podcast_models import PodcastEpisode
+from app.podcast_models import PodcastEpisode, PodcastStatus
+from app.status_manager import get_status_manager
+from typing import List, Optional
+from pydantic import BaseModel
 
 app = FastAPI(title="MySalonCast API")
 
@@ -134,6 +137,27 @@ async def generate_podcast_elements_endpoint(request: PodcastRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected server error occurred: {type(e).__name__}")
 
 
+@app.post("/generate/podcast_async/")
+async def generate_podcast_async_endpoint(request: PodcastRequest):
+    """
+    Start async podcast generation and return task_id immediately.
+    Use the /status/{task_id} endpoint to track progress.
+    """
+    try:
+        generator_service = PodcastGeneratorService()
+        task_id = await generator_service.generate_podcast_async(request)
+        
+        return {
+            "task_id": task_id,
+            "message": "Podcast generation started",
+            "status_url": f"/status/{task_id}"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start podcast generation: {str(e)}")
+
+
 @app.get("/podcast/{podcast_id}/audio")
 @app.get("/listen/{podcast_id}")
 async def get_podcast_audio(podcast_id: str):
@@ -236,3 +260,90 @@ async def get_segment_audio(podcast_id: str, segment_id: int):
     
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html_content)
+
+
+# Status management endpoints
+@app.get("/status/{task_id}", response_model=PodcastStatus)
+async def get_task_status(task_id: str):
+    """
+    Get the status of a specific podcast generation task.
+    
+    Args:
+        task_id: The unique identifier for the task
+        
+    Returns:
+        PodcastStatus: The current status of the task including progress, artifacts, and result
+        
+    Raises:
+        HTTPException: 404 if task_id not found
+    """
+    status_manager = get_status_manager()
+    status = status_manager.get_status(task_id)
+    
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    
+    return status
+
+
+class StatusListResponse(BaseModel):
+    statuses: List[PodcastStatus]
+    total: int
+    limit: int
+    offset: int
+
+
+@app.get("/status", response_model=StatusListResponse)
+async def list_task_statuses(limit: int = 50, offset: int = 0):
+    """
+    List all podcast generation task statuses with pagination.
+    
+    Args:
+        limit: Maximum number of statuses to return (default: 50, max: 100)
+        offset: Number of statuses to skip (default: 0)
+        
+    Returns:
+        StatusListResponse: List of statuses with pagination metadata
+    """
+    # Enforce maximum limit
+    limit = min(limit, 100)
+    
+    status_manager = get_status_manager()
+    all_statuses = list(status_manager._statuses.values())
+    
+    # Sort by created_at descending (newest first)
+    all_statuses.sort(key=lambda s: s.created_at, reverse=True)
+    
+    # Apply pagination
+    total = len(all_statuses)
+    paginated_statuses = all_statuses[offset:offset + limit]
+    
+    return StatusListResponse(
+        statuses=paginated_statuses,
+        total=total,
+        limit=limit,
+        offset=offset
+    )
+
+
+@app.delete("/status/{task_id}")
+async def delete_task_status(task_id: str):
+    """
+    Delete a specific task status from the status manager.
+    
+    Args:
+        task_id: The unique identifier for the task to delete
+        
+    Returns:
+        dict: Confirmation message
+        
+    Raises:
+        HTTPException: 404 if task_id not found
+    """
+    status_manager = get_status_manager()
+    deleted = status_manager.delete_status(task_id)
+    
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    
+    return {"message": f"Task {task_id} deleted successfully"}

@@ -253,8 +253,19 @@ class PodcastGeneratorService:
                 logger.info(f"Combined {len(extracted_texts)} sources into a single text for analysis.")
             else:
                 logger.warning("No content could be extracted from any sources.")
-                return task_id, PodcastEpisode(title="Error", summary="No Content Extracted", transcript="", audio_filepath="", 
-                                     source_attributions=[], warnings=["No content could be extracted from any sources."])
+                error_msg = "No content could be extracted from any sources."
+                
+                # Update status to failed before returning
+                status_manager.set_error(task_id, error_msg)
+                
+                return task_id, PodcastEpisode(
+                    title="Error", 
+                    summary="No Content Extracted", 
+                    transcript="", 
+                    audio_filepath="", 
+                    source_attributions=[], 
+                    warnings=[error_msg]
+                )
                 
             extracted_text = combined_text  # Use the combined text for subsequent processing
 
