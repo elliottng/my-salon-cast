@@ -24,6 +24,7 @@ from app.content_extractor import extract_content_from_url, extract_text_from_pd
 from app.llm_service import GeminiService
 from app.tts_service import GoogleCloudTtsService
 from app.status_manager import get_status_manager
+from app.task_runner import get_task_runner
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -118,6 +119,59 @@ class PodcastGeneratorService:
         """
         task_id, _ = await self._generate_podcast_internal(request_data, async_mode=True)
         return task_id
+        
+    async def _run_podcast_generation_async(self, task_id: str, request_data: PodcastRequest) -> None:
+        """
+        Wrapper function that runs podcast generation in a background task.
+        This function is designed to be executed by the TaskRunner in a separate thread.
+        
+        Args:
+            task_id: The unique identifier for this generation task
+            request_data: The podcast generation request parameters
+        """
+        status_manager = get_status_manager()
+        
+        try:
+            logger.info(f"Starting background podcast generation for task {task_id}")
+            
+            # Call the existing _generate_podcast_internal with async_mode=False
+            # We set async_mode=False here because we're already running asynchronously via the task runner
+            _, podcast_episode = await self._generate_podcast_internal(request_data, async_mode=False)
+            
+            logger.info(f"Background generation complete for task {task_id}")
+            
+            # The status updates are already handled within _generate_podcast_internal
+            # No need to duplicate them here
+            
+        except Exception as e:
+            logger.error(f"Background task {task_id} failed with error: {str(e)}")
+            status_manager.set_error(task_id, f"Background generation failed: {str(e)}")
+            # Log the full traceback for debugging
+            logger.exception("Exception details:")
+            
+        finally:
+            logger.info(f"Background task {task_id} execution completed (success or failure)")
+            # Any necessary cleanup can be added here
+    
+    def _run_podcast_generation_sync_wrapper(self, task_id: str, request_data: PodcastRequest) -> None:
+        """
+        Synchronous wrapper for _run_podcast_generation_async to be used by ThreadPoolExecutor.
+        Creates a new event loop in the thread to run the async function.
+        
+        Args:
+            task_id: The unique identifier for this generation task
+            request_data: The podcast generation request parameters
+        """
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Run the async function in the new event loop
+            loop.run_until_complete(self._run_podcast_generation_async(task_id, request_data))
+        finally:
+            # Clean up the event loop
+            loop.close()
     
     async def _generate_podcast_internal(
         self,
@@ -150,9 +204,70 @@ class PodcastGeneratorService:
             5.0
         )
         
-        # TODO: In async_mode, this is where we would spawn a background task
-        # and return immediately. For now, we continue synchronously.
+        # In async_mode, spawn a background task and return immediately
+        if async_mode:
+            logger.info(f"Async mode enabled for task {task_id}, spawning background task")
+            task_runner = get_task_runner()
+            
+            # Check if we can accept a new task
+            if not task_runner.can_accept_new_task():
+                logger.warning(f"Task runner at capacity, cannot accept task {task_id}")
+                status_manager.set_error(
+                    task_id,
+                    "System at capacity",
+                    f"Maximum concurrent podcast generations ({task_runner.max_workers}) reached. Please try again later."
+                )
+                error_episode = PodcastEpisode(
+                    title="Error", 
+                    summary="System at capacity", 
+                    transcript="", 
+                    audio_filepath="",
+                    source_attributions=[], 
+                    warnings=["Maximum concurrent podcast generations reached."]
+                )
+                return task_id, error_episode
+            
+            # Submit the task to run in the background
+            try:
+                # Note: We need to pass the task_id to the async wrapper
+                await task_runner.submit_task(
+                    task_id,
+                    self._run_podcast_generation_sync_wrapper,
+                    task_id,
+                    request_data
+                )
+                logger.info(f"Task {task_id} submitted for background processing")
+                
+                # Return immediately with an empty episode placeholder
+                # The actual episode will be available via the status API
+                placeholder_episode = PodcastEpisode(
+                    title="Processing",
+                    summary="Podcast generation in progress",
+                    transcript="",
+                    audio_filepath="",
+                    source_attributions=[],
+                    warnings=[]
+                )
+                return task_id, placeholder_episode
+                
+            except Exception as e:
+                logger.error(f"Failed to submit task {task_id} for background processing: {str(e)}")
+                status_manager.set_error(
+                    task_id,
+                    "Failed to start background processing",
+                    str(e)
+                )
+                error_episode = PodcastEpisode(
+                    title="Error", 
+                    summary="Failed to start background processing", 
+                    transcript="", 
+                    audio_filepath="",
+                    source_attributions=[], 
+                    warnings=[f"Background processing error: {str(e)}"]
+                )
+                return task_id, error_episode
         
+        # Continue with synchronous generation (existing code)
         if not self.llm_service:
             logger.error("LLMService not available. Cannot generate podcast.")
             status_manager.set_error(
@@ -161,8 +276,12 @@ class PodcastGeneratorService:
                 "The LLM service failed to initialize properly"
             )
             error_episode = PodcastEpisode(
-                title="Error", summary="LLM Service Not Initialized", transcript="", audio_filepath="",
-                source_attributions=[], warnings=["LLM Service failed to initialize."]
+                title="Error", 
+                summary="LLM Service Not Initialized", 
+                transcript="", 
+                audio_filepath="",
+                source_attributions=[], 
+                warnings=["LLM Service failed to initialize."]
             )
             # Update the status with the error episode
             status = status_manager.get_status(task_id)
@@ -871,11 +990,12 @@ async def main_workflow_test():
     logger.info("Defining sample request data...")
     sample_request = PodcastRequest(
         source_urls=[
-            "https://en.wikipedia.org/wiki/Bush_v._Gore",
-            "https://www.newyorker.com/news/news-desk/the-ghost-of-bush-v-gore-haunts-the-supreme-courts-colorado-case"
+            "https://www.whitehouse.gov/articles/2025/05/fact-one-big-beautiful-bill-cuts-spending-fuels-growth/",
+            "https://thehill.com/opinion/finance/5320248-the-bond-market-is-missing-the-real-big-beautiful-story/"
+            "https://www.ronjohnson.senate.gov/2025/5/the-ugly-truth-about-the-big-beautiful-bill"
         ],
-        prominent_persons=["Antonin Scalia", "John Glover Roberts Jr"],
-        desired_podcast_length_str="5 minutes"
+        prominent_persons=["Jason Calacanis","David O. Sacks","Chemath Palihapitiya""David Friedberg"],
+        desired_podcast_length_str="15 minutes"
     )
     
     try:
