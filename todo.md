@@ -4,14 +4,14 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ## Phase 1: Backend Core Logic & API Endpoints
 
-### Task 1.1: Setup Project & Environment (P1, S) ✓
+### Task 1.1: Setup Project & Environment (P1, S) 
 - [x] Initialize Python project (e.g., Flask/FastAPI)
 - [x] Set up virtual environment and install basic dependencies
 - [x] Structure project directories
 - [x] Install Terraform CLI
 - [x] Set up Terraform state backend
 
-### Task 1.2: Input Validation Module (P1, M) ✓
+### Task 1.2: Input Validation Module (P1, M) 
 - [x] Define validation rules for PDF uploads (file type, size limits)
 - [x] Define validation rules for URL inputs (format, accessibility)
 - [x] Implement validation logic in FastAPI endpoints
@@ -26,7 +26,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Basic error handling for failed extractions
 - [x] Handle errors gracefully
 
-### Task 1.4: LLM Interaction Service Wrapper (P1, M) ✓
+### Task 1.4: LLM Interaction Service Wrapper (P1, M) 
 - [x] Create Google Gemini 2.5 Pro API wrapper
 - [x] Implement method for source analysis
 - [x] Implement method for persona research
@@ -35,7 +35,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Manage API key securely
 - [x] Implement retry logic
 
-### Task 1.6: TTS Service Wrapper (P1, M) ✓
+### Task 1.6: TTS Service Wrapper (P1, M) 
 - [x] Create Google Cloud Text-to-Speech wrapper
 - [x] Implement text-to-audio conversion
 - [x] Implement voice selection based on LLM characteristics
@@ -119,7 +119,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Add generate_podcast_async() for async mode
   - [x] Create and update status in both modes
 
-### Phase 5.1: Add Status Updates Throughout Workflow (P1, M) ✅ COMPLETED
+### Phase 5.1: Add Status Updates Throughout Workflow (P1, M) 
 - [x] Add status update after source extraction completes
   - [x] Update to "analyzing_sources" with progress ~15%
   - [x] Set artifact: source_content_extracted = True
@@ -143,16 +143,23 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Set artifact: final_podcast_audio_available = True
 - [x] Update to "completed" with episode result at 100%
 
-### Phase 5.2: Create Status Check REST Endpoint (P1, S)
-- [ ] Add GET `/status/{task_id}` endpoint to main.py
-  - [ ] Return PodcastStatus model directly
-  - [ ] Handle 404 if task_id not found
-  - [ ] Include all status fields and artifacts
-- [ ] Add GET `/status` endpoint to list all statuses
-  - [ ] Support pagination parameters
-  - [ ] Return list of PodcastStatus objects
-- [ ] Add DELETE `/status/{task_id}` for cleanup
-- [ ] Update API documentation
+### Phase 5.2: Create Status Check REST Endpoint (P1, S) ✅ COMPLETED
+- [x] Add GET `/status/{task_id}` endpoint to main.py
+  - [x] Return PodcastStatus model directly
+  - [x] Handle 404 if task_id not found
+  - [x] Include all status fields and artifacts
+- [x] Add GET `/status` endpoint to list all statuses
+  - [x] Support pagination parameters
+  - [x] Return list of PodcastStatus objects
+- [x] Add DELETE `/status/{task_id}` for cleanup
+- [x] Update API documentation
+- [x] Add POST `/generate/podcast_async/` endpoint for async generation
+  - [x] Returns task_id immediately
+  - [x] Enables status tracking via task_id
+- [x] Create comprehensive test scripts
+  - [x] test_status_rest_api.py for REST API testing
+  - [x] test_status_simple.py for direct service testing
+  - [x] test_status_endpoints.py for async HTTP testing
 
 ### Phase 5.3: Add Status Persistence (P2, M)
 - [ ] Evaluate persistence options (SQLite, PostgreSQL, Redis)
@@ -444,5 +451,5 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Refactor remaining application code
   - [x] Fix import paths for consistent execution across environments
   - [x] Add utility script for import path fixing
-- [ ] Add comprehensive comments
-- [ ] Document LLM interactions
+- [x] Add comprehensive comments
+- [x] Document LLM interactions
