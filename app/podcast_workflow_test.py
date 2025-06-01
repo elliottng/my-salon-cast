@@ -1,9 +1,16 @@
 import asyncio
+import glob
 import json
 import logging
 import os
-import tempfile
+import random
+import shutil
+import subprocess
 import sys
+import tempfile
+import time
+import uuid
+from datetime import datetime
 from typing import List, Optional, Any, Tuple
 from pydantic import ValidationError
 
@@ -275,13 +282,23 @@ class PodcastGeneratorService:
 
             # 4.5. Assign Invented Names and Genders to Personas (mirroring podcast_workflow.py)
             logger.info("STEP: Assigning invented names and genders to personas...")
+            # Create a map of PersonaResearch objects for easy lookup by person_id - PRIMARY APPROACH
+            persona_research_map: dict[str, PersonaResearch] = {}
+            
+            # DEPRECATED: persona_details_map is being phased out in favor of PersonaResearch objects
+            # This structure is only maintained temporarily for backward compatibility with dependent services
+            # TODO: Remove this completely once all dependencies have been updated
             persona_details_map: dict[str, dict[str, str]] = {}
-            # Ensure Host is always in the map with a default or assigned invented name/gender
-            persona_details_map["Host"] = {
-                "invented_name": request_data.host_invented_name or "Alex",
-                "gender": request_data.host_gender or "Neutral",
-                "real_name": "Host"
-            }
+            
+            # We'll create the Host persona after processing all guests to avoid voice duplication
+            # Capture the host details for later use
+            host_name = request_data.host_invented_name or "Brigette"
+            host_gender = request_data.host_gender or "Female"
+            
+            # Track assigned voice IDs to avoid duplicates
+            assigned_voice_ids = set()
+            
+            # We will add the host to persona_research_docs_content after processing all guests
 
             MALE_INVENTED_NAMES = ["Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Theodore"]
             FEMALE_INVENTED_NAMES = ["Olivia", "Emma", "Charlotte", "Amelia", "Sophia", "Isabella", "Ava", "Mia", "Evelyn", "Luna"]
@@ -296,8 +313,16 @@ class PodcastGeneratorService:
                     persona_research_obj_temp = PersonaResearch(**pr_data)
                     person_id = persona_research_obj_temp.person_id
                     real_name = persona_research_obj_temp.name
-                    # Defaulting gender as current PersonaResearch model has no 'attributes' field for gender
-                    assigned_gender = "Neutral"
+                    
+                    # Use gender from PersonaResearch if available, otherwise assign based on name analysis or randomize
+                    # In a real implementation, you might use a name gender classifier library
+                    if persona_research_obj_temp.gender:
+                        assigned_gender = persona_research_obj_temp.gender
+                    else:
+                        # For testing, we'll alternate between genders to ensure variety
+                        # In production, consider a more sophisticated approach
+                        genders = ["Male", "Female", "Neutral"]
+                        assigned_gender = genders[idx % len(genders)]
                     
                     invented_name = "Unknown Person"
                     if assigned_gender == "Male":
@@ -316,16 +341,100 @@ class PodcastGeneratorService:
                         invented_name = available_names[idx % len(available_names)]
                         used_neutral_names.add(invented_name)
 
+                    # Update the PersonaResearch object with voice information
+                    updated_pr_data = pr_data.copy()
+                    updated_pr_data["invented_name"] = invented_name
+                    updated_pr_data["gender"] = assigned_gender
+                    
+                    # Set creation_date as ISO format string if it doesn't exist
+                    if "creation_date" not in updated_pr_data or updated_pr_data["creation_date"] is None:
+                        updated_pr_data["creation_date"] = datetime.now().isoformat()
+                    elif isinstance(updated_pr_data["creation_date"], datetime):
+                        # Convert datetime to string if it's a datetime object
+                        updated_pr_data["creation_date"] = updated_pr_data["creation_date"].isoformat()
+                    
+                    # Now we'll also set a specific voice ID based on gender
+                    # This would ideally come from a voice selection service
+                    if assigned_gender == "Male":
+                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-D"  # Example male voice
+                    elif assigned_gender == "Female":
+                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-F"  # Example female voice
+                    else:
+                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-A"  # Example neutral voice
+                    
+                    # Create a new PersonaResearch object with all the updated fields
+                    updated_persona = PersonaResearch(**updated_pr_data)
+                    
+                    # Add to persona_research_map for efficient lookups by ID
+                    persona_research_map[updated_persona.person_id] = updated_persona
+                    
+                    # Replace the original JSON string with the updated one - use model_dump_json for proper serialization
+                    persona_research_docs_content[idx] = updated_persona.model_dump_json()
+                    
+                    # Also maintain the persona_details_map for backward compatibility
+                    # This will be deprecated in future versions
                     persona_details_map[person_id] = {
                         "invented_name": invented_name,
                         "gender": assigned_gender,
-                        "real_name": real_name
+                        "real_name": real_name,
+                        "tts_voice_id": updated_pr_data["tts_voice_id"]
                     }
                     logger.info(f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}', Gender='{assigned_gender}'")
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
                 except Exception as e:
                     logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
+            # Now create the Host persona with a voice that doesn't conflict with guests
+            # Expanded voice options to provide more variety and avoid duplicates
+            male_voices = ["en-US-Neural2-D", "en-US-Neural2-J", "en-GB-Neural2-B", "en-GB-Neural2-D"]
+            female_voices = ["en-US-Neural2-F", "en-US-Neural2-G", "en-GB-Neural2-A", "en-GB-Neural2-C"]
+            neutral_voices = ["en-US-Neural2-A", "en-US-Neural2-C"]
+            
+            # Find all currently assigned voices
+            used_voice_ids = set()
+            for details in persona_details_map.values():
+                if "tts_voice_id" in details:
+                    used_voice_ids.add(details["tts_voice_id"])
+            
+            # Select a unique voice for the Host based on gender
+            host_voice_id = None
+            if host_gender == "Male":
+                available_voices = [v for v in male_voices if v not in used_voice_ids]
+                # Fallback to all male voices if all are already used
+                host_voice_id = random.choice(available_voices if available_voices else male_voices)
+            elif host_gender == "Female":
+                available_voices = [v for v in female_voices if v not in used_voice_ids]
+                # Fallback to all female voices if all are already used
+                host_voice_id = random.choice(available_voices if available_voices else female_voices)
+            else:  # Neutral
+                available_voices = [v for v in neutral_voices if v not in used_voice_ids]
+                # Fallback to all neutral voices if all are already used
+                host_voice_id = random.choice(available_voices if available_voices else neutral_voices)
+            
+            # Create the Host persona and add to maps
+            host_persona = PersonaResearch(
+                person_id="Host",
+                name="Host",
+                detailed_profile="The podcast host is an engaging personality who is intellectually inquisitive and interested in fostering debate and viewpoint diversity",
+                invented_name=host_name,
+                gender=host_gender,
+                tts_voice_id=host_voice_id,
+                creation_date=datetime.now().isoformat()
+            )
+            
+            # Add Host to maps
+            persona_research_map["Host"] = host_persona
+            persona_details_map["Host"] = {
+                "invented_name": host_name,
+                "gender": host_gender,
+                "real_name": "Host",
+                "tts_voice_id": host_voice_id
+            }
+            
+            # Add Host to persona research documents
+            persona_research_docs_content.append(host_persona.model_dump_json())
+            logger.info(f"Assigned to Host (Host): Invented Name='{host_name}', Gender='{host_gender}', Voice ID='{host_voice_id}'")
+            
             logger.info(f"Final persona_details_map: {persona_details_map}")
             
             # 5. LLM - Podcast Outline Generation
@@ -338,13 +447,15 @@ class PodcastGeneratorService:
                     # Use desired_podcast_length_str directly from request_data as PodcastRequest model defines it as such
                     desired_length_str = request_data.desired_podcast_length_str
 
+                    # TEMPORARY: Still passing persona_details_map while service methods require it
+                    # This will be removed once all methods are updated to use PersonaResearch exclusively
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
                         source_analyses=source_analyses_content, 
                         persona_research_docs=persona_research_docs_content,
                         desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
-                        persona_details_map=persona_details_map, # ADDED THIS ARGUMENT
+                        persona_details_map=persona_details_map,  # TEMPORARY: Will be removed in future refactoring
                         user_provided_custom_prompt=request_data.custom_prompt_for_outline
                     )
                     if podcast_outline_obj:
@@ -407,11 +518,13 @@ class PodcastGeneratorService:
                             warnings_list.append("Failed to process one or more persona research docs for dialogue.")
                             # Potentially skip this persona or handle error
 
+                    # TEMPORARY: Still passing persona_details_map while service methods require it
+                    # This will be removed once all methods are updated to use PersonaResearch exclusively
                     dialogue_turns_list = await self.llm_service.generate_dialogue_async(
                         podcast_outline=podcast_outline_obj,
                         source_analyses=source_analysis_objects, 
                         persona_research_docs=persona_research_objects_for_dialogue,
-                        persona_details_map=persona_details_map,
+                        persona_details_map=persona_details_map,  # TEMPORARY: Will be removed in future refactoring
                         user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
                     )
 
@@ -458,10 +571,43 @@ class PodcastGeneratorService:
                     logger.info(f"Generating TTS for turn {i} (Speaker: {turn.speaker_id}): {turn.text[:50]}...")
                     try:
                         logger.info(f"STEP: Attempting TTS for turn {i}...")
+                        
+                        # Initialize voice parameters
+                        voice_name = None
+                        speaker_gender = None
+                        voice_params = None
+                        
+                        # Try to find matching persona with voice info
+                        if turn.speaker_id in persona_research_map:
+                            pr = persona_research_map[turn.speaker_id]
+                            # Priority 1: Use specific voice ID if available
+                            if pr.tts_voice_id:
+                                voice_name = pr.tts_voice_id
+                                logger.info(f"Using specific voice ID for {turn.speaker_id}: {voice_name}")
+                            # Priority 2: Use gender if no specific voice
+                            elif pr.gender:
+                                speaker_gender = pr.gender
+                                logger.info(f"Using gender from PersonaResearch for {turn.speaker_id}: {speaker_gender}")
+                            # Priority 3: Use voice params if available
+                            if pr.tts_voice_params:
+                                voice_params = pr.tts_voice_params
+                        # Fallback to turn.speaker_gender if no persona found
+                        elif hasattr(turn, 'speaker_gender') and turn.speaker_gender:
+                            speaker_gender = turn.speaker_gender
+                            logger.info(f"Falling back to turn.speaker_gender for {turn.speaker_id}: {speaker_gender}")
+                        # No PersonaResearch or speaker_gender available - log warning and use default
+                        else:
+                            logger.warning(f"No PersonaResearch or speaker_gender found for {turn.speaker_id}. Using default Neutral voice.")
+                            speaker_gender = "Neutral"
+                            logger.warning(f"No voice information found for {turn.speaker_id}, defaulting to Neutral gender")
+                        
+                        # Make the TTS call with all available voice parameters
                         success = await self.tts_service.text_to_audio_async(
                             text_input=turn.text,
                             output_filepath=turn_audio_filepath,
-                            speaker_gender=turn.speaker_gender if hasattr(turn, 'speaker_gender') else "Neutral"
+                            speaker_gender=speaker_gender,
+                            voice_name=voice_name,
+                            voice_params=voice_params
                         )
                         if success:
                             individual_turn_audio_paths.append(turn_audio_filepath)
@@ -544,12 +690,12 @@ async def main_workflow_test():
     logger.info("Defining sample request data...")
     sample_request = PodcastRequest(
         source_urls=[
-            "https://www.britannica.com/event/Battle-of-Jutland",
-            "https://en.wikipedia.org/wiki/Battle_of_Jutland",
-            "https://www.naval-history.net/WW1Battle1605Jutland1.htm"  # Third source for more detailed naval history
+            "https://en.wikipedia.org/wiki/Bush_v._Gore",
+            "https://www.newyorker.com/news/news-desk/the-ghost-of-bush-v-gore-haunts-the-supreme-courts-colorado-case",
+            "https://www.law.gmu.edu/pubs/papers/03_33"
         ],
-        prominent_persons=["John Arbuthnot Fisher", "Sarah C. M. Paine"],
-        desired_podcast_length_str="2 minutes"
+        prominent_persons=["Antonin Scalia", "John Glover Roberts Jr"],
+        desired_podcast_length_str="8 minutes"
     )
     print(f"Starting podcast generation test with URLs: {sample_request.source_urls}, Persons: {sample_request.prominent_persons}, Length: {sample_request.desired_podcast_length_str}")
     try:
