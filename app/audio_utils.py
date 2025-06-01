@@ -118,14 +118,19 @@ class AudioStitchingService:
                     log_msg += f", params={voice_params}"
                 self.logger.info(log_msg)
             
-            # PRIORITY 2: Fall back to persona_details_map (legacy approach)
+            # PRIORITY 2: Fall back to persona_details_map (legacy approach) - DEPRECATED
             elif turn.speaker_id in persona_details_map:
                 speaker_gender = persona_details_map[turn.speaker_id].get("gender")
-                self.logger.info(f"[AUDIO_STITCH] Using persona_details_map for {turn.speaker_id}: gender={speaker_gender}")
+                self.logger.warning(f"[AUDIO_STITCH] DEPRECATED: Using persona_details_map for {turn.speaker_id}: gender={speaker_gender}. Please migrate to PersonaResearch objects.")
             
             # PRIORITY 3: Use turn.speaker_gender as last resort
             if not speaker_gender and turn.speaker_gender:
                 speaker_gender = turn.speaker_gender
+                self.logger.warning(f"[AUDIO_STITCH] Falling back to turn.speaker_gender={turn.speaker_gender} for {turn.speaker_id}")
+            
+            # If we still don't have a gender, log it clearly
+            if not speaker_gender:
+                self.logger.warning(f"[AUDIO_STITCH] No gender information found for {turn.speaker_id}! Defaulting to system default.")
             
             self.logger.info(f"[AUDIO_STITCH] Generating audio for turn {turn.turn_id} (speaker: {turn.speaker_id}, gender: {speaker_gender})")
             

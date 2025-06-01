@@ -1,197 +1,109 @@
-from pydantic import BaseModel, HttpUrl, Field, ValidationError
-from typing import List, Optional, Any, Dict, Tuple, Set, Union
 import asyncio
+import glob
 import json
 import logging
 import os
 import random
-import tempfile
 import shutil
+import subprocess
+import sys
+import tempfile
+import time
 import uuid
 from datetime import datetime
-from pathlib import Path
+from typing import List, Optional, Any, Tuple
+from pydantic import ValidationError
 
-# --- Pydantic Models for Workflow Data ---
-# Models like SourceAnalysis, PersonaResearch, etc., are now imported from podcast_models
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode
-from app.common_exceptions import LLMProcessingError
+# Add the project root to the Python path so we can import modules correctly
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Now we can import from app directly
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel
+from app.common_exceptions import LLMProcessingError, ExtractionError
+from app.content_extractor import extract_content_from_url, extract_text_from_pdf_path
+from app.llm_service import GeminiService
+from app.tts_service import GoogleCloudTtsService
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Placeholder for the input data model to generate_podcast_from_source
-# This will likely be defined more concretely when we build the API endpoint (Task 1.8)
 class PodcastRequest(BaseModel):
-    source_urls: List[HttpUrl] = Field(default_factory=list, description="List of URLs to extract content from (maximum 3)")
-    source_pdf_path: Optional[str] = None # Assuming a path if a PDF is uploaded
+    source_urls: Optional[List[str]] = None  # Support for multiple source URLs
+    source_pdf_path: Optional[str] = None
+    prominent_persons: Optional[List[str]] = None
+    desired_podcast_length_str: Optional[str] = None
     custom_prompt_for_outline: Optional[str] = None
-    custom_prompt_for_dialogue: Optional[str] = None
-    prominent_persons: Optional[List[str]] = Field(default=None, description="List of prominent person names for targeted research.")
-    desired_podcast_length: int = Field(default=5, description="Desired length of the podcast in minutes.")
-    # Add other user inputs if needed
-    # For now, let's keep it simple
-
-
-# --- Podcast Generation Service ---
-import tempfile
-import os
-import json
-import logging
-
-# Assuming these services are in the same app directory
-from app.llm_service import GeminiService as LLMService, LLMNotInitializedError
-from app.tts_service import GoogleCloudTtsService # Will be used later
-from app.audio_utils import AudioPathManager, AudioStitchingService
-from app.content_extractor import (
-    extract_content_from_url, 
-    extract_text_from_pdf_path, 
-    extract_transcript_from_youtube, # Added for completeness, though not used yet
-    ExtractionError
-)
-
-logger = logging.getLogger(__name__)
+    host_invented_name: Optional[str] = None # Added for host persona customization
+    host_gender: Optional[str] = None # Added for host persona customization
+    custom_prompt_for_dialogue: Optional[str] = None # Added for dialogue generation customization
+    
+    @property
+    def has_valid_sources(self) -> bool:
+        """Check if the request has at least one valid source."""
+        return (self.source_urls and len(self.source_urls) > 0) or (self.source_pdf_path is not None)
 
 class PodcastGeneratorService:
     def __init__(self):
-        # Initialize TTS service first so we can pass it to the LLM service
-        self.tts_service = GoogleCloudTtsService() # Initialize TTS service with voice caching
-        logger.info("TTS service initialized with voice cache support")
-        
-        # Now initialize LLM service with TTS service for voice profile selection
+        # Initialize services
         try:
-            self.llm_service = LLMService(tts_service=self.tts_service)
-            logger.info("LLMService initialized successfully with TTS service integration")
-        except LLMNotInitializedError as e:
-            logger.error(f"Failed to initialize LLMService: {e}")
-            # Depending on desired behavior, could re-raise or set self.llm_service to None
-            # For now, let's allow it to be None and handle it in generate_podcast_from_source
-            self.llm_service = None
-        
-        # Initialize audio stitching services
-        self.path_manager = AudioPathManager()
-        self.audio_stitching_service = AudioStitchingService(
-            tts_service=self.tts_service,
-            path_manager=self.path_manager
-        )
-        
-        # ContentExtractionService is no longer instantiated; its functions are called directly.
-        logger.info("PodcastGeneratorService initialized with LLM, TTS, and Audio Stitching services.")
-    
-    async def _process_audio_for_podcast(self, 
-                                      dialogue_turns: List[DialogueTurn],
-                                      podcast_id: str,
-                                      persona_details_map: dict,
-                                      persona_research_map: Optional[Dict[str, PersonaResearch]] = None,
-                                      silence_duration_ms: int = 500) -> str:
-        """
-        Process audio for all dialogue turns and stitch them together.
-        
-        Args:
-            dialogue_turns: List of dialogue turns to process
-            podcast_id: Unique identifier for this podcast
-            persona_details_map: Map of speaker IDs to details (for gender)
-            silence_duration_ms: Duration of silence between turns in milliseconds
-            
-        Returns:
-            Path to the final stitched audio file, or empty string if failed
-        """
-        logger.info(f"[AUDIO_STITCH] Starting audio processing for podcast {podcast_id}")
-        
-        # Create directory structure
-        podcast_dir, segments_dir = self.path_manager.create_podcast_directories(podcast_id)
-        logger.info(f"[AUDIO_STITCH] Created directory structure at {podcast_dir}")
-        
-        # Generate audio for each turn
-        segment_paths = []
-        failed_segments = []
-        
-        for turn in dialogue_turns:
-            # If we have the enhanced PersonaResearch map, use it (preferred method)
-            if persona_research_map is not None and turn.speaker_id in persona_research_map:
-                success, segment_path = await self.audio_stitching_service.generate_audio_for_dialogue_turn(
-                    turn, podcast_id, persona_details_map, persona_research_map
-                )
-            else:
-                # Fallback to the traditional method using only persona_details_map
-                success, segment_path = await self.audio_stitching_service.generate_audio_for_dialogue_turn(
-                    turn, podcast_id, persona_details_map
-                )
-            
-            if success:
-                segment_paths.append(segment_path)
-                logger.info(f"[AUDIO_STITCH] Generated audio for turn {turn.turn_id}: {segment_path}")
-            else:
-                failed_segments.append(turn.turn_id)
-                logger.error(f"[AUDIO_STITCH] Failed to generate audio for turn {turn.turn_id}")
-        
-        # If all segments failed, return error
-        if not segment_paths:
-            logger.error("[AUDIO_STITCH] All audio segments failed to generate")
-            return ""
-        
-        if failed_segments:
-            logger.warning(f"[AUDIO_STITCH] Failed to generate audio for {len(failed_segments)} segments: {failed_segments}")
-        
-        # Stitch audio segments
-        final_audio_path = self.path_manager.get_final_audio_path(podcast_id)
-        success = await self.audio_stitching_service.stitch_audio_segments(
-            segment_paths, final_audio_path, silence_duration_ms
-        )
-        
-        if success:
-            logger.info(f"[AUDIO_STITCH] Successfully stitched {len(segment_paths)} audio segments to {final_audio_path}")
-            return final_audio_path
-        else:
-            logger.error("[AUDIO_STITCH] Failed to stitch audio segments")
-            # Return first segment as fallback if available, otherwise empty string
-            return segment_paths[0] if segment_paths else ""
-
-    def copy_audio_files_from_temp(self, tmp_dir: str, podcast_id: str) -> bool:
-        """
-        Copy audio files from temporary directory to permanent outputs location.
-        
-        Args:
-            tmp_dir: Path to the temporary directory containing audio files
-            podcast_id: Unique identifier for the podcast
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            logger.info(f"[AUDIO_COPY] Copying audio files from {tmp_dir} to permanent location")
-            
-            # Create podcast directories
-            podcast_dir, segments_dir = self.path_manager.create_podcast_directories(podcast_id)
-            
-            # Check if we have a final podcast file to copy
-            temp_final_path = os.path.join(tmp_dir, "final_podcast.mp3")
-            if os.path.exists(temp_final_path):
-                final_path = self.path_manager.get_final_audio_path(podcast_id)
-                shutil.copy2(temp_final_path, final_path)
-                logger.info(f"[AUDIO_COPY] Copied final podcast audio to {final_path}")
-            else:
-                logger.warning(f"[AUDIO_COPY] Final podcast audio not found at {temp_final_path}")
-                return False
-                
-            # Copy segment files if they exist
-            temp_segments_dir = os.path.join(tmp_dir, "audio_segments")
-            if os.path.exists(temp_segments_dir) and os.path.isdir(temp_segments_dir):
-                for filename in os.listdir(temp_segments_dir):
-                    if filename.endswith(".mp3"):
-                        src_path = os.path.join(temp_segments_dir, filename)
-                        # Extract turn_id from filename
-                        try:
-                            turn_id = int(filename.split("_")[1].split(".")[0])
-                            dest_path = self.path_manager.get_segment_path(podcast_id, turn_id)
-                            shutil.copy2(src_path, dest_path)
-                            logger.info(f"[AUDIO_COPY] Copied segment {filename} to {dest_path}")
-                        except (IndexError, ValueError):
-                            # If filename doesn't match expected format, copy to segments dir with original name
-                            dest_path = os.path.join(segments_dir, filename)
-                            shutil.copy2(src_path, dest_path)
-                            logger.info(f"[AUDIO_COPY] Copied segment with original name {filename} to {dest_path}")
-            
-            return True
+            self.llm_service = GeminiService()
+            logger.info("LLM Service initialized successfully.")
         except Exception as e:
-            logger.error(f"[AUDIO_COPY] Error copying audio files: {e}")
-            return False
+            logger.error(f"Failed to initialize LLM Service: {e}")
+            self.llm_service = None
+
+        try:
+            self.tts_service = GoogleCloudTtsService()
+            logger.info("TTS Service initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize TTS Service: {e}")
+            self.tts_service = None
+
+    async def _stitch_audio_segments_async(self, audio_file_paths: List[str], output_dir: str) -> Optional[str]:
+        """
+        Stitch multiple audio segments into a single audio file.
+        """
+        if not audio_file_paths:
+            logger.error("No audio file paths provided for stitching.")
+            return None
+
+        try:
+            # Import pydub inside the method to avoid importing issues if not available
+            from pydub import AudioSegment
+            
+            combined = None
+            
+            for audio_path in audio_file_paths:
+                if not os.path.exists(audio_path):
+                    logger.warning(f"Audio file not found: {audio_path}")
+                    continue
+                    
+                try:
+                    segment = AudioSegment.from_mp3(audio_path)
+                    if combined is None:
+                        combined = segment
+                    else:
+                        combined += segment
+                except Exception as e:
+                    logger.error(f"Error processing audio file {audio_path}: {e}")
+            
+            if combined is None:
+                logger.error("No valid audio segments could be processed.")
+                return None
+                
+            output_path = os.path.join(output_dir, "final_podcast.mp3")
+            combined.export(output_path, format="mp3")
+            logger.info(f"Successfully stitched audio to: {output_path}")
+            return output_path
+            
+        except ImportError as e:
+            logger.error(f"Required audio processing library not available: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error during audio stitching: {e}")
+            return None
 
     async def generate_podcast_from_source(
         self,
@@ -208,11 +120,12 @@ class PodcastGeneratorService:
                 source_attributions=[], warnings=["LLM Service failed to initialize."]
             )
 
-        llm_source_analysis_filepaths: List[str] = []
+        llm_source_analysis_filepath: Optional[str] = None
         llm_persona_research_filepaths: List[str] = []
         llm_podcast_outline_filepath: Optional[str] = None
         llm_dialogue_script_filepath: Optional[str] = None # Path for the full dialogue script
         llm_dialogue_turns_filepath: Optional[str] = None
+        individual_turn_audio_paths: List[str] = [] # NEW: To hold paths to individual dialogue turn audio files
 
         source_analyses_content: List[str] = []
         persona_research_docs_content: List[str] = []
@@ -223,72 +136,72 @@ class PodcastGeneratorService:
         warnings_list: List[str] = []
         podcast_episode_data: dict = {} # Initialize the dictionary
 
-        with tempfile.TemporaryDirectory(prefix="podcast_job_") as tmpdir_path:
-            logger.info(f"Created temporary directory for podcast job: {tmpdir_path}")
-
-            # 2. Content Extraction
-            extracted_texts: List[str] = []
-            extraction_errors: List[str] = []
+        # Create a non-cleaning temporary directory for testing
+        tmpdir_path = tempfile.mkdtemp(prefix="podcast_job_")
+        logger.info(f"Created NON-CLEANING temporary directory for podcast job: {tmpdir_path}")
+        
+        try:
+            logger.info(f"STEP_ENTRY: generate_podcast_from_source for request_data.source_urls: {request_data.source_urls}, request_data.source_pdf_path: {request_data.source_pdf_path}")
             
-            # Handle multiple URLs
+            # 2. Content Extraction
+            logger.info("STEP: Starting Content Extraction...")
+            extracted_texts: List[str] = []
+            source_attributions: List[str] = []
+            
+            # Process multiple URLs if provided
             if request_data.source_urls:
-                if len(request_data.source_urls) > 3:
-                    logger.warning(f"Too many URLs provided: {len(request_data.source_urls)}. Using only the first 3.")
-                    request_data.source_urls = request_data.source_urls[:3]
-                
                 for url in request_data.source_urls:
                     try:
                         text = await extract_content_from_url(str(url))
                         if text:
                             extracted_texts.append(text)
+                            source_attributions.append(url)
                             logger.info(f"Successfully extracted text from URL: {url}")
                         else:
-                            extraction_errors.append(f"Empty content extracted from URL: {url}")
+                            logger.warning(f"Empty content extracted from URL: {url}")
                     except ExtractionError as e:
-                        error_msg = f"Content extraction from URL {url} failed: {e}"
-                        extraction_errors.append(error_msg)
-                        logger.error(error_msg)
-                
-                if not extracted_texts and extraction_errors:
-                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", audio_filepath="", 
-                                         source_attributions=[], warnings=[f"Failed to extract content from URLs: {'; '.join(extraction_errors)}"])
-            elif request_data.source_pdf_path:
+                        logger.error(f"Content extraction from URL {url} failed: {e}")
+                        warnings_list.append(f"Failed to extract content from URL {url}: {e}")
+            
+            # Process PDF if provided (as a fallback or additional source)
+            if request_data.source_pdf_path and not extracted_texts:  # Only use PDF if no URLs worked
                 try:
                     pdf_path_str = str(request_data.source_pdf_path)
                     text = await extract_text_from_pdf_path(pdf_path_str)
                     if text:
                         extracted_texts.append(text)
+                        source_attributions.append(pdf_path_str)
                         logger.info(f"Successfully extracted text from PDF path: {pdf_path_str}")
                     else:
-                        logger.error(f"Empty content extracted from PDF path: {pdf_path_str}")
-                        return PodcastEpisode(title="Error", summary="Empty Content Extracted", transcript="", 
-                                             audio_filepath="", source_attributions=[], 
-                                             warnings=[f"Empty content extracted from PDF: {pdf_path_str}"])
+                        logger.warning(f"Empty content extracted from PDF: {pdf_path_str}")
                 except ExtractionError as e:
                     logger.error(f"Content extraction from PDF path {request_data.source_pdf_path} failed: {e}")
-                    return PodcastEpisode(title="Error", summary="Content Extraction Failed", transcript="", 
-                                         audio_filepath="", source_attributions=[], 
-                                         warnings=[f"Failed to extract content from PDF: {e}"])
+                    warnings_list.append(f"Failed to extract content from PDF: {e}")
+            
+            # Combine all extracted texts with source markers
+            combined_text = ""
+            if extracted_texts:
+                for i, text in enumerate(extracted_texts):
+                    source_marker = f"\n\n--- SOURCE {i+1}: {source_attributions[i]} ---\n\n"
+                    combined_text += source_marker + text
+                logger.info(f"Combined {len(extracted_texts)} sources into a single text for analysis.")
             else:
-                logger.warning("No source URLs or PDF path provided for content extraction.")
-                return PodcastEpisode(title="Error", summary="No Source Provided", transcript="", 
-                                     audio_filepath="", source_attributions=[], 
-                                     warnings=["No source URLs or PDF path provided."])
-
-            if not extracted_texts:
-                logger.error("Content extraction resulted in empty texts.")
-                return PodcastEpisode(title="Error", summary="Empty Content Extracted", transcript="", 
-                                     audio_filepath="", source_attributions=[], 
-                                     warnings=["Content extraction resulted in empty texts."])
+                logger.warning("No content could be extracted from any sources.")
+                return PodcastEpisode(title="Error", summary="No Content Extracted", transcript="", audio_filepath="", 
+                                     source_attributions=[], warnings=["No content could be extracted from any sources."])
                 
-            # Combine all extracted texts with clear separation
-            extracted_text = "\n\n===== SOURCE SEPARATOR =====\n\n".join(extracted_texts)
+            extracted_text = combined_text  # Use the combined text for subsequent processing
 
+            logger.info("STEP: Text extraction phase complete. Extracted text is present. Moving to Source Analysis.")
+            
             # 3. LLM - Source Analysis
+            logger.info("STEP: Starting Source Analysis...")
             source_analysis_obj: Optional[SourceAnalysis] = None
             try:
+                logger.info("STEP: Attempting LLM Source Analysis...")
                 # llm_service.analyze_source_text_async now returns a SourceAnalysis object directly or raises an error
                 source_analysis_obj = await self.llm_service.analyze_source_text_async(extracted_text)
+                
                 if source_analysis_obj:
                     logger.info("Source analysis successful.")
                     source_analyses_content.append(source_analysis_obj.model_dump_json()) # For LLM input
@@ -296,134 +209,253 @@ class PodcastGeneratorService:
                     with open(llm_source_analysis_filepath, 'w') as f:
                         json.dump(source_analysis_obj.model_dump(), f, indent=2) # Save the model dump
                     logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
-                    llm_source_analysis_filepaths.append(llm_source_analysis_filepath)
+                    logger.info(f"STEP: Source Analysis object created successfully: {source_analysis_obj is not None}")
                 else:
-                    # This case should ideally not be reached if analyze_source_text_async raises an error on failure
+                    # This case should ideally not be reached if analyze_source_text_async raises an error on failure or returns None
                     logger.error("LLM source analysis returned no data (or None unexpectedly).")
                     warnings_list.append("LLM source analysis returned no data.")
+
             except LLMProcessingError as llm_e: # Catch specific LLM errors from the service
                 logger.error(f"LLM processing error during source analysis: {llm_e}")
                 warnings_list.append(f"LLM source analysis failed: {llm_e}")
-            except ValidationError as val_e: # Catch Pydantic validation errors if they occur here
+            except ValidationError as val_e: # Catch Pydantic validation errors (e.g., if service returns malformed data that passes initial parsing but fails model validation)
                 logger.error(f"Validation error during source analysis processing: {val_e}")
                 warnings_list.append(f"Source analysis validation failed: {val_e}")
             except Exception as e: # Catch any other unexpected errors
-                logger.error(f"Error during source analysis: {e}")
+                logger.error(f"Error during source analysis: {e}", exc_info=True)
                 warnings_list.append(f"Critical error during source analysis: {e}")
 
-            # 4. LLM - Persona Research
+            logger.info("STEP: Source Analysis phase complete.")
+            
+            # 4. LLM - Persona Research (Iterative)
+            logger.info("STEP: Starting Persona Research...")
+            persona_research_objects: List[PersonaResearch] = []
             if request_data.prominent_persons and extracted_text:
                 for person_name in request_data.prominent_persons:
                     try:
-                        persona_profile = await self.llm_service.research_persona_async(
+                        logger.info(f"STEP: Attempting Persona Research for '{person_name}'...")
+                        persona_research_obj = await self.llm_service.research_persona_async(
                             source_text=extracted_text, person_name=person_name
                         )
-                        logger.info(f"Persona research successful for {person_name}.")
-                        persona_research_docs_content.append(persona_profile.model_dump_json())
-                        filepath = os.path.join(tmpdir_path, f"persona_research_{persona_profile.person_id}.json")
-                        with open(filepath, 'w') as f:
-                            json.dump(persona_profile.model_dump(), f, indent=2)
-                        llm_persona_research_filepaths.append(filepath)
-                        logger.info(f"Persona research for {person_name} saved to {filepath}")
+                        if persona_research_obj:
+                            logger.info(f"STEP: Persona Research for '{person_name}' successful. Object created.")
+                            persona_research_docs_content.append(persona_research_obj.model_dump_json())
+                            # Save persona research to file
+                            persona_research_filepath = os.path.join(tmpdir_path, f"persona_research_{persona_research_obj.person_id}.json")
+                            with open(persona_research_filepath, "w") as f:
+                                json.dump(json.loads(persona_research_obj.model_dump_json()), f, indent=2)
+                            llm_persona_research_filepaths.append(persona_research_filepath)
+                            logger.info(f"Persona research for {person_name} saved to {persona_research_filepath}")
+                            
+                            # Print detailed information about the PersonaResearch object
+                            print(f"\n============ PersonaResearch for {person_name} ============")
+                            print(f"Person ID: {persona_research_obj.person_id}")
+                            print(f"Name: {persona_research_obj.name}")
+                            # Print the first 500 characters of the detailed profile, then first 50 chars of each additional 1000 chars
+                            profile = persona_research_obj.detailed_profile
+                            print(f"Detailed Profile (first 500 chars):\n{profile[:500]}...")
+                            
+                            # For very long profiles, print previews of each section
+                            if len(profile) > 500:
+                                sections = ["PART 1:", "PART 2:", "PART 3:", "PART 4:", "PART 5:"]
+                                for section in sections:
+                                    pos = profile.find(section)
+                                    if pos > -1:
+                                        print(f"\n{section} Preview: {profile[pos:pos+100]}...")
+                            
+                            print(f"Full PersonaResearch saved to: {persona_research_filepath}")
+                            print("="*60 + "\n")
+                        else:
+                            logger.error(f"Persona research for {person_name} returned None.")
+                            warnings_list.append(f"Persona research for {person_name} failed to produce a result.")
                     except ValueError as e:
-                        logger.error(f"Persona research for {person_name} failed (ValueError): {e}")
+                        logger.error(f"Persona research for {person_name} failed (ValueError): {e}", exc_info=True)
                         warnings_list.append(f"Persona research for {person_name} failed: {e}")
+                        logger.error(f"STEP: Persona Research for '{person_name}' FAILED.")
                     except Exception as e:
-                        logger.error(f"Unexpected error during persona research for {person_name}: {e}")
+                        logger.error(f"Unexpected error during persona research for {person_name}: {e}", exc_info=True)
                         warnings_list.append(f"Unexpected error in persona research for {person_name}: {e}")
             else:
                 logger.info("No prominent persons requested or no extracted text for persona research.")
 
-            # 4.5. Assign Invented Names and Genders to Personas
+            logger.info(f"STEP: Persona Research complete. Found {len(persona_research_docs_content)} personas researched.")
+
+            # 4.5. Assign Invented Names and Genders to Personas (mirroring podcast_workflow.py)
+            logger.info("STEP: Assigning invented names and genders to personas...")
+            # Create a map of PersonaResearch objects for easy lookup by person_id - PRIMARY APPROACH
+            persona_research_map: dict[str, PersonaResearch] = {}
+            
+            # DEPRECATED: persona_details_map is being phased out in favor of PersonaResearch objects
+            # This structure is only maintained temporarily for backward compatibility with dependent services
+            # TODO: Remove this completely once all dependencies have been updated
+            persona_details_map: dict[str, dict[str, str]] = {}
+            
+            # We'll create the Host persona after processing all guests to avoid voice duplication
+            # Capture the host details for later use
+            host_name = request_data.host_invented_name or "Brigette"
+            host_gender = request_data.host_gender or "Female"
+            
+            # Track assigned voice IDs to avoid duplicates
+            assigned_voice_ids = set()
+            
+            # We will add the host to persona_research_docs_content after processing all guests
+
             MALE_INVENTED_NAMES = ["Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Theodore"]
             FEMALE_INVENTED_NAMES = ["Olivia", "Emma", "Charlotte", "Amelia", "Sophia", "Isabella", "Ava", "Mia", "Evelyn", "Luna"]
             NEUTRAL_INVENTED_NAMES = ["Kai", "Rowan", "River", "Phoenix", "Sage", "Justice", "Remy", "Dakota", "Skyler", "Alexis"]
-            
-            # Initialize persona details map with default Host entry
-            persona_details_map: dict[str, dict[str, str]] = {}
-            persona_details_map["Host"] = {
-                "invented_name": "Alex",  # Use a neutral name for the Host
-                "gender": "neutral", # Default Host gender, using neutral for better inclusivity
-                "real_name": "Host"
-            }
-            
-            # Initial processing of persona research JSON into objects
-            initial_persona_research_objects: List[PersonaResearch] = []
-            for pr_json_str in persona_research_docs_content:
+            used_male_names = set()
+            used_female_names = set()
+            used_neutral_names = set()
+
+            for idx, pr_json_str in enumerate(persona_research_docs_content):
                 try:
                     pr_data = json.loads(pr_json_str)
-                    # Create PersonaResearch object from the JSON data
-                    initial_persona_research_objects.append(PersonaResearch(**pr_data))
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse PersonaResearch JSON: {e}. Content: {pr_json_str[:100]}")
-                except Exception as e:
-                    logger.error(f"Error processing persona research: {e}. Data: {pr_json_str[:100]}")
+                    persona_research_obj_temp = PersonaResearch(**pr_data)
+                    person_id = persona_research_obj_temp.person_id
+                    real_name = persona_research_obj_temp.name
+                    
+                    # Use gender from PersonaResearch if available, otherwise assign based on name analysis or randomize
+                    # In a real implementation, you might use a name gender classifier library
+                    if persona_research_obj_temp.gender:
+                        assigned_gender = persona_research_obj_temp.gender
+                    else:
+                        # For testing, we'll alternate between genders to ensure variety
+                        # In production, consider a more sophisticated approach
+                        genders = ["Male", "Female", "Neutral"]
+                        assigned_gender = genders[idx % len(genders)]
+                    
+                    invented_name = "Unknown Person"
+                    if assigned_gender == "Male":
+                        available_names = [name for name in MALE_INVENTED_NAMES if name not in used_male_names]
+                        if not available_names: available_names = MALE_INVENTED_NAMES # fallback if all used
+                        invented_name = available_names[idx % len(available_names)]
+                        used_male_names.add(invented_name)
+                    elif assigned_gender == "Female":
+                        available_names = [name for name in FEMALE_INVENTED_NAMES if name not in used_female_names]
+                        if not available_names: available_names = FEMALE_INVENTED_NAMES
+                        invented_name = available_names[idx % len(available_names)]
+                        used_female_names.add(invented_name)
+                    else: # Neutral or unknown
+                        available_names = [name for name in NEUTRAL_INVENTED_NAMES if name not in used_neutral_names]
+                        if not available_names: available_names = NEUTRAL_INVENTED_NAMES
+                        invented_name = available_names[idx % len(available_names)]
+                        used_neutral_names.add(invented_name)
 
-            # Assign names and genders, and populate enhanced PersonaResearch objects
-            male_name_idx = 0
-            female_name_idx = 0
-            neutral_name_idx = 0
-            processed_persona_research_objects: List[PersonaResearch] = []
-            
-            for pr_obj in initial_persona_research_objects:
-                try:
-                    person_id = pr_obj.person_id
-                    real_name = pr_obj.name
+                    # Update the PersonaResearch object with voice information
+                    updated_pr_data = pr_data.copy()
+                    updated_pr_data["invented_name"] = invented_name
+                    updated_pr_data["gender"] = assigned_gender
                     
-                    # Default to neutral gender for all personas
-                    assigned_gender = "neutral"
+                    # Set creation_date as ISO format string if it doesn't exist
+                    if "creation_date" not in updated_pr_data or updated_pr_data["creation_date"] is None:
+                        updated_pr_data["creation_date"] = datetime.now().isoformat()
+                    elif isinstance(updated_pr_data["creation_date"], datetime):
+                        # Convert datetime to string if it's a datetime object
+                        updated_pr_data["creation_date"] = updated_pr_data["creation_date"].isoformat()
                     
-                    # Select invented name based on gender
-                    if assigned_gender.lower() == "male":
-                        invented_name = MALE_INVENTED_NAMES[male_name_idx % len(MALE_INVENTED_NAMES)]
-                        male_name_idx += 1
-                    elif assigned_gender.lower() == "female":
-                        invented_name = FEMALE_INVENTED_NAMES[female_name_idx % len(FEMALE_INVENTED_NAMES)]
-                        female_name_idx += 1
-                    else:  # neutral or anything else
-                        invented_name = NEUTRAL_INVENTED_NAMES[neutral_name_idx % len(NEUTRAL_INVENTED_NAMES)]
-                        neutral_name_idx += 1
+                    # Now we'll also set a specific voice ID based on gender
+                    # This would ideally come from a voice selection service
+                    if assigned_gender == "Male":
+                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-D"  # Example male voice
+                    elif assigned_gender == "Female":
+                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-F"  # Example female voice
+                    else:
+                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-A"  # Example neutral voice
                     
-                    # Create an enhanced PersonaResearch object with the new fields
-                    enhanced_pr_obj = PersonaResearch(
-                        **pr_obj.model_dump(),  # Get all existing fields
-                        invented_name=invented_name,
-                        gender=assigned_gender,
-                        creation_date=datetime.now(),
-                        # We're not setting tts_voice_id yet - will be part of future enhancement
-                    )
-                    processed_persona_research_objects.append(enhanced_pr_obj)
+                    # Create a new PersonaResearch object with all the updated fields
+                    updated_persona = PersonaResearch(**updated_pr_data)
+                    
+                    # Add to persona_research_map for efficient lookups by ID
+                    persona_research_map[updated_persona.person_id] = updated_persona
+                    
+                    # Replace the original JSON string with the updated one - use model_dump_json for proper serialization
+                    persona_research_docs_content[idx] = updated_persona.model_dump_json()
                     
                     # Also maintain the persona_details_map for backward compatibility
+                    # This will be deprecated in future versions
                     persona_details_map[person_id] = {
                         "invented_name": invented_name,
                         "gender": assigned_gender,
-                        "real_name": real_name
+                        "real_name": real_name,
+                        "tts_voice_id": updated_pr_data["tts_voice_id"]
                     }
-                    
                     logger.info(f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}', Gender='{assigned_gender}'")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
                 except Exception as e:
-                    logger.error(f"Error building persona details for {pr_obj.person_id}: {e}")
-                    # Still add the original object to maintain the workflow
-                    processed_persona_research_objects.append(pr_obj)
+                    logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
+            # Now create the Host persona with a voice that doesn't conflict with guests
+            # Expanded voice options to provide more variety and avoid duplicates
+            male_voices = ["en-US-Neural2-D", "en-US-Neural2-J", "en-GB-Neural2-B", "en-GB-Neural2-D"]
+            female_voices = ["en-US-Neural2-F", "en-US-Neural2-G", "en-GB-Neural2-A", "en-GB-Neural2-C"]
+            neutral_voices = ["en-US-Neural2-A", "en-US-Neural2-C"]
+            
+            # Find all currently assigned voices
+            used_voice_ids = set()
+            for details in persona_details_map.values():
+                if "tts_voice_id" in details:
+                    used_voice_ids.add(details["tts_voice_id"])
+            
+            # Select a unique voice for the Host based on gender
+            host_voice_id = None
+            if host_gender == "Male":
+                available_voices = [v for v in male_voices if v not in used_voice_ids]
+                # Fallback to all male voices if all are already used
+                host_voice_id = random.choice(available_voices if available_voices else male_voices)
+            elif host_gender == "Female":
+                available_voices = [v for v in female_voices if v not in used_voice_ids]
+                # Fallback to all female voices if all are already used
+                host_voice_id = random.choice(available_voices if available_voices else female_voices)
+            else:  # Neutral
+                available_voices = [v for v in neutral_voices if v not in used_voice_ids]
+                # Fallback to all neutral voices if all are already used
+                host_voice_id = random.choice(available_voices if available_voices else neutral_voices)
+            
+            # Create the Host persona and add to maps
+            host_persona = PersonaResearch(
+                person_id="Host",
+                name="Host",
+                detailed_profile="The podcast host is an engaging personality who is intellectually inquisitive and interested in fostering debate and viewpoint diversity",
+                invented_name=host_name,
+                gender=host_gender,
+                tts_voice_id=host_voice_id,
+                creation_date=datetime.now().isoformat()
+            )
+            
+            # Add Host to maps
+            persona_research_map["Host"] = host_persona
+            persona_details_map["Host"] = {
+                "invented_name": host_name,
+                "gender": host_gender,
+                "real_name": "Host",
+                "tts_voice_id": host_voice_id
+            }
+            
+            # Add Host to persona research documents
+            persona_research_docs_content.append(host_persona.model_dump_json())
+            logger.info(f"Assigned to Host (Host): Invented Name='{host_name}', Gender='{host_gender}', Voice ID='{host_voice_id}'")
             
             logger.info(f"Final persona_details_map: {persona_details_map}")
-            logger.info(f"Processed {len(processed_persona_research_objects)} persona research objects with extended fields")
-
+            
             # 5. LLM - Podcast Outline Generation
+            logger.info("STEP: Starting Podcast Outline Generation...")
             podcast_outline_obj: Optional[PodcastOutline] = None
-            if extracted_text: # Only proceed if we have text
+            if extracted_text:
                 try:
+                    logger.info("STEP: Attempting LLM Podcast Outline Generation...")
                     num_persons = len(request_data.prominent_persons) if request_data.prominent_persons else 0
-                    # Convert podcast length from integer to string format for LLM
-                    desired_length_str = f"{request_data.desired_podcast_length} minutes"
+                    # Use desired_podcast_length_str directly from request_data as PodcastRequest model defines it as such
+                    desired_length_str = request_data.desired_podcast_length_str
+
+                    # TEMPORARY: Still passing persona_details_map while service methods require it
+                    # This will be removed once all methods are updated to use PersonaResearch exclusively
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
-                        source_analyses=source_analyses_content, # List of JSON strings
-                        persona_research_docs=persona_research_docs_content, # List of JSON strings
-                        desired_podcast_length_str=desired_length_str,
+                        source_analyses=source_analyses_content, 
+                        persona_research_docs=persona_research_docs_content,
+                        desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
-                        persona_details_map=persona_details_map,
+                        persona_details_map=persona_details_map,  # TEMPORARY: Will be removed in future refactoring
                         user_provided_custom_prompt=request_data.custom_prompt_for_outline
                     )
                     if podcast_outline_obj:
@@ -434,140 +466,247 @@ class PodcastGeneratorService:
                         with open(llm_podcast_outline_filepath, 'w') as f:
                             json.dump(podcast_outline_obj.model_dump(), f, indent=2)
                         logger.info(f"Podcast outline saved to {llm_podcast_outline_filepath}")
+                        
+                        # Display the formatted outline in the terminal
+                        print("\n=== Generated Podcast Outline ===\n")
+                        print(podcast_outline_obj.format_for_display())
+                        print("\n=== End of Outline ===\n")
                     else:
                         logger.error("Podcast outline generation returned None.")
                         warnings_list.append("Podcast outline generation failed to produce an outline.")
                 except Exception as e:
-                    logger.error(f"Error during podcast outline generation: {e}")
+                    logger.error(f"Error during podcast outline generation: {e}", exc_info=True)
                     warnings_list.append(f"Critical error during podcast outline generation: {e}")
             else:
                 warnings_list.append("Skipping outline generation as extracted_text is empty.")
 
-            # 6. LLM - Dialogue Generation
+            logger.info("STEP: Podcast Outline Generation phase complete.")
+            
+            # 6. LLM - Dialogue Turns Generation
+            logger.info("STEP: Starting Dialogue Turns Generation...")
             dialogue_turns_list: Optional[List[DialogueTurn]] = None
             if podcast_outline_obj and extracted_text:
                 try:
-                    # We already have the persona_details_map with invented names and gender
-                    # No need to build prominent_persons_details_for_dialogue anymore
+                    logger.info("STEP: Attempting LLM Dialogue Turns Generation...")
+                    prominent_persons_details_for_dialogue: List[Tuple[str, str, str]] = []
+                    if request_data.prominent_persons:
+                        for name in request_data.prominent_persons:
+                            initial = name[0].upper() if name else "X"
+                            gender_for_tts = "Neutral" # Default
+                            prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
                     
-                    # Convert podcast length from integer to string format for LLM (though not needed now)
-                    # desired_length_str = f"{request_data.desired_podcast_length} minutes"
+                    logger.info("STEP: Attempting LLM Dialogue Turns Generation...")
+
+                    # Convert JSON strings to Pydantic objects for generate_dialogue_async
+                    source_analysis_objects = []
+                    if source_analyses_content: # Should always be true if we reached here
+                        try:
+                            sa_data = json.loads(source_analyses_content[0]) # Expecting only one source analysis doc
+                            source_analysis_objects.append(SourceAnalysis(**sa_data))
+                        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+                            logger.error(f"Failed to parse source_analyses_content for dialogue generation: {e}", exc_info=True)
+                            warnings_list.append("Failed to process source analysis for dialogue generation.")
+                            # Potentially raise or handle error to prevent proceeding with bad data
                     
+                    persona_research_objects_for_dialogue = []
+                    for pr_json_str in persona_research_docs_content:
+                        try:
+                            pr_data = json.loads(pr_json_str)
+                            persona_research_objects_for_dialogue.append(PersonaResearch(**pr_data))
+                        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+                            logger.error(f"Failed to parse a persona_research_doc for dialogue generation: {e}", exc_info=True)
+                            warnings_list.append("Failed to process one or more persona research docs for dialogue.")
+                            # Potentially skip this persona or handle error
+
+                    # TEMPORARY: Still passing persona_details_map while service methods require it
+                    # This will be removed once all methods are updated to use PersonaResearch exclusively
                     dialogue_turns_list = await self.llm_service.generate_dialogue_async(
-                        podcast_outline=podcast_outline_obj,  # Pass the actual object, not JSON string
-                        source_analyses=source_analyses_content, 
-                        persona_research_docs=processed_persona_research_objects,  # Use the processed objects instead of JSON strings
-                        persona_details_map=persona_details_map,
+                        podcast_outline=podcast_outline_obj,
+                        source_analyses=source_analysis_objects, 
+                        persona_research_docs=persona_research_objects_for_dialogue,
+                        persona_details_map=persona_details_map,  # TEMPORARY: Will be removed in future refactoring
                         user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
                     )
 
                     if dialogue_turns_list:
                         logger.info(f"Podcast dialogue turns generated successfully ({len(dialogue_turns_list)} turns).")
-                        
-                        # Save dialogue turns to JSON file
                         llm_dialogue_turns_filepath = os.path.join(tmpdir_path, "dialogue_turns.json")
                         serialized_turns = [turn.model_dump() for turn in dialogue_turns_list]
                         with open(llm_dialogue_turns_filepath, 'w') as f:
                             json.dump(serialized_turns, f, indent=2)
                         logger.info(f"Dialogue turns saved to {llm_dialogue_turns_filepath}")
-                        podcast_episode_data['llm_dialogue_turns_path'] = llm_dialogue_turns_filepath
                         
-                        # Construct transcript string from dialogue turns using invented names
-                        transcript_parts = []
-                        for turn in dialogue_turns_list:
-                            speaker_id = turn.speaker_id
-                            # Look up invented name from persona_details_map
-                            if speaker_id in persona_details_map and "invented_name" in persona_details_map[speaker_id]:
-                                speaker_display_name = persona_details_map[speaker_id]["invented_name"]
-                            else:
-                                # Fallback to raw speaker_id if not found (which shouldn't happen if setup correctly)
-                                logger.warning(f"No invented name found for speaker_id '{speaker_id}' in persona_details_map. Using raw ID.")
-                                speaker_display_name = speaker_id
-                                
-                            transcript_parts.append(f"{speaker_display_name}: {turn.text}")
+                        transcript_parts = [f"{turn.speaker_id}: {turn.text}" for turn in dialogue_turns_list]
                         podcast_transcript = "\n".join(transcript_parts)
                         logger.info("Transcript constructed from dialogue turns.")
-                        podcast_episode_data['transcript'] = podcast_transcript
-                        
-                        # Process audio for the podcast
-                        try:
-                            # Generate a unique ID for this podcast
-                            podcast_id = str(uuid.uuid4())
-                            logger.info(f"[AUDIO_STITCH] Generated podcast ID: {podcast_id}")
-                            
-                            # Configure silence duration between segments (in milliseconds)
-                            silence_duration_ms = 500
-                            
-                            # Process audio for the podcast
-                            audio_filepath = await self._process_audio_for_podcast(
-                                dialogue_turns_list, 
-                                podcast_id,
-                                persona_details_map,
-                                silence_duration_ms
-                            )
-                            
-                            if audio_filepath:
-                                logger.info(f"Final podcast audio available at: {audio_filepath}")
-                                podcast_episode_data['audio_filepath'] = audio_filepath
-                            else:
-                                warnings_list.append("Failed to generate stitched audio file")
-                                logger.error("Audio stitching failed, no audio file produced")
-                                podcast_episode_data['audio_filepath'] = "" # Empty string if audio generation failed
-                        except Exception as e:
-                            logger.error(f"Error during audio processing: {e}", exc_info=True)
-                            warnings_list.append(f"Audio processing error: {e}")
-                            podcast_episode_data['audio_filepath'] = "" # Empty string if audio generation failed
                     else:
                         logger.error("Dialogue generation returned None or empty list of turns.")
                         warnings_list.append("Dialogue generation failed to produce turns.")
                         podcast_transcript = "Error: Dialogue generation failed."
-                        podcast_episode_data['transcript'] = podcast_transcript
-                        podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation failed
 
                 except LLMProcessingError as e:
-                    logger.error(f"LLMProcessingError during dialogue generation: {e}")
+                    logger.error(f"LLMProcessingError during dialogue generation: {e}", exc_info=True)
                     warnings_list.append(f"LLM processing error during dialogue generation: {e}")
-                    podcast_episode_data['transcript'] = f"Error: LLM processing failed during dialogue generation. Details: {e}"
-                    podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation failed
+                    podcast_transcript = f"Error: LLM processing failed during dialogue generation. {e}"
                 except Exception as e:
                     logger.error(f"Unexpected error during dialogue generation: {e}", exc_info=True)
                     warnings_list.append(f"Critical error during dialogue generation: {e}")
-                    podcast_transcript = f"Error: Critical error during dialogue generation. Details: {e}"
-                    podcast_episode_data['transcript'] = podcast_transcript
-                    podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation failed
+                    podcast_transcript = f"Error: Critical error during dialogue generation. {e}"
             else:
                 warnings_list.append("Skipping dialogue generation as outline or extracted_text is missing.")
                 podcast_transcript = "Dialogue generation skipped due to missing prerequisites."
-                podcast_episode_data['transcript'] = podcast_transcript
-                podcast_episode_data['audio_filepath'] = "" # Empty string if dialogue generation was skipped
 
-            # Return the final podcast episode
-            return PodcastEpisode(
+            logger.info("STEP: Dialogue Turns Generation phase complete.")
+            
+            # 7. TTS Generation for Dialogue Turns
+            logger.info("STEP: Starting TTS generation for dialogue turns...")
+            if dialogue_turns_list and self.tts_service:
+                audio_segments_dir = os.path.join(tmpdir_path, "audio_segments")
+                os.makedirs(audio_segments_dir, exist_ok=True)
+                logger.info(f"Created directory for audio segments: {audio_segments_dir}")
+
+                for i, turn in enumerate(dialogue_turns_list):
+                    turn_audio_filename = f"turn_{i:03d}_{turn.speaker_id.replace(' ','_')}.mp3"
+                    turn_audio_filepath = os.path.join(audio_segments_dir, turn_audio_filename)
+                    logger.info(f"Generating TTS for turn {i} (Speaker: {turn.speaker_id}): {turn.text[:50]}...")
+                    try:
+                        logger.info(f"STEP: Attempting TTS for turn {i}...")
+                        
+                        # Initialize voice parameters
+                        voice_name = None
+                        speaker_gender = None
+                        voice_params = None
+                        
+                        # Try to find matching persona with voice info
+                        if turn.speaker_id in persona_research_map:
+                            pr = persona_research_map[turn.speaker_id]
+                            # Priority 1: Use specific voice ID if available
+                            if pr.tts_voice_id:
+                                voice_name = pr.tts_voice_id
+                                logger.info(f"Using specific voice ID for {turn.speaker_id}: {voice_name}")
+                            # Priority 2: Use gender if no specific voice
+                            elif pr.gender:
+                                speaker_gender = pr.gender
+                                logger.info(f"Using gender from PersonaResearch for {turn.speaker_id}: {speaker_gender}")
+                            # Priority 3: Use voice params if available
+                            if pr.tts_voice_params:
+                                voice_params = pr.tts_voice_params
+                        # Fallback to turn.speaker_gender if no persona found
+                        elif hasattr(turn, 'speaker_gender') and turn.speaker_gender:
+                            speaker_gender = turn.speaker_gender
+                            logger.info(f"Falling back to turn.speaker_gender for {turn.speaker_id}: {speaker_gender}")
+                        # No PersonaResearch or speaker_gender available - log warning and use default
+                        else:
+                            logger.warning(f"No PersonaResearch or speaker_gender found for {turn.speaker_id}. Using default Neutral voice.")
+                            speaker_gender = "Neutral"
+                            logger.warning(f"No voice information found for {turn.speaker_id}, defaulting to Neutral gender")
+                        
+                        # Make the TTS call with all available voice parameters
+                        success = await self.tts_service.text_to_audio_async(
+                            text_input=turn.text,
+                            output_filepath=turn_audio_filepath,
+                            speaker_gender=speaker_gender,
+                            voice_name=voice_name,
+                            voice_params=voice_params
+                        )
+                        if success:
+                            individual_turn_audio_paths.append(turn_audio_filepath)
+                            logger.info(f"STEP: TTS for turn {i} successful. Audio saved to {turn_audio_filepath}")
+                            logger.info(f"Generated audio for turn {i}: {turn_audio_filepath}")
+                        else:
+                            logger.warning(f"STEP: TTS for turn {i} FAILED. Skipping audio for this turn.")
+                            logger.warning(f"TTS generation failed for turn {i}. Skipping audio for this turn.")
+                            warnings_list.append(f"TTS failed for turn {i}: {turn.text[:30]}...")
+                    except Exception as e:
+                        logger.error(f"Error during TTS for turn {i}: {e}", exc_info=True)
+                        warnings_list.append(f"TTS critical error for turn {i}: {e}")
+                
+                logger.info(f"STEP: TTS generation for all turns complete. {len(individual_turn_audio_paths)} audio files generated.")
+            else:
+                logger.warning("No dialogue turns available for TTS processing or TTS service missing.")
+                warnings_list.append("TTS skipped: No dialogue turns or TTS service missing.")
+                logger.info("STEP: Skipping TTS generation as no dialogue turns are available or tts_service is missing.")
+            
+            # 8. Audio Stitching
+            logger.info("STEP: Starting audio stitching...")
+            final_audio_filepath = "placeholder_error.mp3"  # Default in case of issues
+            if individual_turn_audio_paths:
+                logger.info(f"Attempting to stitch {len(individual_turn_audio_paths)} audio segments.")
+                logger.info(f"STEP: Attempting to stitch {len(individual_turn_audio_paths)} audio segments...")
+                stitched_audio_path = await self._stitch_audio_segments_async(individual_turn_audio_paths, tmpdir_path)
+                if stitched_audio_path and os.path.exists(stitched_audio_path):
+                    final_audio_filepath = stitched_audio_path
+                    logger.info(f"STEP: Audio stitching successful. Final audio at {final_audio_filepath}")
+                else:
+                    logger.error("STEP: Audio stitching FAILED or produced no output.")
+                    logger.error("Audio stitching failed or no audio segments were available.")
+                    warnings_list.append("Audio stitching failed or produced no output.")
+            else:
+                logger.warning("No individual audio segments to stitch.")
+                warnings_list.append("Audio stitching skipped: No audio segments available.")
+            logger.info("STEP: Audio stitching phase complete.")
+
+            # Final PodcastEpisode construction
+            podcast_episode = PodcastEpisode(
                 title=podcast_title,
                 summary=podcast_summary,
                 transcript=podcast_transcript,
-                audio_filepath=podcast_episode_data.get('audio_filepath', ""),
-                source_attributions=[], # Placeholder for now, will be populated from dialogue turns later
+                audio_filepath=final_audio_filepath, 
+                source_attributions=source_attributions,  # Now includes all source URLs
                 warnings=warnings_list,
-                llm_source_analysis_paths=llm_source_analysis_filepaths if llm_source_analysis_filepaths else None,
+                llm_source_analysis_path=llm_source_analysis_filepath,
                 llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
                 llm_podcast_outline_path=llm_podcast_outline_filepath,
-                llm_dialogue_turns_path=llm_dialogue_turns_filepath
+                llm_dialogue_turns_path=llm_dialogue_turns_filepath,
+                dialogue_turn_audio_paths=individual_turn_audio_paths
             )
+            logger.info(f"STEP_COMPLETED_TRY_BLOCK: PodcastEpisode object created. Title: {podcast_episode.title}, Audio: {podcast_episode.audio_filepath}, Warnings: {len(podcast_episode.warnings)}")
+            return podcast_episode
 
-# Example usage (for testing purposes, can be removed later)
+        except Exception as main_e:
+            logger.critical(f"STEP_CRITICAL_FAILURE: Unhandled exception in generate_podcast_from_source: {main_e}", exc_info=True)
+            warnings_list.append(f"CRITICAL FAILURE: {main_e}")
+            # Return a minimal error episode
+            return PodcastEpisode(
+                title="Critical Generation Error",
+                summary=f"A critical error occurred: {main_e}",
+                transcript="",
+                audio_filepath=final_audio_filepath, # Might still be placeholder
+                source_attributions=source_attributions if source_attributions else 
+                    ([str(request_data.source_pdf_path)] if request_data.source_pdf_path else []),
+                warnings=warnings_list
+            )
+        finally:
+            logger.info(f"STEP_FINALLY: Temporary directory (NOT cleaned up): {tmpdir_path}")
+            # Note: We're NOT removing tmpdir_path for debugging purposes
+
+# Example usage (for development testing purposes)
 async def main_workflow_test():
+    """A development testing function to validate the podcast generation workflow."""
+    logger.info("Initializing PodcastGeneratorService for test run...")
     generator = PodcastGeneratorService()
-    sample_request = PodcastRequest(source_urls=["http://example.com/article"], desired_podcast_length=7)
-    episode = await generator.generate_podcast_from_source(sample_request)
-    print("--- Generated Episode ---")
-    print(episode.model_dump_json(indent=2))
+    
+    logger.info("Defining sample request data...")
+    sample_request = PodcastRequest(
+        source_urls=[
+            "https://en.wikipedia.org/wiki/Bush_v._Gore",
+            "https://www.newyorker.com/news/news-desk/the-ghost-of-bush-v-gore-haunts-the-supreme-courts-colorado-case"
+        ],
+        prominent_persons=["Antonin Scalia", "John Glover Roberts Jr"],
+        desired_podcast_length_str="5 minutes"
+    )
+    
+    try:
+        episode = await generator.generate_podcast_from_source(sample_request)
+        logger.info(f"Test generation complete. Title: {episode.title}, Audio: {episode.audio_filepath}")
+        return episode
+    except Exception as e:
+        logger.error(f"Test workflow error: {e}", exc_info=True)
+        return None
 
 if __name__ == "__main__":
-    import asyncio
-    # To run the async main_workflow_test
-    # asyncio.run(main_workflow_test())
-    # For now, just print that the module is loaded if run directly
-    print(f"{__file__} loaded. Contains PodcastGeneratorService and Pydantic models.")
-    print("Uncomment asyncio.run(main_workflow_test()) in __main__ to test basic structure.")
-
+    # This module is not meant to be run directly in production
+    # This code is only for development testing purposes
+    logger.info("Running podcast workflow in development test mode")
+    asyncio.run(main_workflow_test())
+    logger.info("Test complete")

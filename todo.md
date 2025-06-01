@@ -66,10 +66,11 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 # Task 1.8: Model Context Protocol Server and API Implementation
 
 ## Task 1.8.1: FastAPI v.1 Extension (P1, L)
-
-- [ ] Extend existing `app/main.py` with minimal API endpoints:
+- [ ] Design the `app/main.py` FastAPI v.1 endpoints
+- [ ] Implement the `app/main.py` FastAPI v.1 endpoints
+- [ ] Extend existing `app/main.py` with FastAPI v.1 endpoints:
   - [ ] `POST /api/v1/podcasts/generate` (async job creation)
-  - [ ] `GET /api/v1/podcasts/{id}/status` (progress monitoring)
+  - [ ] `GET /api/v1/podcasts/{id}/status` (progress monitoring - does this already exist? if not, let's not do it as an API)
   - [ ] `GET /api/v1/podcasts/{id}/audio` (file download)
   - [ ] `GET /api/v1/podcasts/{id}/transcript` (text download)
 
