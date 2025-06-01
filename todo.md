@@ -143,7 +143,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Set artifact: final_podcast_audio_available = True
 - [x] Update to "completed" with episode result at 100%
 
-### Phase 5.2: Create Status Check REST Endpoint (P1, S) ✅ COMPLETED
+### Phase 5.2: Create Status Check REST Endpoint (P1, S) 
 - [x] Add GET `/status/{task_id}` endpoint to main.py
   - [x] Return PodcastStatus model directly
   - [x] Handle 404 if task_id not found
@@ -161,13 +161,39 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] test_status_simple.py for direct service testing
   - [x] test_status_endpoints.py for async HTTP testing
 
-### Phase 5.3: Add Status Persistence (P2, M)
-- [ ] Evaluate persistence options (SQLite, PostgreSQL, Redis)
-- [ ] Create database schema for PodcastStatus
-- [ ] Update StatusManager to use persistent storage
-- [ ] Add migration scripts
-- [ ] Handle server restart scenarios
-- [ ] Add cleanup for old/completed tasks
+### Phase 5.3: Add Status Persistence - Two-Stage Approach (P2, M)
+
+#### Stage 1: Local Development with SQLite 
+- [x] Install SQLModel dependency (SQLAlchemy + Pydantic)
+- [x] Create database models (PodcastStatusDB) using SQLModel
+- [x] Setup SQLite database connection with environment variable fallback
+- [x] Migrate StatusManager methods to use database:
+  - [x] create_status() - Insert new status records
+  - [x] get_status() - Query by task_id
+  - [x] update_status() - Update existing records
+  - [x] list_statuses() - Query with pagination
+  - [x] delete_status() - Remove records
+- [x] Add JSON serialization for complex fields (request_data, result_episode)
+- [x] Test all CRUD operations with SQLite locally
+
+**Completion Notes:**
+- Created `app/database.py` with SQLModel integration
+- Refactored `StatusManager` to use database persistence
+- Fixed circular imports by moving `PodcastRequest` to `podcast_models.py`
+- Database file `podcast_status.db` created automatically
+- All REST API endpoints working with database persistence
+- Tested with `test_database_persistence.py` and `test_status_rest_api.py`
+
+#### Stage 2: Production Deployment with Cloud SQL
+- [ ] Document Cloud SQL setup process for PostgreSQL
+- [ ] Create environment variable configuration (DATABASE_URL)
+- [ ] Ensure SQLModel code works with both SQLite and PostgreSQL
+- [ ] Add connection pooling for Cloud SQL
+- [ ] Create database initialization scripts
+- [ ] Add indexes for performance (task_id, created_at)
+- [ ] Implement cleanup job for old tasks (30+ days)
+- [ ] Handle database connection failures gracefully
+- [ ] Document deployment configuration for GCP
 
 ### Phase 5.4: Implement True Async Processing (P2, L)
 - [ ] Add background task processing with asyncio

@@ -1,14 +1,18 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 import os
+import logging
 from app.validations import is_valid_pdf, is_valid_url, is_valid_youtube_url
 from app.content_extractor import extract_text_from_pdf, extract_content_from_url, extract_transcript_from_youtube, ExtractionError
-from app.podcast_workflow import PodcastRequest, PodcastGeneratorService
-from app.podcast_models import PodcastEpisode, PodcastStatus
-from app.status_manager import get_status_manager
-from typing import List, Optional
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastEpisode, PodcastStatus, PodcastRequest
 from pydantic import BaseModel
+from typing import List, Optional
+from app.status_manager import get_status_manager
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MySalonCast API")
 
@@ -204,7 +208,6 @@ async def get_podcast_audio(podcast_id: str):
     </html>
     """
     
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html_content)
 
 
@@ -258,7 +261,6 @@ async def get_segment_audio(podcast_id: str, segment_id: int):
     </html>
     """
     
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html_content)
 
 
@@ -309,18 +311,15 @@ async def list_task_statuses(limit: int = 50, offset: int = 0):
     limit = min(limit, 100)
     
     status_manager = get_status_manager()
-    all_statuses = list(status_manager._statuses.values())
+    statuses = status_manager.list_all_statuses(limit=limit, offset=offset)
     
-    # Sort by created_at descending (newest first)
-    all_statuses.sort(key=lambda s: s.created_at, reverse=True)
-    
-    # Apply pagination
-    total = len(all_statuses)
-    paginated_statuses = all_statuses[offset:offset + limit]
+    # Get total count (we'll get all statuses with a large limit for now)
+    # In production, we'd want a separate count query
+    total_statuses = len(status_manager.list_all_statuses(limit=1000, offset=0))
     
     return StatusListResponse(
-        statuses=paginated_statuses,
-        total=total,
+        statuses=statuses,
+        total=total_statuses,
         limit=limit,
         offset=offset
     )

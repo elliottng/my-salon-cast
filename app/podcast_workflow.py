@@ -18,7 +18,7 @@ from pydantic import ValidationError
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Now we can import from app directly
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastStatus
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastStatus, PodcastRequest
 from app.common_exceptions import LLMProcessingError, ExtractionError
 from app.content_extractor import extract_content_from_url, extract_text_from_pdf_path
 from app.llm_service import GeminiService
@@ -28,22 +28,6 @@ from app.status_manager import get_status_manager
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# Placeholder for the input data model to generate_podcast_from_source
-class PodcastRequest(BaseModel):
-    source_urls: Optional[List[str]] = None  # Support for multiple source URLs
-    source_pdf_path: Optional[str] = None
-    prominent_persons: Optional[List[str]] = None
-    desired_podcast_length_str: Optional[str] = None
-    custom_prompt_for_outline: Optional[str] = None
-    host_invented_name: Optional[str] = None # Added for host persona customization
-    host_gender: Optional[str] = None # Added for host persona customization
-    custom_prompt_for_dialogue: Optional[str] = None # Added for dialogue generation customization
-    
-    @property
-    def has_valid_sources(self) -> bool:
-        """Check if the request has at least one valid source."""
-        return (self.source_urls and len(self.source_urls) > 0) or (self.source_pdf_path is not None)
 
 class PodcastGeneratorService:
     def __init__(self):

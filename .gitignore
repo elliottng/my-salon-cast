@@ -18,6 +18,12 @@ dist/
 # Pytest cache
 .pytest_cache/
 
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+podcast_status.db
+
 # Temporary files directory
 temp_files/
 

@@ -3,6 +3,22 @@ from datetime import datetime
 from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+class PodcastRequest(BaseModel):
+    """Request model for podcast generation."""
+    source_urls: Optional[List[str]] = None  # Support for multiple source URLs
+    source_pdf_path: Optional[str] = None
+    prominent_persons: Optional[List[str]] = None
+    desired_podcast_length_str: Optional[str] = None
+    custom_prompt_for_outline: Optional[str] = None
+    host_invented_name: Optional[str] = None  # Added for host persona customization
+    host_gender: Optional[str] = None  # Added for host persona customization
+    custom_prompt_for_dialogue: Optional[str] = None  # Added for dialogue generation customization
+    
+    @property
+    def has_valid_sources(self) -> bool:
+        """Check if the request has at least one valid source."""
+        return (self.source_urls and len(self.source_urls) > 0) or (self.source_pdf_path is not None)
+
 class SourceAnalysis(BaseModel):
     """
     Simplified structured analysis of the source text.
@@ -229,5 +245,3 @@ class PodcastStatus(BaseModel):
             self.progress_percentage = min(max(progress, 0.0), 100.0) # Clamp progress to 0-100
         self.last_updated_at = datetime.utcnow()
         self.logs.append(f"{self.last_updated_at.isoformat()}Z - Status: {self.status}, Progress: {self.progress_percentage:.1f}%, Description: {self.status_description or 'N/A'}")
-
-
