@@ -201,6 +201,145 @@ async def get_task_status(task_id: str) -> dict:
             "details": str(e)
         }
 
+# MCP Resources for accessing podcast content
+
+@mcp.resource("podcast://{task_id}/transcript")
+async def get_transcript_resource(task_id: str) -> str:
+    """
+    Get the transcript of a completed podcast episode.
+    
+    Returns the full transcript text for the specified task.
+    """
+    logger.info(f"Resource 'transcript' accessed for task_id: {task_id}")
+    
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    if status_info["status"] != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info['status']}")
+    
+    if "result" not in status_info:
+        raise ValueError(f"No result found for task {task_id}")
+    
+    episode = status_info["result"]
+    return episode.transcript
+
+@mcp.resource("podcast://{task_id}/audio")
+async def get_audio_resource(task_id: str) -> dict:
+    """
+    Get the audio file path and metadata for a completed podcast.
+    
+    Returns information about the audio file including path and duration.
+    """
+    logger.info(f"Resource 'audio' accessed for task_id: {task_id}")
+    
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    if status_info["status"] != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info['status']}")
+    
+    if "result" not in status_info:
+        raise ValueError(f"No result found for task {task_id}")
+    
+    episode = status_info["result"]
+    
+    # Check if audio file exists
+    import os
+    if not os.path.exists(episode.audio_filepath):
+        raise ValueError(f"Audio file not found: {episode.audio_filepath}")
+    
+    return {
+        "audio_filepath": episode.audio_filepath,
+        "duration_seconds": episode.duration_seconds,
+        "format": "wav",
+        "exists": True
+    }
+
+@mcp.resource("podcast://{task_id}/metadata")
+async def get_metadata_resource(task_id: str) -> dict:
+    """
+    Get complete metadata for a podcast episode.
+    
+    Returns all episode information including title, summary, and attributions.
+    """
+    logger.info(f"Resource 'metadata' accessed for task_id: {task_id}")
+    
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    if status_info["status"] != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info['status']}")
+    
+    if "result" not in status_info:
+        raise ValueError(f"No result found for task {task_id}")
+    
+    episode = status_info["result"]
+    
+    return {
+        "title": episode.title,
+        "summary": episode.summary,
+        "duration_seconds": episode.duration_seconds,
+        "source_attributions": episode.source_attributions,
+        "warnings": episode.warnings,
+        "audio_filepath": episode.audio_filepath,
+        "created_at": status_info.get("created_at", ""),
+        "completed_at": status_info.get("completed_at", "")
+    }
+
+@mcp.resource("config://supported_formats")
+async def get_supported_formats() -> dict:
+    """
+    Get information about supported input and output formats.
+    
+    Returns configuration details for podcast generation.
+    """
+    logger.info("Resource 'supported_formats' accessed")
+    
+    return {
+        "input_formats": {
+            "urls": {
+                "supported": True,
+                "max_count": 3,
+                "description": "Web URLs for content extraction"
+            },
+            "pdf": {
+                "supported": True,
+                "description": "PDF files for content extraction"
+            }
+        },
+        "output_formats": {
+            "audio": {
+                "format": "wav",
+                "sample_rate": 24000,
+                "channels": 1
+            },
+            "transcript": {
+                "format": "text",
+                "includes_timestamps": False
+            }
+        },
+        "languages": [
+            {"code": "en", "name": "English"},
+            {"code": "es", "name": "Spanish"},
+            {"code": "fr", "name": "French"},
+            {"code": "de", "name": "German"},
+            {"code": "it", "name": "Italian"},
+            {"code": "pt", "name": "Portuguese"},
+            {"code": "ja", "name": "Japanese"},
+            {"code": "ko", "name": "Korean"},
+            {"code": "zh", "name": "Chinese"}
+        ],
+        "dialogue_styles": ["engaging", "formal", "casual"],
+        "podcast_lengths": ["3-5 minutes", "5-7 minutes", "7-10 minutes", "10-15 minutes"]
+    }
+
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()
 async def generate_podcast(request_data: PodcastRequest) -> dict:
@@ -243,7 +382,12 @@ async def generate_podcast(request_data: PodcastRequest) -> dict:
         }
 
 if __name__ == "__main__":
-    # Run the server with correct attribute
+    # Run the server using Starlette/Uvicorn
     import uvicorn
     logger.info("Starting MySalonCast MCP server...")
-    uvicorn.run(mcp.app, host="0.0.0.0", port=8000)
+    
+    # Create the HTTP app with SSE transport
+    app = mcp.http_app(transport="sse")
+    
+    # Run with uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

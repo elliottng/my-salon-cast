@@ -42,13 +42,13 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Return status, progress, and result when complete
   - [x] Handle invalid task_id gracefully
 
-### Task 1.5: Resource Implementation (P1, M)
-- [ ] Create `@mcp.resource("podcast://{task_id}/transcript")` for transcript access
-- [ ] Create `@mcp.resource("podcast://{task_id}/audio")` for audio file access
-- [ ] Create `@mcp.resource("podcast://{task_id}/metadata")` for episode metadata
-- [ ] Create `@mcp.resource("config://supported_formats")` for listing supported input types
-- [ ] Implement proper file path resolution from PodcastEpisode data
-- [ ] Handle file not found and invalid task_id cases
+### Task 1.5: Resource Implementation (P1, M) - COMPLETED
+- [x] Create `@mcp.resource("podcast://{task_id}/transcript")` for transcript access
+- [x] Create `@mcp.resource("podcast://{task_id}/audio")` for audio file access
+- [x] Create `@mcp.resource("podcast://{task_id}/metadata")` for episode metadata
+- [x] Create `@mcp.resource("config://supported_formats")` for supported formats
+- [x] Implement proper file path resolution from PodcastEpisode data
+- [x] Handle file not found and invalid task_id cases
 
 ### Task 1.6: End-to-End Testing of Async Tools (P1, M)
 - [ ] Test `generate_podcast_async` with various input combinations
@@ -294,14 +294,16 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Add task status checking
 - [x] Handle validation and errors
 
-### Phase 1.5: Resource Implementation (P1, M) - PLANNED
-- [ ] Add resources for content access
-- [ ] Handle file access properly
+### Phase 1.5: Resource Implementation (P1, M) - COMPLETED
+- [x] Add resources for content access  
+- [x] Implement file path resolution
+- [x] Handle errors appropriately
 
-### Phase 1.6-1.8: Testing and Sync Tools - PLANNED
-- [ ] Complete end-to-end testing of async tools before implementing sync versions
-
----
+### Phase 1.6: End-to-End Testing (P1, M) - PLANNED
+- [ ] Test async tools with various inputs
+- [ ] Test resource access patterns
+- [ ] Test prompt generation functionality
+- [ ] Create integration tests with existing workflow
 
 ### Phase 2.1: Static Resources (P1, M)
 - [ ] Expose configuration as `@mcp.resource("config://app")`
