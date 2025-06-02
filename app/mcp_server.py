@@ -164,19 +164,19 @@ async def get_task_status(task_id: str) -> dict:
                 "details": f"No task found with ID: {task_id}"
             }
         
-        # Build response based on status
+        # Build response based on status - status_info is a PodcastStatus model, not a dict
         response = {
             "success": True,
             "task_id": task_id,
-            "status": status_info["status"],
-            "progress": status_info.get("progress", 0),
-            "stage": status_info.get("stage", ""),
-            "message": status_info.get("message", "")
+            "status": status_info.status,
+            "progress_percentage": status_info.progress_percentage,
+            "stage": status_info.status_description or "",
+            "message": status_info.status_description or ""
         }
         
         # Add episode data if completed
-        if status_info["status"] == "completed" and "result" in status_info:
-            episode = status_info["result"]
+        if status_info.status == "completed" and status_info.result_episode:
+            episode = status_info.result_episode
             response["episode"] = {
                 "title": episode.title,
                 "summary": episode.summary,
@@ -188,8 +188,9 @@ async def get_task_status(task_id: str) -> dict:
             }
         
         # Add error details if failed
-        elif status_info["status"] == "failed":
-            response["error"] = status_info.get("error", "Unknown error")
+        elif status_info.status == "failed":
+            response["error"] = status_info.error_message or "Unknown error"
+            response["error_details"] = status_info.error_details
         
         return response
         
@@ -217,13 +218,13 @@ async def get_transcript_resource(task_id: str) -> str:
     if not status_info:
         raise ValueError(f"Task not found: {task_id}")
     
-    if status_info["status"] != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info['status']}")
+    if status_info.status != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
     
-    if "result" not in status_info:
+    if not status_info.result_episode:
         raise ValueError(f"No result found for task {task_id}")
     
-    episode = status_info["result"]
+    episode = status_info.result_episode
     return episode.transcript
 
 @mcp.resource("podcast://{task_id}/audio")
@@ -240,13 +241,13 @@ async def get_audio_resource(task_id: str) -> dict:
     if not status_info:
         raise ValueError(f"Task not found: {task_id}")
     
-    if status_info["status"] != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info['status']}")
+    if status_info.status != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
     
-    if "result" not in status_info:
+    if not status_info.result_episode:
         raise ValueError(f"No result found for task {task_id}")
     
-    episode = status_info["result"]
+    episode = status_info.result_episode
     
     # Check if audio file exists
     import os
@@ -274,23 +275,22 @@ async def get_metadata_resource(task_id: str) -> dict:
     if not status_info:
         raise ValueError(f"Task not found: {task_id}")
     
-    if status_info["status"] != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info['status']}")
+    if status_info.status != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
     
-    if "result" not in status_info:
+    if not status_info.result_episode:
         raise ValueError(f"No result found for task {task_id}")
     
-    episode = status_info["result"]
+    episode = status_info.result_episode
     
     return {
         "title": episode.title,
         "summary": episode.summary,
-        "duration_seconds": episode.duration_seconds,
         "source_attributions": episode.source_attributions,
         "warnings": episode.warnings,
         "audio_filepath": episode.audio_filepath,
-        "created_at": status_info.get("created_at", ""),
-        "completed_at": status_info.get("completed_at", "")
+        "created_at": status_info.created_at.isoformat() if status_info.created_at else "",
+        "completed_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
     }
 
 @mcp.resource("config://supported_formats")
@@ -386,8 +386,13 @@ if __name__ == "__main__":
     import uvicorn
     logger.info("Starting MySalonCast MCP server...")
     
-    # Create the HTTP app with SSE transport
-    app = mcp.http_app(transport="sse")
+    # Create the HTTP app with streamable-http transport (recommended for FastMCP 2.0+)
+    # This provides efficient bidirectional communication over HTTP
+    # Clients should connect to the base URL (no /sse endpoint needed)
+    app = mcp.http_app(transport="streamable-http")
     
     # Run with uvicorn
+    # IMPORTANT: The MCP server runs on port 8000
+    # All client code should connect to this port using http://localhost:8000
+    # The MySalonCastMCPClient class in tests/mcp/client.py implements the correct approach
     uvicorn.run(app, host="0.0.0.0", port=8000)
