@@ -326,17 +326,21 @@ class PodcastGeneratorService:
         Returns:
             Tuple of (task_id, PodcastEpisode)
         """
-        # Create a unique task ID and initialize status
-        task_id = str(uuid.uuid4())
+        # Use provided task_id for background tasks, otherwise create a new one
+        task_id = background_task_id if background_task_id else str(uuid.uuid4())
         status_manager = get_status_manager()
         
-        # Create initial status with request data
-        status = status_manager.create_status(task_id, request_data.dict())
-        logger.info(f"Created podcast generation task with ID: {task_id}")
+        # Only create initial status if this is a new task (not a background continuation)
+        if not background_task_id:
+            # Create initial status with request data
+            status = status_manager.create_status(task_id, request_data.dict())
+            logger.info(f"Created podcast generation task with ID: {task_id}")
+        else:
+            logger.info(f"Continuing background task with ID: {task_id}")
         
         # Update status to preprocessing
         status_manager.update_status(
-            task_id, 
+            task_id,
             "preprocessing_sources",
             "Validating request and preparing sources",
             5.0
@@ -422,9 +426,7 @@ class PodcastGeneratorService:
                 warnings=["LLM Service failed to initialize."]
             )
             # Update the status with the error episode
-            status = status_manager.get_status(task_id)
-            if status:
-                status.result_episode = error_episode
+            status_manager.set_episode(task_id, error_episode)
             return task_id, error_episode
 
         llm_source_analysis_filepath: Optional[str] = None
@@ -1115,10 +1117,7 @@ class PodcastGeneratorService:
             )
             
             # Update the result in the status
-            status = status_manager.get_status(task_id)
-            if status:
-                status.result_episode = podcast_episode
-                status.last_updated_at = datetime.utcnow()
+            status_manager.set_episode(task_id, podcast_episode)
             
             return task_id, podcast_episode
 

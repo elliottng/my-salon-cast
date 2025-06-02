@@ -254,6 +254,39 @@ class StatusManager:
             logger.error(f"Set error status for task_id: {task_id} - Error: {error_message}")
             return self._db_to_model(db_status)
     
+    def set_episode(self, task_id: str, episode: PodcastEpisode) -> Optional[PodcastStatus]:
+        """
+        Set the result episode for a completed task.
+        
+        Args:
+            task_id: Task identifier to update
+            episode: The completed PodcastEpisode object
+            
+        Returns:
+            Updated PodcastStatus if found, None otherwise
+        """
+        with get_session() as session:
+            db_status = session.get(PodcastStatusDB, task_id)
+            if not db_status:
+                logger.error(f"Cannot set episode - task_id not found: {task_id}")
+                return None
+            
+            # Serialize the episode to JSON
+            db_status.result_episode = serialize_to_json(episode)
+            db_status.last_updated_at = datetime.utcnow()
+            
+            # Add log entry
+            logs = deserialize_from_json(db_status.logs) or []
+            logs.append(f"{db_status.last_updated_at.isoformat()}Z - Episode set: {episode.title}")
+            db_status.logs = serialize_to_json(logs)
+            
+            session.add(db_status)
+            session.commit()
+            session.refresh(db_status)
+            
+            logger.info(f"Set episode for task_id: {task_id} - Title: {episode.title}")
+            return self._db_to_model(db_status)
+    
     def list_all_statuses(self, limit: int = 100, offset: int = 0) -> List[PodcastStatus]:
         """
         Get all current statuses with pagination.

@@ -100,23 +100,19 @@ async def test_job_status_completed_task():
             # Validate completion data
             completion = job_status["completion"]
             assert "title" in completion, "Missing title in completion"
-            assert "duration_seconds" in completion, "Missing duration in completion"
-            assert "artifacts_available" in completion, "Missing artifacts info"
+            assert "summary" in completion, "Missing summary in completion"
+            assert "audio_filepath" in completion, "Missing audio_filepath in completion"
+            assert "transcript_length" in completion, "Missing transcript_length in completion"
+            assert "warnings_count" in completion, "Missing warnings_count in completion"
+            assert "sources_count" in completion, "Missing sources_count in completion"
             
-            artifacts = completion["artifacts_available"]
-            assert "transcript" in artifacts, "Missing transcript availability"
-            assert "audio" in artifacts, "Missing audio availability"
-            assert "outline" in artifacts, "Missing outline availability"
-            assert "metadata" in artifacts, "Missing metadata availability"
-            
-            print(f"📊 Job Status Data:")
-            print(f"   Task ID: {job_status['task_id']}")
-            print(f"   Status: {job_status['status']}")
-            print(f"   Progress: {job_status['progress_percentage']}%")
-            print(f"   Stage: {job_status['stage']}")
+            print(f"✅ Task completed successfully!")
             print(f"   Title: {completion['title']}")
-            print(f"   Duration: {completion['duration_seconds']}s")
+            print(f"   Summary: {completion['summary'][:100]}...")
+            print(f"   Audio: {completion['audio_filepath']}")
+            print(f"   Transcript length: {completion['transcript_length']} chars")
             print(f"   Warnings: {completion['warnings_count']}")
+            print(f"   Sources: {completion['sources_count']}")
             
             return True
             

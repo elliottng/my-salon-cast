@@ -182,7 +182,6 @@ async def get_task_status(task_id: str) -> dict:
                 "summary": episode.summary,
                 "transcript": episode.transcript,
                 "audio_filepath": episode.audio_filepath,
-                "duration_seconds": episode.duration_seconds,
                 "source_attributions": episode.source_attributions,
                 "warnings": episode.warnings
             }
@@ -256,7 +255,6 @@ async def get_audio_resource(task_id: str) -> dict:
     
     return {
         "audio_filepath": episode.audio_filepath,
-        "duration_seconds": episode.duration_seconds,
         "format": "wav",
         "exists": True
     }
@@ -490,7 +488,8 @@ async def get_api_docs() -> dict:
             "podcast://{task_id}/outline": "Episode outline for completed podcast",
             "jobs://{task_id}/status": "Comprehensive job status and progress information",
             "jobs://{task_id}/logs": "Detailed log entries with timestamps and progress updates",
-            "jobs://{task_id}/warnings": "Warnings and error information from generation process"
+            "jobs://{task_id}/warnings": "Warnings and error information from generation process",
+            "research://{job_id}/{person_id}": "Persona research data for specific persons in podcast generation tasks"
         },
         "authentication": "None required for MCP protocol",
         "rate_limits": "3 concurrent tasks maximum",
@@ -658,14 +657,11 @@ async def get_job_status_resource(task_id: str) -> dict:
         episode = status_info.result_episode
         response["completion"] = {
             "title": episode.title,
-            "duration_seconds": episode.duration_seconds,
-            "warnings_count": len(episode.warnings) if episode.warnings else 0,
-            "artifacts_available": {
-                "transcript": bool(episode.transcript),
-                "audio": bool(episode.audio_filepath),
-                "outline": bool(episode.llm_podcast_outline_path),
-                "metadata": True
-            }
+            "summary": episode.summary,
+            "audio_filepath": episode.audio_filepath,
+            "transcript_length": len(episode.transcript),
+            "warnings_count": len(episode.warnings),
+            "sources_count": len(episode.source_attributions)
         }
     
     # Add artifacts availability for any status
@@ -827,6 +823,138 @@ async def get_job_warnings_resource(task_id: str) -> dict:
         "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
     }
 
+@mcp.resource("research://{job_id}/{person_id}")
+async def get_persona_research_resource(job_id: str, person_id: str) -> dict:
+    """
+    Get persona research data for a specific person in a podcast generation task.
+    
+    Args:
+        job_id: The podcast generation task ID
+        person_id: The person/persona ID to get research for
+        
+    Returns:
+        Dict containing persona research data and metadata
+        
+    Raises:
+        ValueError: If job_id not found or person_id not found for the job
+    """
+    import json
+    import os
+    from datetime import datetime
+    
+    # Get the job status to access episode data
+    status_info = status_manager.get_status(job_id)
+    if not status_info:
+        raise ValueError(f"Task not found: {job_id}")
+    
+    # Check task status and provide informative error messages
+    if status_info.status == "failed":
+        raise ValueError(f"Task {job_id} failed: {status_info.error_message or 'Unknown error'}. Persona research was not completed.")
+    
+    if status_info.status not in ["completed", "failed"]:
+        raise ValueError(f"Task {job_id} is still in progress (status: {status_info.status}). Persona research data not yet available.")
+    
+    if status_info.status == "completed" and not status_info.result_episode:
+        raise ValueError(f"Task {job_id} completed but has no episode data available")
+    
+    episode = status_info.result_episode
+    
+    # Check if persona research was attempted
+    if not episode.llm_persona_research_paths:
+        # Check artifacts to see what stages were completed
+        artifacts = {}
+        if hasattr(status_info, 'artifacts') and status_info.artifacts:
+            artifacts = status_info.artifacts
+        
+        pipeline_status = []
+        if artifacts.get('source_content_extracted'):
+            pipeline_status.append("content extraction ")
+        if artifacts.get('source_analysis_complete'):
+            pipeline_status.append("source analysis ")
+        if artifacts.get('persona_research_complete'):
+            pipeline_status.append("persona research ")
+        else:
+            pipeline_status.append("persona research ")
+        
+        pipeline_info = " → ".join(pipeline_status) if pipeline_status else "pipeline status unknown"
+        raise ValueError(f"No persona research data available for task {job_id}. Pipeline: {pipeline_info}")
+    
+    # Look for the specific person_id in the persona research files
+    persona_research_data = None
+    persona_research_filepath = None
+    
+    for filepath in episode.llm_persona_research_paths:
+        if not os.path.exists(filepath):
+            continue
+            
+        try:
+            with open(filepath, 'r') as f:
+                research_data = json.load(f)
+                
+            # Check if this file contains the requested person_id
+            if research_data.get('person_id') == person_id:
+                persona_research_data = research_data
+                persona_research_filepath = filepath
+                break
+                
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Could not read persona research file {filepath}: {e}")
+            continue
+    
+    if not persona_research_data:
+        # Get available person IDs for better error message
+        available_person_ids = []
+        for filepath in episode.llm_persona_research_paths:
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, 'r') as f:
+                        research_data = json.load(f)
+                    if research_data.get('person_id'):
+                        available_person_ids.append(research_data['person_id'])
+                except:
+                    continue
+        
+        available_ids_str = ", ".join(available_person_ids) if available_person_ids else "none"
+        raise ValueError(f"Person ID '{person_id}' not found for task {job_id}. Available person IDs: {available_ids_str}")
+    
+    # Extract key information from the persona research
+    name = persona_research_data.get('name', 'Unknown')
+    gender = persona_research_data.get('gender', 'Unknown')
+    detailed_profile = persona_research_data.get('detailed_profile', '')
+    voice_characteristics = persona_research_data.get('voice_characteristics', {})
+    
+    # Parse voice characteristics if it's a string
+    if isinstance(voice_characteristics, str):
+        try:
+            voice_characteristics = json.loads(voice_characteristics)
+        except json.JSONDecodeError:
+            voice_characteristics = {"raw": voice_characteristics}
+    
+    # Get file metadata
+    file_stats = os.stat(persona_research_filepath) if persona_research_filepath else None
+    file_size = file_stats.st_size if file_stats else 0
+    file_modified = datetime.fromtimestamp(file_stats.st_mtime).isoformat() + "Z" if file_stats else None
+    
+    response = {
+        "job_id": job_id,
+        "person_id": person_id,
+        "name": name,
+        "gender": gender,
+        "detailed_profile": detailed_profile,
+        "voice_characteristics": voice_characteristics,
+        "raw_research_data": persona_research_data,
+        "source_context": persona_research_data.get('source_context'),
+        "creation_date": persona_research_data.get('creation_date'),
+        "task_status": status_info.status,
+        "research_file_path": persona_research_filepath,
+        "research_file_size": file_size,
+        "research_file_modified": file_modified,
+        "profile_length": len(detailed_profile),
+        "last_updated": status_info.last_updated_at.isoformat() + "Z" if status_info.last_updated_at else None
+    }
+    
+    return response
+
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()
 async def generate_podcast(request_data: PodcastRequest) -> dict:
@@ -855,7 +983,6 @@ async def generate_podcast(request_data: PodcastRequest) -> dict:
                 "summary": episode.summary,
                 "transcript": episode.transcript,
                 "audio_filepath": episode.audio_filepath,
-                "duration_seconds": episode.duration_seconds,
                 "source_attributions": episode.source_attributions,
                 "warnings": episode.warnings
             }
