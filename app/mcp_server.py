@@ -488,7 +488,8 @@ async def get_api_docs() -> dict:
             "podcast://{task_id}/audio": "Audio file info for completed podcast",
             "podcast://{task_id}/metadata": "Episode metadata for completed podcast",
             "podcast://{task_id}/outline": "Episode outline for completed podcast",
-            "jobs://{task_id}/status": "Comprehensive job status and progress information"
+            "jobs://{task_id}/status": "Comprehensive job status and progress information",
+            "jobs://{task_id}/logs": "Detailed log entries with timestamps and progress updates"
         },
         "authentication": "None required for MCP protocol",
         "rate_limits": "3 concurrent tasks maximum",
@@ -671,6 +672,85 @@ async def get_job_status_resource(task_id: str) -> dict:
         response["artifacts"] = status_info.artifacts
     
     return response
+
+@mcp.resource("jobs://{task_id}/logs")
+async def get_job_logs_resource(task_id: str) -> dict:
+    """
+    Get detailed log entries for a podcast generation task.
+    
+    Returns comprehensive log information including timestamps, status changes,
+    and progress updates for any task (active, completed, failed, or cancelled).
+    
+    Args:
+        task_id: The task ID to get logs for
+        
+    Returns:
+        Dict with task ID, logs list, and log metadata
+    """
+    logger.info(f"Resource 'jobs://{task_id}/logs' requested")
+    
+    # Get status info from StatusManager
+    status_info = status_manager.get_status(task_id)
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    # Extract logs from status info
+    logs = status_info.logs if status_info.logs else []
+    
+    # Parse log entries to provide structured information
+    parsed_logs = []
+    for log_entry in logs:
+        # Try to parse structured log entries (format: timestamp - Status: ..., Progress: ..., Description: ...)
+        if " - Status: " in log_entry:
+            parts = log_entry.split(" - ", 1)
+            timestamp = parts[0]
+            message = parts[1] if len(parts) > 1 else log_entry
+            
+            # Try to extract status, progress, and description
+            status_match = None
+            progress_match = None
+            description_match = None
+            
+            if ", Progress: " in message and ", Description: " in message:
+                # Format: Status: {status}, Progress: {progress}%, Description: {description}
+                status_part = message.split(", Progress: ")[0].replace("Status: ", "")
+                progress_part = message.split(", Progress: ")[1].split(", Description: ")[0].replace("%", "")
+                description_part = message.split(", Description: ")[1]
+                
+                status_match = status_part
+                try:
+                    progress_match = float(progress_part)
+                except ValueError:
+                    progress_match = None
+                description_match = description_part if description_part != "N/A" else None
+            
+            parsed_logs.append({
+                "timestamp": timestamp,
+                "message": message,
+                "level": "info",  # Default level
+                "status": status_match,
+                "progress": progress_match,
+                "description": description_match
+            })
+        else:
+            # Unstructured log entry
+            parsed_logs.append({
+                "timestamp": None,
+                "message": log_entry,
+                "level": "info",
+                "status": None,
+                "progress": None,
+                "description": None
+            })
+    
+    return {
+        "task_id": task_id,
+        "logs": logs,  # Raw log entries
+        "parsed_logs": parsed_logs,  # Structured log data
+        "log_count": len(logs),
+        "task_status": status_info.status,
+        "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
+    }
 
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()
