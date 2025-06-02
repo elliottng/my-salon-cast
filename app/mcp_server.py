@@ -7,7 +7,7 @@ from app.task_runner import get_task_runner
 from app.cleanup_config import cleanup_manager, get_cleanup_manager, CleanupPolicy
 from fastmcp.prompts.prompt import Message
 from pydantic import Field
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 import os
 import tempfile
 import base64
@@ -41,39 +41,29 @@ async def hello(name: str = "world") -> str:
 # Async podcast generation with individual parameters
 @mcp.tool()
 async def generate_podcast_async(
-    source_urls: list[str] = [],
-    source_pdf_path: str = "",
-    prominent_persons: list[str] = [],
-    custom_prompt: str = "",
-    podcast_name: str = "",
-    podcast_tagline: str = "",
-    output_language: str = "en",
-    dialogue_style: str = "engaging",
-    podcast_length: str = "5-7 minutes",
-    ending_message: str = ""
+    ctx,  # MCP context for request correlation
+    source_urls: Optional[List[str]] = None,
+    source_pdf_path: Optional[str] = None,
+    prominent_persons: Optional[List[str]] = None,
+    custom_prompt: Optional[str] = None,
+    podcast_name: Optional[str] = None,
+    podcast_tagline: Optional[str] = None,
+    output_language: Literal["en", "es", "fr", "de", "it", "pt", "hi", "ar"] = "en",
+    dialogue_style: Literal["interview", "conversation", "debate", "educational"] = "conversation",
+    podcast_length: Literal["short", "medium", "long"] = "medium",
+    ending_message: Optional[str] = None
 ) -> dict:
     """
-    Start async podcast generation and return immediately with task_id.
-    
-    Provide either source_urls OR source_pdf_path (not both).
-    Use get_task_status with the returned task_id to check progress.
-    
-    Args:
-        source_urls: List of URLs to extract content from (max 3)
-        source_pdf_path: Path to PDF file to extract content from
-        prominent_persons: List of people to research for the podcast
-        custom_prompt: Additional instructions for podcast generation
-        podcast_name: Name of the podcast show
-        podcast_tagline: Tagline for the podcast
-        output_language: Language code (e.g., 'en', 'es', 'fr')
-        dialogue_style: Style of dialogue ('engaging', 'formal', 'casual')
-        podcast_length: Duration like '5-7 minutes'
-        ending_message: Custom message for the end of the podcast
-        
-    Returns:
-        Dict with task_id and initial status
+    Generate a podcast asynchronously using provided sources.
+    Returns immediately with a task ID for status tracking.
     """
-    logger.info("MCP Tool 'generate_podcast_async' called")
+    # Enhanced logging with MCP context
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    client_info = getattr(ctx, 'client_info', {})
+    
+    logger.info(f"[{request_id}] MCP Tool 'generate_podcast_async' called")
+    logger.info(f"[{request_id}] Client info: {client_info}")
+    logger.info(f"[{request_id}] Request params: sources={len(source_urls or [])}, persons={len(prominent_persons or [])}, style={dialogue_style}, length={podcast_length}")
     
     # Validate and convert to PodcastRequest
     try:
@@ -100,7 +90,7 @@ async def generate_podcast_async(
     # Submit async task
     try:
         task_id = await podcast_service.generate_podcast_async(request)
-        logger.info(f"Async podcast generation started with task_id: {task_id}")
+        logger.info(f"[{request_id}] Async podcast generation started with task_id: {task_id}")
         
         return {
             "success": True,
@@ -109,7 +99,7 @@ async def generate_podcast_async(
             "message": "Podcast generation started. Use get_task_status to check progress."
         }
     except Exception as e:
-        logger.error(f"Failed to start async podcast generation: {e}", exc_info=True)
+        logger.error(f"[{request_id}] Failed to start async podcast generation: {e}", exc_info=True)
         return {
             "success": False,
             "error": "Failed to start podcast generation",
@@ -118,7 +108,7 @@ async def generate_podcast_async(
 
 # Async podcast generation with Pydantic model
 @mcp.tool()
-async def generate_podcast_async_pydantic(request: PodcastRequest) -> dict:
+async def generate_podcast_async_pydantic(ctx, request: PodcastRequest) -> dict:
     """
     Start async podcast generation using a structured PodcastRequest model.
     
@@ -131,11 +121,14 @@ async def generate_podcast_async_pydantic(request: PodcastRequest) -> dict:
     Returns:
         Dict with task_id and initial status
     """
-    logger.info("MCP Tool 'generate_podcast_async_pydantic' called")
+    # Enhanced logging with MCP context
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    logger.info(f"[{request_id}] MCP Tool 'generate_podcast_async_pydantic' called")
+    logger.info(f"[{request_id}] Request model: {request.model_dump(exclude_none=True)}")
     
     try:
         task_id = await podcast_service.generate_podcast_async(request)
-        logger.info(f"Async podcast generation started with task_id: {task_id}")
+        logger.info(f"[{request_id}] Async podcast generation started with task_id: {task_id}")
         
         return {
             "success": True,
@@ -144,7 +137,7 @@ async def generate_podcast_async_pydantic(request: PodcastRequest) -> dict:
             "message": "Podcast generation started. Use get_task_status to check progress."
         }
     except Exception as e:
-        logger.error(f"Failed to start async podcast generation: {e}", exc_info=True)
+        logger.error(f"[{request_id}] Failed to start async podcast generation: {e}", exc_info=True)
         return {
             "success": False,
             "error": "Failed to start podcast generation",
@@ -153,7 +146,7 @@ async def generate_podcast_async_pydantic(request: PodcastRequest) -> dict:
 
 # Get status of async task
 @mcp.tool()
-async def get_task_status(task_id: str) -> dict:
+async def get_task_status(ctx, task_id: str) -> dict:
     """
     Get the status of an async podcast generation task.
     
@@ -165,49 +158,28 @@ async def get_task_status(task_id: str) -> dict:
     Returns:
         Dict with status information and episode data when complete
     """
-    logger.info(f"MCP Tool 'get_task_status' called for task_id: {task_id}")
+    # Enhanced logging with MCP context
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    logger.info(f"[{request_id}] MCP Tool 'get_task_status' called for task_id: {task_id}")
     
     try:
         status_info = status_manager.get_status(task_id)
         
-        if not status_info:
+        if status_info:
+            logger.info(f"[{request_id}] Task status retrieved: {status_info.status}, progress: {status_info.progress_percentage:.1f}%")
+            return {
+                "success": True,
+                "task_id": task_id,
+                "status": status_info.model_dump()
+            }
+        else:
+            logger.warning(f"[{request_id}] Task not found: {task_id}")
             return {
                 "success": False,
-                "error": "Task not found",
-                "details": f"No task found with ID: {task_id}"
+                "error": f"Task {task_id} not found"
             }
-        
-        # Build response based on status - status_info is a PodcastStatus model, not a dict
-        response = {
-            "success": True,
-            "task_id": task_id,
-            "status": status_info.status,
-            "progress_percentage": status_info.progress_percentage,
-            "stage": status_info.status_description or "",
-            "message": status_info.status_description or ""
-        }
-        
-        # Add episode data if completed
-        if status_info.status == "completed" and status_info.result_episode:
-            episode = status_info.result_episode
-            response["episode"] = {
-                "title": episode.title,
-                "summary": episode.summary,
-                "transcript": episode.transcript,
-                "audio_filepath": episode.audio_filepath,
-                "source_attributions": episode.source_attributions,
-                "warnings": episode.warnings
-            }
-        
-        # Add error details if failed
-        elif status_info.status == "failed":
-            response["error"] = status_info.error_message or "Unknown error"
-            response["error_details"] = status_info.error_details
-        
-        return response
-        
     except Exception as e:
-        logger.error(f"Failed to get task status: {e}", exc_info=True)
+        logger.error(f"[{request_id}] Error getting task status for {task_id}: {e}", exc_info=True)
         return {
             "success": False,
             "error": "Failed to retrieve task status",
@@ -217,7 +189,12 @@ async def get_task_status(task_id: str) -> dict:
 # Phase 4.3b: File Cleanup Management Tool
 
 @mcp.tool()
-async def cleanup_task_files(task_id: str, force_cleanup: bool = False, policy_override: str = None) -> dict:
+async def cleanup_task_files(
+    ctx,  # MCP context for request correlation
+    task_id: str = Field(..., description="Task ID to clean up files for"),
+    force_cleanup: bool = Field(False, description="Force cleanup even if task is not completed"),
+    policy_override: Optional[Literal["manual", "auto_on_complete", "auto_after_hours", "auto_after_days", "retain_audio_only", "retain_all"]] = Field(None, description="Override default cleanup policy for this operation")
+) -> dict:
     """
     Clean up files associated with a podcast generation task.
     
@@ -233,7 +210,10 @@ async def cleanup_task_files(task_id: str, force_cleanup: bool = False, policy_o
     Returns:
         Dict with cleanup status and details about removed files
     """
-    logger.info(f"MCP Tool 'cleanup_task_files' called for task_id: {task_id}, force_cleanup: {force_cleanup}, policy_override: {policy_override}")
+    # Enhanced logging with MCP context  
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    logger.info(f"[{request_id}] MCP Tool 'cleanup_task_files' called for task_id: {task_id}")
+    logger.info(f"[{request_id}] Cleanup params: force={force_cleanup}, policy_override={policy_override}")
     
     try:
         # Validate task and ownership
@@ -603,6 +583,7 @@ async def get_cleanup_status_resource(task_id: str) -> dict:
 
 @mcp.tool()
 async def configure_cleanup_policy(
+    ctx,  # MCP context for request correlation
     default_policy: str = None,
     auto_cleanup_hours: int = None,
     auto_cleanup_days: int = None,
@@ -633,7 +614,9 @@ async def configure_cleanup_policy(
     Returns:
         Dict with updated configuration and status
     """
-    logger.info(f"MCP Tool 'configure_cleanup_policy' called with updates")
+    # Enhanced logging with MCP context
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    logger.info(f"[{request_id}] MCP Tool 'configure_cleanup_policy' called with updates")
     
     try:
         # Build update dictionary with only provided values
