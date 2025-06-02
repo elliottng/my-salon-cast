@@ -1,0 +1,14 @@
+{
+  "default_policy": "manual",
+  "auto_cleanup_hours": 2,
+  "auto_cleanup_days": 7,
+  "retain_audio_files": true,
+  "retain_transcripts": true,
+  "retain_llm_outputs": true,
+  "retain_audio_segments": true,
+  "max_temp_size_mb": 500,
+  "max_total_storage_gb": 5,
+  "cleanup_on_startup": false,
+  "enable_background_cleanup": false,
+  "background_cleanup_interval_minutes": 60
+}

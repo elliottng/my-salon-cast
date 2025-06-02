@@ -162,6 +162,7 @@ class PodcastEpisode(BaseModel):
     llm_persona_research_paths: Optional[List[str]] = None
     llm_podcast_outline_path: Optional[str] = None
     llm_dialogue_turns_path: Optional[str] = None
+    dialogue_turn_audio_paths: Optional[List[str]] = None  # Individual audio segment paths
 
 
 # --- Asynchronous Task Management Models ---

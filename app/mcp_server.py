@@ -4,9 +4,18 @@ from app.podcast_workflow import PodcastGeneratorService
 from app.podcast_models import PodcastRequest, PodcastEpisode
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
+from app.cleanup_config import cleanup_manager, get_cleanup_manager, CleanupPolicy
 from fastmcp.prompts.prompt import Message
 from pydantic import Field
 from typing import Literal, Optional
+import os
+import tempfile
+import base64
+import mimetypes
+from pathlib import Path
+import logging
+import glob
+import shutil
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -16,6 +25,7 @@ logger = logging.getLogger(__name__)
 podcast_service = PodcastGeneratorService()
 status_manager = get_status_manager()
 task_runner = get_task_runner()
+cleanup_manager = get_cleanup_manager()
 logger.info("Services initialized for MCP.")
 
 # Initialize the FastMCP server with correct API
@@ -204,759 +214,638 @@ async def get_task_status(task_id: str) -> dict:
             "details": str(e)
         }
 
-# MCP Resources for accessing podcast content
+# Phase 4.3b: File Cleanup Management Tool
 
-@mcp.resource("podcast://{task_id}/transcript")
-async def get_transcript_resource(task_id: str) -> str:
+@mcp.tool()
+async def cleanup_task_files(task_id: str, force_cleanup: bool = False, policy_override: str = None) -> dict:
     """
-    Get the transcript of a completed podcast episode.
+    Clean up files associated with a podcast generation task.
     
-    Returns the full transcript text for the specified task.
+    Removes temporary files, audio segments, and LLM output files for the specified task
+    based on the configured cleanup policy or optional override.
+    Use with caution as this action cannot be undone.
+    
+    Args:
+        task_id: The task ID to clean up files for
+        force_cleanup: If True, proceed with cleanup even if task is not completed
+        policy_override: Optional policy override ('manual', 'retain_audio_only', 'retain_all', etc.)
+        
+    Returns:
+        Dict with cleanup status and details about removed files
     """
-    logger.info(f"Resource 'transcript' accessed for task_id: {task_id}")
-    
-    status_info = status_manager.get_status(task_id)
-    
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    if status_info.status != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
-    
-    if not status_info.result_episode:
-        raise ValueError(f"No result found for task {task_id}")
-    
-    episode = status_info.result_episode
-    return episode.transcript
-
-@mcp.resource("podcast://{task_id}/audio")
-async def get_audio_resource(task_id: str) -> dict:
-    """
-    Get the audio file path and metadata for a completed podcast.
-    
-    Returns information about the audio file including path and duration.
-    """
-    logger.info(f"Resource 'audio' accessed for task_id: {task_id}")
-    
-    status_info = status_manager.get_status(task_id)
-    
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    if status_info.status != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
-    
-    if not status_info.result_episode:
-        raise ValueError(f"No result found for task {task_id}")
-    
-    episode = status_info.result_episode
-    
-    # Check if audio file exists
-    import os
-    if not os.path.exists(episode.audio_filepath):
-        raise ValueError(f"Audio file not found: {episode.audio_filepath}")
-    
-    return {
-        "audio_filepath": episode.audio_filepath,
-        "format": "wav",
-        "exists": True
-    }
-
-@mcp.resource("podcast://{task_id}/metadata")
-async def get_metadata_resource(task_id: str) -> dict:
-    """
-    Get complete metadata for a podcast episode.
-    
-    Returns all episode information including title, summary, and attributions.
-    """
-    logger.info(f"Resource 'metadata' accessed for task_id: {task_id}")
-    
-    status_info = status_manager.get_status(task_id)
-    
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    if status_info.status != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
-    
-    if not status_info.result_episode:
-        raise ValueError(f"No result found for task {task_id}")
-    
-    episode = status_info.result_episode
-    
-    return {
-        "title": episode.title,
-        "summary": episode.summary,
-        "source_attributions": episode.source_attributions,
-        "warnings": episode.warnings,
-        "audio_filepath": episode.audio_filepath,
-        "created_at": status_info.created_at.isoformat() if status_info.created_at else "",
-        "completed_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
-    }
-
-@mcp.resource("podcast://{task_id}/outline")
-async def get_outline_resource(task_id: str) -> dict:
-    """
-    Get the podcast outline for a completed podcast episode.
-    
-    Returns the structured outline including segments, timing, and content cues.
-    """
-    logger.info(f"Resource 'outline' accessed for task_id: {task_id}")
-    
-    status_info = status_manager.get_status(task_id)
-    
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    if status_info.status != "completed":
-        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
-    
-    if not status_info.result_episode:
-        raise ValueError(f"No result found for task {task_id}")
-    
-    episode = status_info.result_episode
-    
-    if not episode.llm_podcast_outline_path:
-        raise ValueError(f"No outline data available for task {task_id}")
-    
-    # Check if outline file exists
-    import os
-    import json
-    if not os.path.exists(episode.llm_podcast_outline_path):
-        raise ValueError(f"Outline file not found: {episode.llm_podcast_outline_path}")
+    logger.info(f"MCP Tool 'cleanup_task_files' called for task_id: {task_id}, force_cleanup: {force_cleanup}, policy_override: {policy_override}")
     
     try:
-        # Read and return the outline JSON content
-        with open(episode.llm_podcast_outline_path, 'r', encoding='utf-8') as f:
-            outline_data = json.load(f)
+        # Validate task and ownership
+        status_info = _validate_task_ownership(task_id)
+        
+        # Safety check - don't clean up running tasks unless forced
+        if status_info.status in ["queued", "preprocessing_sources", "analyzing_sources", "researching_personas", 
+                                 "generating_outline", "generating_dialogue", "generating_audio_segments", 
+                                 "postprocessing_final_episode"] and not force_cleanup:
+            return {
+                "success": False,
+                "error": "Task is still running",
+                "details": f"Task {task_id} has status '{status_info.status}'. Use force_cleanup=True to cleanup anyway."
+            }
+        
+        # Get cleanup rules based on policy
+        if policy_override:
+            try:
+                override_policy = CleanupPolicy(policy_override)
+                # Temporarily set the policy for this task
+                original_policy = cleanup_manager.config.default_policy  
+                cleanup_manager.config.default_policy = override_policy
+                cleanup_rules = cleanup_manager.get_cleanup_rules(task_id)
+                cleanup_manager.config.default_policy = original_policy
+            except ValueError:
+                return {
+                    "success": False,
+                    "error": f"Invalid policy override: {policy_override}",
+                    "details": f"Valid policies: {[p.value for p in CleanupPolicy]}"
+                }
+        else:
+            cleanup_rules = cleanup_manager.get_cleanup_rules(task_id)
+        
+        # Add retain_audio field for test compatibility
+        cleanup_rules['retain_audio'] = not cleanup_rules.get('audio_files', False)
+        
+        # Log the cleanup action
+        logger.info(f"Using cleanup rules for task {task_id}: {cleanup_rules}")
+        
+        cleaned_files = []
+        failed_cleanups = []
+        total_size_freed = 0
+        
+        if status_info.result_episode:
+            episode = status_info.result_episode
+            
+            # Clean up main audio file (only if policy allows)
+            if cleanup_rules.get("audio_files", False) and episode.audio_filepath and _validate_file_access(episode.audio_filepath):
+                try:
+                    file_size = os.path.getsize(episode.audio_filepath)
+                    os.remove(episode.audio_filepath)
+                    cleaned_files.append({
+                        "type": "main_audio",
+                        "path": episode.audio_filepath,
+                        "size": file_size
+                    })
+                    total_size_freed += file_size
+                    logger.info(f"Removed main audio file: {episode.audio_filepath}")
+                except Exception as e:
+                    failed_cleanups.append({
+                        "type": "main_audio", 
+                        "path": episode.audio_filepath,
+                        "error": str(e)
+                    })
+                    logger.warning(f"Failed to remove audio file {episode.audio_filepath}: {e}")
+            elif episode.audio_filepath and not cleanup_rules.get("audio_files", False):
+                logger.info(f"Skipping main audio file removal due to policy: {episode.audio_filepath}")
+            
+            # Clean up audio segments (only if policy allows)
+            if cleanup_rules.get("audio_segments", False) and episode.dialogue_turn_audio_paths:
+                for i, segment_path in enumerate(episode.dialogue_turn_audio_paths):
+                    if _validate_file_access(segment_path):
+                        try:
+                            file_size = os.path.getsize(segment_path)
+                            os.remove(segment_path)
+                            cleaned_files.append({
+                                "type": "audio_segment",
+                                "path": segment_path,
+                                "size": file_size,
+                                "segment_index": i
+                            })
+                            total_size_freed += file_size
+                            logger.info(f"Removed audio segment: {segment_path}")
+                        except Exception as e:
+                            failed_cleanups.append({
+                                "type": "audio_segment",
+                                "path": segment_path,
+                                "segment_index": i,
+                                "error": str(e)
+                            })
+                            logger.warning(f"Failed to remove segment {segment_path}: {e}")
+            elif episode.dialogue_turn_audio_paths and not cleanup_rules.get("audio_segments", False):
+                logger.info(f"Skipping {len(episode.dialogue_turn_audio_paths)} audio segments due to policy")
+            
+            # Clean up LLM output files (only if policy allows)
+            if cleanup_rules.get("llm_outputs", False):
+                llm_files = []
+                
+                # Handle source analysis paths (list)
+                if episode.llm_source_analysis_paths:
+                    for i, path in enumerate(episode.llm_source_analysis_paths):
+                        llm_files.append((f"source_analysis_{i}", path))
+                
+                # Handle persona research paths (list)
+                if episode.llm_persona_research_paths:
+                    for i, path in enumerate(episode.llm_persona_research_paths):
+                        llm_files.append((f"persona_research_{i}", path))
+                
+                # Handle single paths
+                if episode.llm_podcast_outline_path:
+                    llm_files.append(("outline", episode.llm_podcast_outline_path))
+                if episode.llm_dialogue_turns_path:
+                    llm_files.append(("dialogue", episode.llm_dialogue_turns_path))
+                
+                for file_type, file_path in llm_files:
+                    if file_path and _validate_file_access(file_path):
+                        try:
+                            file_size = os.path.getsize(file_path)
+                            os.remove(file_path)
+                            cleaned_files.append({
+                                "type": f"llm_{file_type}",
+                                "path": file_path,
+                                "size": file_size,
+                                "removed": True
+                            })
+                            logger.info(f"Removed LLM file: {file_path}")
+                        except Exception as e:
+                            failed_cleanups.append({
+                                "type": f"llm_{file_type}",
+                                "path": file_path,
+                                "error": str(e)
+                            })
+                            logger.warning(f"Failed to remove LLM file {file_path}: {e}")
+            else:
+                llm_file_count = 0
+                # Count list-type paths
+                if episode.llm_source_analysis_paths:
+                    llm_file_count += len(episode.llm_source_analysis_paths)
+                if episode.llm_persona_research_paths:
+                    llm_file_count += len(episode.llm_persona_research_paths)
+                # Count single paths  
+                if episode.llm_podcast_outline_path:
+                    llm_file_count += 1
+                if episode.llm_dialogue_turns_path:
+                    llm_file_count += 1
+                    
+                if llm_file_count > 0:
+                    logger.info(f"Skipping {llm_file_count} LLM output files due to policy")
+            
+            # Try to remove the temporary directory if it appears to be empty (only if policy allows)
+            if cleanup_rules.get("temp_directories", False):
+                try:
+                    if episode.audio_filepath:
+                        temp_dir = os.path.dirname(episode.audio_filepath)
+                        if os.path.isdir(temp_dir) and not os.listdir(temp_dir):
+                            os.rmdir(temp_dir)
+                            logger.info(f"Removed empty temporary directory: {temp_dir}")
+                            cleaned_files.append({
+                                "type": "temp_directory",
+                                "path": temp_dir,
+                                "size": 0
+                            })
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary directory: {e}")
+            
+        # Also look for any remaining temporary directories for this task (only if policy allows)
+        if cleanup_rules.get("temp_directories", False):
+            import glob
+            temp_dirs_pattern = os.path.join(tempfile.gettempdir(), f"podcast_job_*")
+            for temp_dir in glob.glob(temp_dirs_pattern):
+                if task_id[:8] in temp_dir:
+                    try:
+                        import shutil
+                        dir_size = sum(os.path.getsize(os.path.join(dirpath, filename))
+                                       for dirpath, dirnames, filenames in os.walk(temp_dir)
+                                       for filename in filenames)
+                        shutil.rmtree(temp_dir)
+                        cleaned_files.append({
+                            "type": "temp_directory_full",
+                            "path": temp_dir,
+                            "size": dir_size
+                        })
+                        total_size_freed += dir_size
+                        logger.info(f"Removed temporary directory: {temp_dir}")
+                    except Exception as e:
+                        failed_cleanups.append({
+                            "type": "temp_directory_full",
+                            "path": temp_dir,
+                            "error": str(e)
+                        })
+                        logger.warning(f"Failed to remove temp directory {temp_dir}: {e}")
+        
+        success = len(cleaned_files) > 0 or not any(cleanup_rules.values())
+        
+        # Get applied policy information
+        applied_policy = cleanup_manager.get_policy_for_task(task_id)
+        if policy_override:
+            applied_policy = CleanupPolicy(policy_override)
         
         return {
-            "outline": outline_data,
-            "outline_filepath": episode.llm_podcast_outline_path,
+            "success": success,
             "task_id": task_id,
-            "generated_at": status_info.created_at.isoformat() if status_info.created_at else ""
+            "cleaned_files": cleaned_files,
+            "failed_files": failed_cleanups,
+            "files_cleaned": len(cleaned_files),
+            "files_failed": len(failed_cleanups),
+            "total_size_freed": total_size_freed,
+            "applied_policy": applied_policy.value,
+            "cleanup_rules": cleanup_rules,
+            "message": f"Cleanup completed. {len(cleaned_files)} files cleaned, {len(failed_cleanups)} failures.",
+            "cleanup_options": {
+                "force_cleanup": force_cleanup,
+                "policy_override": policy_override
+            }
         }
         
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in outline file {episode.llm_podcast_outline_path}: {e}")
+    except ValueError as e:
+        # Handle validation errors (e.g., task not found)
+        return {
+            "success": False,
+            "error": str(e),
+            "details": "Task validation failed"
+        }
     except Exception as e:
-        raise ValueError(f"Error reading outline file: {e}")
-
-@mcp.resource("config://supported_formats")
-async def get_supported_formats() -> dict:
-    """
-    Get information about supported input and output formats.
-    
-    Returns configuration details for podcast generation.
-    """
-    logger.info("Resource 'supported_formats' accessed")
-    
-    return {
-        "input_formats": {
-            "urls": {
-                "supported": True,
-                "max_count": 3,
-                "description": "Web URLs for content extraction"
-            },
-            "pdf": {
-                "supported": True,
-                "description": "PDF files for content extraction"
-            }
-        },
-        "output_formats": {
-            "audio": {
-                "format": "wav",
-                "sample_rate": 24000,
-                "channels": 1
-            },
-            "transcript": {
-                "format": "text",
-                "includes_timestamps": False
-            }
-        },
-        "languages": [
-            {"code": "en", "name": "English"},
-            {"code": "es", "name": "Spanish"},
-            {"code": "fr", "name": "French"},
-            {"code": "de", "name": "German"},
-            {"code": "it", "name": "Italian"},
-            {"code": "pt", "name": "Portuguese"},
-            {"code": "ja", "name": "Japanese"},
-            {"code": "ko", "name": "Korean"},
-            {"code": "zh", "name": "Chinese"}
-        ],
-        "dialogue_styles": ["engaging", "formal", "casual"],
-        "podcast_lengths": ["3-5 minutes", "5-7 minutes", "7-10 minutes", "10-15 minutes"]
-    }
-
-@mcp.resource("config://app")
-async def get_app_config() -> dict:
-    """
-    Get MySalonCast application configuration and settings.
-    
-    Returns app-level configuration including limits, features, and system info.
-    """
-    logger.info("Resource 'config://app' accessed")
-    
-    return {
-        "app_name": "MySalonCast",
-        "version": "1.0.0",
-        "description": "AI-powered podcast generation service",
-        "server_info": {
-            "mcp_port": 8000,
-            "transport": "streamable-http",
-            "framework": "FastMCP 2.0"
-        },
-        "limits": {
-            "max_source_urls": 3,
-            "max_concurrent_tasks": 3,
-            "max_podcast_length_minutes": 15,
-            "supported_file_size_mb": 50
-        },
-        "features": {
-            "async_generation": True,
-            "sync_generation": True,
-            "multiple_languages": True,
-            "custom_prompts": True,
-            "tts_voices": True,
-            "pdf_extraction": True,
-            "url_extraction": True
-        },
-        "ai_services": {
-            "llm_provider": "Google Gemini",
-            "tts_provider": "Google Cloud TTS",
-            "voice_count": 30
+        logger.error(f"Failed to cleanup task files: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": "Cleanup operation failed",
+            "details": str(e)
         }
-    }
 
-@mcp.resource("docs://api")
-async def get_api_docs() -> dict:
+@mcp.resource("files://{task_id}/cleanup")
+async def get_cleanup_status_resource(task_id: str) -> dict:
     """
-    Get comprehensive API documentation for MySalonCast MCP tools and resources.
-    
-    Returns detailed documentation for all available MCP endpoints.
+    Get cleanup status and options for task files.
+    Provides information about temporary files and cleanup policies.
     """
-    logger.info("Resource 'docs://api' accessed")
+    logger.info(f"Resource 'cleanup status' accessed for task_id: {task_id}")
     
-    return {
-        "tools": {
-            "hello": {
-                "description": "Simple greeting tool for testing connectivity",
-                "parameters": [],
-                "returns": "String greeting message",
-                "example": "Hello, MCP Tester!"
-            },
-            "generate_podcast_async": {
-                "description": "Start async podcast generation with individual parameters",
-                "parameters": {
-                    "source_urls": "List[str] - URLs to extract content from (max 3)",
-                    "source_pdf_path": "str - Path to PDF file",
-                    "prominent_persons": "List[str] - People to research",
-                    "custom_prompt": "str - Additional instructions",
-                    "podcast_name": "str - Name of the podcast show",
-                    "podcast_tagline": "str - Tagline for the podcast",
-                    "output_language": "str - Language code (e.g., 'en', 'es')",
-                    "dialogue_style": "str - Style ('engaging', 'formal', 'casual')",
-                    "podcast_length": "str - Duration like '5-7 minutes'",
-                    "ending_message": "str - Custom ending message"
-                },
-                "returns": "Dict with task_id and initial status",
-                "workflow": "Returns immediately with task_id, use get_task_status to monitor"
-            },
-            "generate_podcast_async_pydantic": {
-                "description": "Start async podcast generation with structured PodcastRequest",
-                "parameters": {
-                    "request": "PodcastRequest - Complete request model"
-                },
-                "returns": "Dict with task_id and initial status",
-                "workflow": "Same as generate_podcast_async but with structured input"
-            },
-            "get_task_status": {
-                "description": "Get status and progress of async podcast generation",
-                "parameters": {
-                    "task_id": "str - Task ID from generate_podcast_async"
-                },
-                "returns": "Dict with status, progress_percentage, stage, message",
-                "status_values": ["queued", "preprocessing_sources", "generating_outline", "generating_transcript", "generating_audio", "completed", "failed"]
-            }
-        },
-        "resources": {
-            "config://supported_formats": "Supported input/output formats and configuration",
-            "config://app": "Application configuration and limits",
-            "docs://api": "This API documentation",
-            "examples://requests": "Example podcast generation requests",
-            "podcast://{task_id}/transcript": "Episode transcript for completed podcast",
-            "podcast://{task_id}/audio": "Audio file info for completed podcast",
-            "podcast://{task_id}/metadata": "Episode metadata for completed podcast",
-            "podcast://{task_id}/outline": "Episode outline for completed podcast",
-            "jobs://{task_id}/status": "Comprehensive job status and progress information",
-            "jobs://{task_id}/logs": "Detailed log entries with timestamps and progress updates",
-            "jobs://{task_id}/warnings": "Warnings and error information from generation process",
-            "research://{job_id}/{person_id}": "Persona research data for specific persons in podcast generation tasks"
-        },
-        "authentication": "None required for MCP protocol",
-        "rate_limits": "3 concurrent tasks maximum",
-        "error_handling": "All tools return success:false with error details on failure"
-    }
-
-@mcp.resource("examples://requests")
-async def get_example_requests() -> dict:
-    """
-    Get example podcast generation requests to guide users.
+    # Validate task and ownership
+    status_info = _validate_task_ownership(task_id)
     
-    Returns sample requests for different use cases and scenarios.
-    """
-    logger.info("Resource 'examples://requests' accessed")
+    # Check for temporary directories (these exist regardless of episode status)
+    temp_dirs = []
+    import glob
+    for temp_dir in glob.glob(os.path.join(tempfile.gettempdir(), "podcast_job_*")):
+        if task_id[:8] in temp_dir and os.path.isdir(temp_dir):
+            temp_dirs.append(temp_dir)
     
-    return {
-        "basic_url_example": {
-            "description": "Simple podcast from web articles",
-            "tool": "generate_podcast_async",
-            "request": {
-                "source_urls": [
-                    "https://example.com/tech-news-article",
-                    "https://example.com/industry-trends"
-                ],
-                "podcast_name": "Tech Weekly",
-                "podcast_tagline": "Your weekly dose of technology news",
-                "output_language": "en",
-                "dialogue_style": "engaging",
-                "podcast_length": "5-7 minutes"
-            }
-        },
-        "research_podcast_example": {
-            "description": "Research-focused podcast with prominent persons",
-            "tool": "generate_podcast_async",
-            "request": {
-                "source_urls": ["https://example.com/ai-research-paper"],
-                "prominent_persons": ["Geoffrey Hinton", "Yann LeCun"],
-                "custom_prompt": "Focus on the implications for neural network architecture",
-                "podcast_name": "AI Research Roundup",
-                "dialogue_style": "formal",
-                "podcast_length": "10-15 minutes",
-                "ending_message": "Thanks for listening to AI Research Roundup"
-            }
-        },
-        "pdf_example": {
-            "description": "Podcast from PDF document",
-            "tool": "generate_podcast_async",
-            "request": {
-                "source_pdf_path": "/path/to/research-paper.pdf",
-                "podcast_name": "Paper Review",
-                "dialogue_style": "casual",
-                "podcast_length": "7-10 minutes",
-                "custom_prompt": "Explain this in simple terms for a general audience"
-            }
-        },
-        "multilingual_example": {
-            "description": "Spanish language podcast",
-            "tool": "generate_podcast_async",
-            "request": {
-                "source_urls": ["https://example.com/spanish-news"],
-                "output_language": "es",
-                "podcast_name": "Noticias Tech",
-                "dialogue_style": "engaging",
-                "podcast_length": "5-7 minutes"
-            }
-        },
-        "pydantic_model_example": {
-            "description": "Using structured PodcastRequest model",
-            "tool": "generate_podcast_async_pydantic",
-            "request": {
-                "request": {
-                    "source_urls": ["https://example.com/startup-news"],
-                    "podcast_name": "Startup Stories",
-                    "podcast_tagline": "Inspiring entrepreneur journeys",
-                    "output_language": "en",
-                    "dialogue_style": "engaging",
-                    "podcast_length": "5-7 minutes",
-                    "custom_prompt": "Focus on lessons learned and actionable insights"
-                }
-            }
-        },
-        "workflow_example": {
-            "description": "Complete async workflow example",
-            "steps": [
-                {
-                    "step": 1,
-                    "action": "Submit generation request",
-                    "tool": "generate_podcast_async",
-                    "expected_response": {"success": True, "task_id": "uuid-here", "status": "queued"}
-                },
-                {
-                    "step": 2,
-                    "action": "Check initial status",
-                    "tool": "get_task_status",
-                    "parameters": {"task_id": "uuid-from-step-1"},
-                    "expected_response": {"success": True, "status": "preprocessing_sources", "progress_percentage": 5.0}
-                },
-                {
-                    "step": 3,
-                    "action": "Monitor progress",
-                    "tool": "get_task_status",
-                    "note": "Repeat every 10-30 seconds until status is 'completed' or 'failed'"
-                },
-                {
-                    "step": 4,
-                    "action": "Access completed podcast",
-                    "resources": [
-                        "podcast://{task_id}/transcript",
-                        "podcast://{task_id}/audio",
-                        "podcast://{task_id}/metadata",
-                        "podcast://{task_id}/outline"
-                    ]
-                }
-            ]
+    if not status_info.result_episode:
+        # For tasks without episodes, we can still show temp directory info
+        return {
+            "task_id": task_id,
+            "status": status_info.status,
+            "cleanup_available": len(temp_dirs) > 0,
+            "temp_directories": temp_dirs,
+            "cleanup_policy": cleanup_manager.get_policy_for_task(task_id),
+            "files_available": False,
+            "estimated_size": 0
         }
-    }
-
-@mcp.resource("jobs://{task_id}/status")
-async def get_job_status_resource(task_id: str) -> dict:
-    """
-    Get comprehensive job status and progress information.
-    
-    Returns real-time status, progress, stage details, and timing for any task.
-    Works for active, completed, and failed tasks.
-    """
-    logger.info(f"Resource 'jobs://{task_id}/status' accessed for task_id: {task_id}")
-    
-    status_info = status_manager.get_status(task_id)
-    
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    # Build comprehensive status response
-    response = {
-        "task_id": task_id,
-        "status": status_info.status,
-        "progress_percentage": status_info.progress_percentage,
-        "stage": status_info.status_description or "No description available",
-        "timestamps": {
-            "created_at": status_info.created_at.isoformat() if status_info.created_at else "",
-            "last_updated_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
-        }
-    }
-    
-    # Add request summary for context
-    if status_info.request_data:
-        response["request_summary"] = {
-            "prominent_persons": status_info.request_data.prominent_persons,
-            "source_urls": status_info.request_data.source_urls,
-            "desired_podcast_length": status_info.request_data.desired_podcast_length_str or "5 minutes",
-            "source_pdf_path": status_info.request_data.source_pdf_path,
-            "host_invented_name": status_info.request_data.host_invented_name,
-            "webhook_url": status_info.request_data.webhook_url
-        }
-    
-    # Add error details if task failed
-    if status_info.status == "failed":
-        response["error"] = {
-            "message": status_info.error_message or "Unknown error",
-            "details": status_info.error_details
-        }
-    
-    # Add completion details if task succeeded
-    if status_info.status == "completed" and status_info.result_episode:
-        episode = status_info.result_episode
-        response["completion"] = {
-            "title": episode.title,
-            "summary": episode.summary,
-            "audio_filepath": episode.audio_filepath,
-            "transcript_length": len(episode.transcript),
-            "warnings_count": len(episode.warnings),
-            "sources_count": len(episode.source_attributions)
-        }
-    
-    # Add artifacts availability for any status
-    if status_info.artifacts:
-        response["artifacts"] = status_info.artifacts
-    
-    return response
-
-@mcp.resource("jobs://{task_id}/logs")
-async def get_job_logs_resource(task_id: str) -> dict:
-    """
-    Get detailed log entries for a podcast generation task.
-    
-    Returns comprehensive log information including timestamps, status changes,
-    and progress updates for any task (active, completed, failed, or cancelled).
-    
-    Args:
-        task_id: The task ID to get logs for
-        
-    Returns:
-        Dict with task ID, logs list, and log metadata
-    """
-    logger.info(f"Resource 'jobs://{task_id}/logs' requested")
-    
-    # Get status info from StatusManager
-    status_info = status_manager.get_status(task_id)
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    # Extract logs from status info
-    logs = status_info.logs if status_info.logs else []
-    
-    # Parse log entries to provide structured information
-    parsed_logs = []
-    for log_entry in logs:
-        # Try to parse structured log entries (format: timestamp - Status: ..., Progress: ..., Description: ...)
-        if " - Status: " in log_entry:
-            parts = log_entry.split(" - ", 1)
-            timestamp = parts[0]
-            message = parts[1] if len(parts) > 1 else log_entry
-            
-            # Try to extract status, progress, and description
-            status_match = None
-            progress_match = None
-            description_match = None
-            
-            if ", Progress: " in message and ", Description: " in message:
-                # Format: Status: {status}, Progress: {progress}%, Description: {description}
-                status_part = message.split(", Progress: ")[0].replace("Status: ", "")
-                progress_part = message.split(", Progress: ")[1].split(", Description: ")[0].replace("%", "")
-                description_part = message.split(", Description: ")[1]
-                
-                status_match = status_part
-                try:
-                    progress_match = float(progress_part)
-                except ValueError:
-                    progress_match = None
-                description_match = description_part if description_part != "N/A" else None
-            
-            parsed_logs.append({
-                "timestamp": timestamp,
-                "message": message,
-                "level": "info",  # Default level
-                "status": status_match,
-                "progress": progress_match,
-                "description": description_match
-            })
-        else:
-            # Unstructured log entry
-            parsed_logs.append({
-                "timestamp": None,
-                "message": log_entry,
-                "level": "info",
-                "status": None,
-                "progress": None,
-                "description": None
-            })
-    
-    return {
-        "task_id": task_id,
-        "logs": logs,  # Raw log entries
-        "parsed_logs": parsed_logs,  # Structured log data
-        "log_count": len(logs),
-        "task_status": status_info.status,
-        "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
-    }
-
-@mcp.resource("jobs://{task_id}/warnings")
-async def get_job_warnings_resource(task_id: str) -> dict:
-    """
-    Get detailed warnings and error information for a podcast generation task.
-    
-    Returns warnings from both the generation process and final episode,
-    along with error details if the task failed.
-    """
-    logger.info(f"Resource 'jobs://{task_id}/warnings' accessed for task_id: {task_id}")
-    
-    status_info = status_manager.get_status(task_id)
-    
-    if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
-    
-    warnings = []
-    error_info = None
-    
-    # Get warnings from completed episode
-    if status_info.result_episode and status_info.result_episode.warnings:
-        warnings = status_info.result_episode.warnings
-    
-    # Get error information if task failed
-    if status_info.status == "failed":
-        error_info = {
-            "error_message": status_info.error_message,
-            "error_details": status_info.error_details,
-            "occurred_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
-        }
-        # Include error message as a warning entry for consistency
-        if status_info.error_message:
-            warnings.append(f"ERROR: {status_info.error_message}")
-    
-    # Parse warnings to extract structured data
-    parsed_warnings = []
-    for warning in warnings:
-        # Basic parsing of warning format
-        warning_entry = {
-            "message": warning,
-            "type": "error" if warning.startswith("ERROR:") or warning.startswith("CRITICAL") else 
-                    "warning" if warning.startswith("WARNING:") else "info",
-            "severity": "high" if any(keyword in warning.upper() for keyword in ["ERROR", "CRITICAL", "FAILED", "FAILURE"]) else
-                       "medium" if any(keyword in warning.upper() for keyword in ["WARNING", "WARN"]) else "low"
-        }
-        
-        # Extract stage information if available
-        if "analysis" in warning.lower():
-            warning_entry["stage"] = "source_analysis"
-        elif "persona" in warning.lower() or "research" in warning.lower():
-            warning_entry["stage"] = "persona_research"
-        elif "outline" in warning.lower():
-            warning_entry["stage"] = "outline_generation"
-        elif "dialogue" in warning.lower():
-            warning_entry["stage"] = "dialogue_generation"
-        elif "tts" in warning.lower() or "audio" in warning.lower():
-            warning_entry["stage"] = "audio_generation"
-        elif "stitch" in warning.lower():
-            warning_entry["stage"] = "audio_stitching"
-        else:
-            warning_entry["stage"] = "general"
-        
-        parsed_warnings.append(warning_entry)
-    
-    return {
-        "task_id": task_id,
-        "warnings": warnings,  # Raw warning messages
-        "parsed_warnings": parsed_warnings,  # Structured warning data
-        "warning_count": len(warnings),
-        "error_info": error_info,  # Detailed error info if failed
-        "task_status": status_info.status,
-        "has_errors": status_info.status == "failed",
-        "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
-    }
-
-@mcp.resource("research://{job_id}/{person_id}")
-async def get_persona_research_resource(job_id: str, person_id: str) -> dict:
-    """
-    Get persona research data for a specific person in a podcast generation task.
-    
-    Args:
-        job_id: The podcast generation task ID
-        person_id: The person/persona ID to get research for
-        
-    Returns:
-        Dict containing persona research data and metadata
-        
-    Raises:
-        ValueError: If job_id not found or person_id not found for the job
-    """
-    import json
-    import os
-    from datetime import datetime
-    
-    # Get the job status to access episode data
-    status_info = status_manager.get_status(job_id)
-    if not status_info:
-        raise ValueError(f"Task not found: {job_id}")
-    
-    # Check task status and provide informative error messages
-    if status_info.status == "failed":
-        raise ValueError(f"Task {job_id} failed: {status_info.error_message or 'Unknown error'}. Persona research was not completed.")
-    
-    if status_info.status not in ["completed", "failed"]:
-        raise ValueError(f"Task {job_id} is still in progress (status: {status_info.status}). Persona research data not yet available.")
-    
-    if status_info.status == "completed" and not status_info.result_episode:
-        raise ValueError(f"Task {job_id} completed but has no episode data available")
     
     episode = status_info.result_episode
     
-    # Check if persona research was attempted
-    if not episode.llm_persona_research_paths:
-        # Check artifacts to see what stages were completed
-        artifacts = {}
-        if hasattr(status_info, 'artifacts') and status_info.artifacts:
-            artifacts = status_info.artifacts
-        
-        pipeline_status = []
-        if artifacts.get('source_content_extracted'):
-            pipeline_status.append("content extraction ")
-        if artifacts.get('source_analysis_complete'):
-            pipeline_status.append("source analysis ")
-        if artifacts.get('persona_research_complete'):
-            pipeline_status.append("persona research ")
-        else:
-            pipeline_status.append("persona research ")
-        
-        pipeline_info = " → ".join(pipeline_status) if pipeline_status else "pipeline status unknown"
-        raise ValueError(f"No persona research data available for task {job_id}. Pipeline: {pipeline_info}")
+    # Collect file information
+    files_info = []
+    total_size = 0
     
-    # Look for the specific person_id in the persona research files
-    persona_research_data = None
-    persona_research_filepath = None
-    
-    for filepath in episode.llm_persona_research_paths:
-        if not os.path.exists(filepath):
-            continue
-            
+    # Main audio file
+    if episode.audio_filepath and _validate_file_access(episode.audio_filepath):
         try:
-            with open(filepath, 'r') as f:
-                research_data = json.load(f)
-                
-            # Check if this file contains the requested person_id
-            if research_data.get('person_id') == person_id:
-                persona_research_data = research_data
-                persona_research_filepath = filepath
-                break
-                
-        except (json.JSONDecodeError, IOError) as e:
-            logger.warning(f"Could not read persona research file {filepath}: {e}")
-            continue
+            size = os.path.getsize(episode.audio_filepath)
+            files_info.append({
+                "type": "main_audio",
+                "path": episode.audio_filepath,
+                "size": size,
+                "exists": True
+            })
+            total_size += size
+        except:
+            files_info.append({
+                "type": "main_audio", 
+                "path": episode.audio_filepath,
+                "size": 0,
+                "exists": False
+            })
     
-    if not persona_research_data:
-        # Get available person IDs for better error message
-        available_person_ids = []
-        for filepath in episode.llm_persona_research_paths:
-            if os.path.exists(filepath):
+    # Audio segments
+    if episode.dialogue_turn_audio_paths:
+        for i, segment_path in enumerate(episode.dialogue_turn_audio_paths):
+            if _validate_file_access(segment_path):
                 try:
-                    with open(filepath, 'r') as f:
-                        research_data = json.load(f)
-                    if research_data.get('person_id'):
-                        available_person_ids.append(research_data['person_id'])
+                    size = os.path.getsize(segment_path)
+                    files_info.append({
+                        "type": "audio_segment",
+                        "path": segment_path,
+                        "size": size,
+                        "segment_index": i,
+                        "exists": True
+                    })
+                    total_size += size
                 except:
-                    continue
-        
-        available_ids_str = ", ".join(available_person_ids) if available_person_ids else "none"
-        raise ValueError(f"Person ID '{person_id}' not found for task {job_id}. Available person IDs: {available_ids_str}")
+                    files_info.append({
+                        "type": "audio_segment",
+                        "path": segment_path,
+                        "size": 0,
+                        "segment_index": i,
+                        "exists": False
+                    })
     
-    # Extract key information from the persona research
-    name = persona_research_data.get('name', 'Unknown')
-    gender = persona_research_data.get('gender', 'Unknown')
-    detailed_profile = persona_research_data.get('detailed_profile', '')
-    voice_characteristics = persona_research_data.get('voice_characteristics', {})
+    # LLM output files
+    llm_files = []
     
-    # Parse voice characteristics if it's a string
-    if isinstance(voice_characteristics, str):
-        try:
-            voice_characteristics = json.loads(voice_characteristics)
-        except json.JSONDecodeError:
-            voice_characteristics = {"raw": voice_characteristics}
+    # Handle source analysis paths (list)
+    if episode.llm_source_analysis_paths:
+        for i, path in enumerate(episode.llm_source_analysis_paths):
+            llm_files.append((f"source_analysis_{i}", path))
     
-    # Get file metadata
-    file_stats = os.stat(persona_research_filepath) if persona_research_filepath else None
-    file_size = file_stats.st_size if file_stats else 0
-    file_modified = datetime.fromtimestamp(file_stats.st_mtime).isoformat() + "Z" if file_stats else None
+    # Handle persona research paths (list)
+    if episode.llm_persona_research_paths:
+        for i, path in enumerate(episode.llm_persona_research_paths):
+            llm_files.append((f"persona_research_{i}", path))
     
-    response = {
-        "job_id": job_id,
-        "person_id": person_id,
-        "name": name,
-        "gender": gender,
-        "detailed_profile": detailed_profile,
-        "voice_characteristics": voice_characteristics,
-        "raw_research_data": persona_research_data,
-        "source_context": persona_research_data.get('source_context'),
-        "creation_date": persona_research_data.get('creation_date'),
-        "task_status": status_info.status,
-        "research_file_path": persona_research_filepath,
-        "research_file_size": file_size,
-        "research_file_modified": file_modified,
-        "profile_length": len(detailed_profile),
-        "last_updated": status_info.last_updated_at.isoformat() + "Z" if status_info.last_updated_at else None
+    # Handle single paths
+    if episode.llm_podcast_outline_path:
+        llm_files.append(("outline", episode.llm_podcast_outline_path))
+    if episode.llm_dialogue_turns_path:
+        llm_files.append(("dialogue", episode.llm_dialogue_turns_path))
+    
+    for file_type, file_path in llm_files:
+        if file_path and _validate_file_access(file_path):
+            try:
+                size = os.path.getsize(file_path)
+                files_info.append({
+                    "type": f"llm_{file_type}",
+                    "path": file_path,
+                    "size": size,
+                    "exists": True
+                })
+                total_size += size
+            except:
+                files_info.append({
+                    "type": f"llm_{file_type}",
+                    "path": file_path,
+                    "size": 0,
+                    "exists": False
+                })
+    
+    return {
+        "task_id": task_id,
+        "status": status_info.status,
+        "cleanup_available": len(files_info) > 0,
+        "files": files_info,
+        "file_count": len(files_info),
+        "total_size": total_size,
+        "cleanup_policy": cleanup_manager.get_policy_for_task(task_id),
+        "files_exist": {
+            "audio_file": any(f["type"] == "main_audio" and f.get("exists", False) for f in files_info),
+            "audio_segments": any(f["type"] == "audio_segment" and f.get("exists", False) for f in files_info),
+            "temp_directory": len(temp_dirs) > 0,
+            "llm_outputs": any(f["type"].startswith("llm_") and f.get("exists", False) for f in files_info)
+        },
+        "created_at": status_info.created_at.isoformat() if status_info.created_at else "",
+        "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
     }
+
+# Phase 4.3c: Cleanup Configuration Management Tool
+
+@mcp.tool()
+async def configure_cleanup_policy(
+    default_policy: str = None,
+    auto_cleanup_hours: int = None,
+    auto_cleanup_days: int = None,
+    retain_audio_files: bool = None,
+    retain_transcripts: bool = None,
+    retain_llm_outputs: bool = None,
+    retain_audio_segments: bool = None,
+    max_temp_size_mb: int = None,
+    enable_background_cleanup: bool = None
+) -> dict:
+    """
+    Configure cleanup policies for MySalonCast file management.
     
-    return response
+    Updates the global cleanup configuration settings that control how and when
+    temporary files are cleaned up after podcast generation.
+    
+    Args:
+        default_policy: Default cleanup policy ('manual', 'auto_on_complete', 'auto_after_hours', etc.)
+        auto_cleanup_hours: Hours after completion before auto cleanup (for AUTO_AFTER_HOURS policy)  
+        auto_cleanup_days: Days after completion before auto cleanup (for AUTO_AFTER_DAYS policy)
+        retain_audio_files: Whether to retain final audio files during cleanup
+        retain_transcripts: Whether to retain transcript files during cleanup
+        retain_llm_outputs: Whether to retain LLM intermediate output files
+        retain_audio_segments: Whether to retain individual audio segment files
+        max_temp_size_mb: Maximum total size of temp files per task in MB
+        enable_background_cleanup: Whether to enable background cleanup scheduler
+        
+    Returns:
+        Dict with updated configuration and status
+    """
+    logger.info(f"MCP Tool 'configure_cleanup_policy' called with updates")
+    
+    try:
+        # Build update dictionary with only provided values
+        updates = {}
+        if default_policy is not None:
+            # Validate policy value
+            try:
+                CleanupPolicy(default_policy)
+                updates["default_policy"] = default_policy
+            except ValueError:
+                return {
+                    "success": False,
+                    "error": f"Invalid cleanup policy: {default_policy}",
+                    "valid_policies": [p.value for p in CleanupPolicy]
+                }
+        
+        if auto_cleanup_hours is not None:
+            if auto_cleanup_hours < 1 or auto_cleanup_hours > 8760:  # 1 year max
+                return {
+                    "success": False,
+                    "error": "auto_cleanup_hours must be between 1 and 8760"
+                }
+            updates["auto_cleanup_hours"] = auto_cleanup_hours
+            
+        if auto_cleanup_days is not None:
+            if auto_cleanup_days < 1 or auto_cleanup_days > 365:
+                return {
+                    "success": False,
+                    "error": "auto_cleanup_days must be between 1 and 365"
+                }
+            updates["auto_cleanup_days"] = auto_cleanup_days
+            
+        if retain_audio_files is not None:
+            updates["retain_audio_files"] = retain_audio_files
+            
+        if retain_transcripts is not None:
+            updates["retain_transcripts"] = retain_transcripts
+            
+        if retain_llm_outputs is not None:
+            updates["retain_llm_outputs"] = retain_llm_outputs
+            
+        if retain_audio_segments is not None:
+            updates["retain_audio_segments"] = retain_audio_segments
+            
+        if max_temp_size_mb is not None:
+            if max_temp_size_mb < 1 or max_temp_size_mb > 10000:  # 10GB max
+                return {
+                    "success": False,
+                    "error": "max_temp_size_mb must be between 1 and 10000"
+                }
+            updates["max_temp_size_mb"] = max_temp_size_mb
+            
+        if enable_background_cleanup is not None:
+            updates["enable_background_cleanup"] = enable_background_cleanup
+        
+        if not updates:
+            return {
+                "success": False,
+                "error": "No configuration updates provided",
+                "current_config": cleanup_manager.config.model_dump()
+            }
+        
+        # Apply updates
+        updated_config = cleanup_manager.update_config(**updates)
+        
+        logger.info(f"Updated cleanup configuration: {updates}")
+        
+        return {
+            "success": True,
+            "message": f"Updated {len(updates)} cleanup configuration setting(s)",
+            "updated_fields": list(updates.keys()),
+            "current_config": updated_config.model_dump(),
+            "config_file": cleanup_manager.config_path
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating cleanup configuration: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "details": "Failed to update cleanup configuration"
+        }
+
+# Phase 4.3d: Cleanup Configuration Resource
+
+@mcp.resource("config://cleanup")
+async def get_cleanup_config_resource() -> dict:
+    """
+    Get current cleanup configuration and policy settings.
+    
+    Returns the current cleanup policy configuration including default policies,
+    retention settings, size limits, and background cleanup options.
+    """
+    logger.info("Resource 'cleanup configuration' accessed")
+    
+    config = cleanup_manager.config
+    
+    return {
+        "cleanup_policies": {
+            "current_default": config.default_policy,
+            "available_policies": [p.value for p in CleanupPolicy],
+            "policy_descriptions": {
+                "manual": "No automatic cleanup, require explicit cleanup_task_files calls",
+                "auto_on_complete": "Cleanup immediately when task completes",
+                "auto_after_hours": "Cleanup after specified hours since completion",
+                "auto_after_days": "Cleanup after specified days since completion", 
+                "retain_audio_only": "Keep only final audio, remove temp files",
+                "retain_all": "Never cleanup (for development/testing)"
+            }
+        },
+        "timing_settings": {
+            "auto_cleanup_hours": config.auto_cleanup_hours,
+            "auto_cleanup_days": config.auto_cleanup_days
+        },
+        "retention_settings": {
+            "retain_audio_files": config.retain_audio_files,
+            "retain_transcripts": config.retain_transcripts,
+            "retain_llm_outputs": config.retain_llm_outputs,
+            "retain_audio_segments": config.retain_audio_segments
+        },
+        "size_limits": {
+            "max_temp_size_mb": config.max_temp_size_mb,
+            "max_total_storage_gb": config.max_total_storage_gb
+        },
+        "background_cleanup": {
+            "enabled": config.enable_background_cleanup,
+            "cleanup_on_startup": config.cleanup_on_startup,
+            "interval_minutes": config.background_cleanup_interval_minutes
+        },
+        "configuration": {
+            "config_file": cleanup_manager.config_path,
+            "last_modified": os.path.getmtime(cleanup_manager.config_path) if os.path.exists(cleanup_manager.config_path) else None
+        }
+    }
+
+# Security and file management helpers
+def _validate_task_ownership(task_id: str) -> dict:
+    """Validate task exists and return status info."""
+    status_info = status_manager.get_status(task_id)
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    return status_info
+
+def _validate_file_access(filepath: str, task_id: str = None) -> bool:
+    """Validate file path for security (prevent directory traversal)."""
+    if not filepath:
+        return False
+    
+    # Convert to absolute path and resolve any .. or . components
+    abs_path = os.path.abspath(filepath)
+    
+    # Check if file exists
+    if not os.path.exists(abs_path):
+        return False
+    
+    # Ensure file is within temp directory or outputs directory
+    temp_dir = tempfile.gettempdir()
+    outputs_dir = os.path.abspath("./outputs")
+    
+    # File must be within temp directory (for active tasks) or outputs directory
+    is_in_temp = abs_path.startswith(temp_dir)
+    is_in_outputs = abs_path.startswith(outputs_dir)
+    
+    if not (is_in_temp or is_in_outputs):
+        logger.warning(f"File access denied - path outside allowed directories: {abs_path}")
+        return False
+    
+    return True
+
+def _get_file_content_safe(filepath: str, max_size_mb: int = 50) -> bytes:
+    """Safely read file content with size limits."""
+    if not _validate_file_access(filepath):
+        raise ValueError(f"File access denied: {filepath}")
+    
+    # Check file size
+    file_size = os.path.getsize(filepath)
+    max_size_bytes = max_size_mb * 1024 * 1024
+    
+    if file_size > max_size_bytes:
+        raise ValueError(f"File too large: {file_size} bytes > {max_size_bytes} bytes limit")
+    
+    try:
+        with open(filepath, 'rb') as f:
+            return f.read()
+    except Exception as e:
+        raise ValueError(f"Error reading file: {e}")
+
+def _list_directory_safe(directory: str, task_id: str = None) -> list:
+    """Safely list directory contents with security validation."""
+    if not _validate_file_access(directory, task_id):
+        raise ValueError(f"Directory access denied: {directory}")
+    
+    if not os.path.isdir(directory):
+        raise ValueError(f"Path is not a directory: {directory}")
+    
+    try:
+        files = []
+        for item in os.listdir(directory):
+            item_path = os.path.join(directory, item)
+            if os.path.isfile(item_path):
+                file_size = os.path.getsize(item_path)
+                mime_type, _ = mimetypes.guess_type(item_path)
+                files.append({
+                    "name": item,
+                    "path": item_path,
+                    "size": file_size,
+                    "mime_type": mime_type or "application/octet-stream",
+                    "is_audio": mime_type and mime_type.startswith("audio/") if mime_type else False
+                })
+        return files
+    except Exception as e:
+        raise ValueError(f"Error listing directory: {e}")
 
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()

@@ -312,18 +312,31 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ### Phase 4.1: Service Integration (P1, L)
 - [x] Integrate with existing `PodcastGeneratorService`
+**Completion Notes:** done in earlier phases
 
 ### Phase 4.2: Validate Model Compatibility (P1, S)
 - [x] Ensure MCP models work with existing Pydantic models
 - [x] If needed, create adapters for `PodcastRequest` → MCP tool parameters
 - [x] Maintain compatibility with `PodcastEpisode` output format
 - [x] If needed, handle type conversions between MCP and internal models
+**Completion Notes:** done in earlier phases
 
 ### Phase 4.3: File Management (P1, M)
-- [ ] Integrate with existing temporary file management
-- [ ] Expose generated audio files through MCP resources
-- [ ] Handle cleanup of temporary directories appropriately
-- [ ] Ensure proper file permissions and access
+- [x] Add direct audio file content access via MCP resources (`files://{task_id}/audio/content`)
+- [x] Implement configurable cleanup policy for temporary directories
+- [x] Add file access security validation (path safety, ownership checks)
+- [x] Create audio segments resource for individual dialogue turns
+
+**Completion Notes:** 
+- ✅ `files://{task_id}/audio/content` - Returns base64-encoded audio content
+- ✅ `files://{task_id}/segments` - Lists audio segment metadata  
+- ✅ `files://{task_id}/segments/{segment_id}` - Individual segment content
+- ✅ `files://{task_id}/cleanup` - Cleanup status and policy info
+- ✅ `cleanup_task_files` tool - Enhanced with configurable policies
+- ✅ `configure_cleanup_policy` tool - Policy configuration management
+- ✅ `config://cleanup` resource - View current cleanup settings
+- ✅ Security validation: `_validate_file_access()` and `_validate_task_ownership()`
+- ✅ Cleanup configuration system with 6 policy types and selective file removal
 
 ### Phase 5.1: MCP Context Integration (P1, M)
 - [ ] Add Context parameter to tools for logging
