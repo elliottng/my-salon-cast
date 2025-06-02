@@ -328,23 +328,37 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Create audio segments resource for individual dialogue turns
 
 **Completion Notes:** 
-- ✅ `files://{task_id}/audio/content` - Returns base64-encoded audio content
-- ✅ `files://{task_id}/segments` - Lists audio segment metadata  
-- ✅ `files://{task_id}/segments/{segment_id}` - Individual segment content
-- ✅ `files://{task_id}/cleanup` - Cleanup status and policy info
-- ✅ `cleanup_task_files` tool - Enhanced with configurable policies
-- ✅ `configure_cleanup_policy` tool - Policy configuration management
-- ✅ `config://cleanup` resource - View current cleanup settings
-- ✅ Security validation: `_validate_file_access()` and `_validate_task_ownership()`
-- ✅ Cleanup configuration system with 6 policy types and selective file removal
+- [x] `files://{task_id}/audio/content` - Returns base64-encoded audio content
+- [x] `files://{task_id}/segments` - Lists audio segment metadata  
+- [x] `files://{task_id}/segments/{segment_id}` - Individual segment content
+- [x] `files://{task_id}/cleanup` - Cleanup status and policy info
+- [x] `cleanup_task_files` tool - Enhanced with configurable policies
+- [x] `configure_cleanup_policy` tool - Policy configuration management
+- [x] `config://cleanup` resource - View current cleanup settings
+- [x] Security validation: `_validate_file_access()` and `_validate_task_ownership()`
+- [x] Cleanup configuration system with 6 policy types and selective file removal
 
 ### Phase 5.1: MCP Context Integration (P1, M)
-- [ ] Add Context parameter to tools for logging
-- [ ] Implement progress reporting for podcast generation stages
+- [x] Add Context parameter to tools for logging
+- [x] **Implement enhanced progress reporting for podcast generation stages**
+  - [x] Added detailed progress logging to source analysis phase
+  - [x] Added detailed progress logging to persona research phase  
+  - [x] Added detailed progress logging to outline generation phase
+  - [x] Added detailed progress logging to dialogue generation phase
+  - [x] Added detailed progress logging to TTS audio generation phase
+  - [x] Added detailed progress logging to audio stitching phase
+  - [x] Added detailed progress logging to final episode creation phase
+  - [x] Enhanced StatusManager with `add_progress_log()` method for sub-task tracking
+  - [x] Enhanced `update_status()` with optional `progress_details` parameter
+  - [x] Comprehensive test coverage for all workflow phases (58 progress logs)
+  - [x] Error handling and failure scenario logging (success [x], failure [ ], warning [ ])
+  - [x] **Phase 5.1 Option 2: Enhanced Progress Reporting - COMPLETE**
 - [ ] Add resource access for reading intermediate files
 - [ ] Include request ID tracking for job correlation
 
 ### Phase 5.2: Error Handling and Validation (P1, M)
+- [x] Import and use FastMCP's ToolError exceptions instead of returning error dictionaries
+- [x] Add basic input validation for critical parameters (task_id, source_urls, file paths)
 - [ ] Implement comprehensive error handling with ToolError/ResourceError
 - [ ] Add input validation for all tool parameters
 - [ ] Create meaningful error messages for clients

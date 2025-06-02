@@ -1,5 +1,6 @@
 import logging
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from app.podcast_workflow import PodcastGeneratorService
 from app.podcast_models import PodcastRequest, PodcastEpisode
 from app.status_manager import get_status_manager
@@ -65,6 +66,23 @@ async def generate_podcast_async(
     logger.info(f"[{request_id}] Client info: {client_info}")
     logger.info(f"[{request_id}] Request params: sources={len(source_urls or [])}, persons={len(prominent_persons or [])}, style={dialogue_style}, length={podcast_length}")
     
+    # Basic input validation
+    if not source_urls and not source_pdf_path:
+        raise ToolError("At least one source (URL or PDF) must be provided")
+    
+    if source_urls:
+        if len(source_urls) > 10:
+            raise ToolError("Maximum 10 source URLs allowed")
+        for url in source_urls:
+            if not url.strip() or not (url.startswith('http://') or url.startswith('https://')):
+                raise ToolError(f"Invalid URL format: {url}")
+    
+    if source_pdf_path and not source_pdf_path.endswith('.pdf'):
+        raise ToolError("PDF file must have .pdf extension")
+    
+    if prominent_persons and len(prominent_persons) > 5:
+        raise ToolError("Maximum 5 prominent persons allowed")
+    
     # Validate and convert to PodcastRequest
     try:
         request = PodcastRequest(
@@ -80,12 +98,7 @@ async def generate_podcast_async(
             ending_message=ending_message if ending_message else None
         )
     except Exception as e:
-        logger.warning(f"Validation failed in generate_podcast_async: {e}")
-        return {
-            "success": False,
-            "error": "Invalid podcast generation parameters",
-            "details": str(e)
-        }
+        raise ToolError("Invalid podcast generation parameters", str(e))
     
     # Submit async task
     try:
@@ -99,12 +112,7 @@ async def generate_podcast_async(
             "message": "Podcast generation started. Use get_task_status to check progress."
         }
     except Exception as e:
-        logger.error(f"[{request_id}] Failed to start async podcast generation: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": "Failed to start podcast generation",
-            "details": str(e)
-        }
+        raise ToolError("Failed to start podcast generation", str(e))
 
 # Async podcast generation with Pydantic model
 @mcp.tool()
@@ -137,12 +145,7 @@ async def generate_podcast_async_pydantic(ctx, request: PodcastRequest) -> dict:
             "message": "Podcast generation started. Use get_task_status to check progress."
         }
     except Exception as e:
-        logger.error(f"[{request_id}] Failed to start async podcast generation: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": "Failed to start podcast generation",
-            "details": str(e)
-        }
+        raise ToolError("Failed to start podcast generation", str(e))
 
 # Get status of async task
 @mcp.tool()
@@ -160,31 +163,30 @@ async def get_task_status(ctx, task_id: str) -> dict:
     """
     # Enhanced logging with MCP context
     request_id = getattr(ctx, 'request_id', 'unknown')
-    logger.info(f"[{request_id}] MCP Tool 'get_task_status' called for task_id: {task_id}")
+    client_info = getattr(ctx, 'client_info', {})
+    logger.info(f"[{request_id}] MCP Tool 'get_task_status' called for task: {task_id}")
+    
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
     
     try:
         status_info = status_manager.get_status(task_id)
         
         if status_info:
-            logger.info(f"[{request_id}] Task status retrieved: {status_info.status}, progress: {status_info.progress_percentage:.1f}%")
+            logger.info(f"[{request_id}] Retrieved status for task {task_id}: {status_info.status}")
             return {
                 "success": True,
                 "task_id": task_id,
                 "status": status_info.model_dump()
             }
         else:
-            logger.warning(f"[{request_id}] Task not found: {task_id}")
-            return {
-                "success": False,
-                "error": f"Task {task_id} not found"
-            }
+            raise ToolError(f"Task {task_id} not found")
     except Exception as e:
-        logger.error(f"[{request_id}] Error getting task status for {task_id}: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": "Failed to retrieve task status",
-            "details": str(e)
-        }
+        raise ToolError("Failed to retrieve task status", str(e))
 
 # Phase 4.3b: File Cleanup Management Tool
 
@@ -215,6 +217,13 @@ async def cleanup_task_files(
     logger.info(f"[{request_id}] MCP Tool 'cleanup_task_files' called for task_id: {task_id}")
     logger.info(f"[{request_id}] Cleanup params: force={force_cleanup}, policy_override={policy_override}")
     
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
+    
     try:
         # Validate task and ownership
         status_info = _validate_task_ownership(task_id)
@@ -223,11 +232,7 @@ async def cleanup_task_files(
         if status_info.status in ["queued", "preprocessing_sources", "analyzing_sources", "researching_personas", 
                                  "generating_outline", "generating_dialogue", "generating_audio_segments", 
                                  "postprocessing_final_episode"] and not force_cleanup:
-            return {
-                "success": False,
-                "error": "Task is still running",
-                "details": f"Task {task_id} has status '{status_info.status}'. Use force_cleanup=True to cleanup anyway."
-            }
+            raise ToolError("Task is still running", "Task " + task_id + " has status '" + status_info.status + "'. Use force_cleanup=True to cleanup anyway.")
         
         # Get cleanup rules based on policy
         if policy_override:
@@ -239,11 +244,7 @@ async def cleanup_task_files(
                 cleanup_rules = cleanup_manager.get_cleanup_rules(task_id)
                 cleanup_manager.config.default_policy = original_policy
             except ValueError:
-                return {
-                    "success": False,
-                    "error": f"Invalid policy override: {policy_override}",
-                    "details": f"Valid policies: {[p.value for p in CleanupPolicy]}"
-                }
+                raise ToolError("Invalid policy override: " + policy_override, "Valid policies: " + str([p.value for p in CleanupPolicy]))
         else:
             cleanup_rules = cleanup_manager.get_cleanup_rules(task_id)
         
@@ -432,18 +433,10 @@ async def cleanup_task_files(
         
     except ValueError as e:
         # Handle validation errors (e.g., task not found)
-        return {
-            "success": False,
-            "error": str(e),
-            "details": "Task validation failed"
-        }
+        raise ToolError(str(e), "Task validation failed")
     except Exception as e:
         logger.error(f"Failed to cleanup task files: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": "Cleanup operation failed",
-            "details": str(e)
-        }
+        raise ToolError("Cleanup operation failed", str(e))
 
 @mcp.resource("files://{task_id}/cleanup")
 async def get_cleanup_status_resource(task_id: str) -> dict:
@@ -452,6 +445,13 @@ async def get_cleanup_status_resource(task_id: str) -> dict:
     Provides information about temporary files and cleanup policies.
     """
     logger.info(f"Resource 'cleanup status' accessed for task_id: {task_id}")
+    
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
     
     # Validate task and ownership
     status_info = _validate_task_ownership(task_id)
@@ -627,26 +627,16 @@ async def configure_cleanup_policy(
                 CleanupPolicy(default_policy)
                 updates["default_policy"] = default_policy
             except ValueError:
-                return {
-                    "success": False,
-                    "error": f"Invalid cleanup policy: {default_policy}",
-                    "valid_policies": [p.value for p in CleanupPolicy]
-                }
+                raise ToolError("Invalid cleanup policy: " + default_policy, "Valid policies: " + str([p.value for p in CleanupPolicy]))
         
         if auto_cleanup_hours is not None:
             if auto_cleanup_hours < 1 or auto_cleanup_hours > 8760:  # 1 year max
-                return {
-                    "success": False,
-                    "error": "auto_cleanup_hours must be between 1 and 8760"
-                }
+                raise ToolError("auto_cleanup_hours must be between 1 and 8760")
             updates["auto_cleanup_hours"] = auto_cleanup_hours
             
         if auto_cleanup_days is not None:
             if auto_cleanup_days < 1 or auto_cleanup_days > 365:
-                return {
-                    "success": False,
-                    "error": "auto_cleanup_days must be between 1 and 365"
-                }
+                raise ToolError("auto_cleanup_days must be between 1 and 365")
             updates["auto_cleanup_days"] = auto_cleanup_days
             
         if retain_audio_files is not None:
@@ -663,21 +653,14 @@ async def configure_cleanup_policy(
             
         if max_temp_size_mb is not None:
             if max_temp_size_mb < 1 or max_temp_size_mb > 10000:  # 10GB max
-                return {
-                    "success": False,
-                    "error": "max_temp_size_mb must be between 1 and 10000"
-                }
+                raise ToolError("max_temp_size_mb must be between 1 and 10000")
             updates["max_temp_size_mb"] = max_temp_size_mb
             
         if enable_background_cleanup is not None:
             updates["enable_background_cleanup"] = enable_background_cleanup
         
         if not updates:
-            return {
-                "success": False,
-                "error": "No configuration updates provided",
-                "current_config": cleanup_manager.config.model_dump()
-            }
+            raise ToolError("No configuration updates provided", "Current config: " + cleanup_manager.config.model_dump())
         
         # Apply updates
         updated_config = cleanup_manager.update_config(**updates)
@@ -694,11 +677,7 @@ async def configure_cleanup_policy(
         
     except Exception as e:
         logger.error(f"Error updating cleanup configuration: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "details": "Failed to update cleanup configuration"
-        }
+        raise ToolError(str(e), "Failed to update cleanup configuration")
 
 # Phase 4.3d: Cleanup Configuration Resource
 
@@ -757,7 +736,7 @@ def _validate_task_ownership(task_id: str) -> dict:
     """Validate task exists and return status info."""
     status_info = status_manager.get_status(task_id)
     if not status_info:
-        raise ValueError(f"Task not found: {task_id}")
+        raise ValueError("Task not found: " + task_id)
     return status_info
 
 def _validate_file_access(filepath: str, task_id: str = None) -> bool:
@@ -781,7 +760,7 @@ def _validate_file_access(filepath: str, task_id: str = None) -> bool:
     is_in_outputs = abs_path.startswith(outputs_dir)
     
     if not (is_in_temp or is_in_outputs):
-        logger.warning(f"File access denied - path outside allowed directories: {abs_path}")
+        logger.warning("File access denied - path outside allowed directories: " + abs_path)
         return False
     
     return True
@@ -789,28 +768,28 @@ def _validate_file_access(filepath: str, task_id: str = None) -> bool:
 def _get_file_content_safe(filepath: str, max_size_mb: int = 50) -> bytes:
     """Safely read file content with size limits."""
     if not _validate_file_access(filepath):
-        raise ValueError(f"File access denied: {filepath}")
+        raise ValueError("File access denied: " + filepath)
     
     # Check file size
     file_size = os.path.getsize(filepath)
     max_size_bytes = max_size_mb * 1024 * 1024
     
     if file_size > max_size_bytes:
-        raise ValueError(f"File too large: {file_size} bytes > {max_size_bytes} bytes limit")
+        raise ValueError("File too large: " + str(file_size) + " bytes > " + str(max_size_bytes) + " bytes limit")
     
     try:
         with open(filepath, 'rb') as f:
             return f.read()
     except Exception as e:
-        raise ValueError(f"Error reading file: {e}")
+        raise ValueError("Error reading file: " + str(e))
 
 def _list_directory_safe(directory: str, task_id: str = None) -> list:
     """Safely list directory contents with security validation."""
     if not _validate_file_access(directory, task_id):
-        raise ValueError(f"Directory access denied: {directory}")
+        raise ValueError("Directory access denied: " + directory)
     
     if not os.path.isdir(directory):
-        raise ValueError(f"Path is not a directory: {directory}")
+        raise ValueError("Path is not a directory: " + directory)
     
     try:
         files = []
@@ -828,7 +807,7 @@ def _list_directory_safe(directory: str, task_id: str = None) -> list:
                 })
         return files
     except Exception as e:
-        raise ValueError(f"Error listing directory: {e}")
+        raise ValueError("Error listing directory: " + str(e))
 
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()
@@ -846,10 +825,10 @@ async def generate_podcast(request_data: PodcastRequest) -> dict:
     Returns:
         Dict with success status and episode data or error details.
     """
-    logger.info(f"MCP Tool 'generate_podcast' called")
+    logger.info("MCP Tool 'generate_podcast' called")
     try:
         episode = await podcast_service.generate_podcast_from_source(request_data=request_data)
-        logger.info(f"MCP Tool 'generate_podcast' completed successfully. Episode title: {episode.title}")
+        logger.info("MCP Tool 'generate_podcast' completed successfully. Episode title: " + episode.title)
         
         return {
             "success": True,
@@ -863,12 +842,8 @@ async def generate_podcast(request_data: PodcastRequest) -> dict:
             }
         }
     except Exception as e:
-        logger.error(f"MCP Tool 'generate_podcast' failed: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": "Podcast generation failed",
-            "details": str(e)
-        }
+        logger.error("MCP Tool 'generate_podcast' failed: " + str(e), exc_info=True)
+        raise ToolError("Podcast generation failed", str(e))
 
 # =============================================================================
 # Phase 3.1: Core Prompt Templates
