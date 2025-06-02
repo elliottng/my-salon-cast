@@ -340,6 +340,221 @@ async def get_supported_formats() -> dict:
         "podcast_lengths": ["3-5 minutes", "5-7 minutes", "7-10 minutes", "10-15 minutes"]
     }
 
+@mcp.resource("config://app")
+async def get_app_config() -> dict:
+    """
+    Get MySalonCast application configuration and settings.
+    
+    Returns app-level configuration including limits, features, and system info.
+    """
+    logger.info("Resource 'config://app' accessed")
+    
+    return {
+        "app_name": "MySalonCast",
+        "version": "1.0.0",
+        "description": "AI-powered podcast generation service",
+        "server_info": {
+            "mcp_port": 8000,
+            "transport": "streamable-http",
+            "framework": "FastMCP 2.0"
+        },
+        "limits": {
+            "max_source_urls": 3,
+            "max_concurrent_tasks": 3,
+            "max_podcast_length_minutes": 15,
+            "supported_file_size_mb": 50
+        },
+        "features": {
+            "async_generation": True,
+            "sync_generation": True,
+            "multiple_languages": True,
+            "custom_prompts": True,
+            "tts_voices": True,
+            "pdf_extraction": True,
+            "url_extraction": True
+        },
+        "ai_services": {
+            "llm_provider": "Google Gemini",
+            "tts_provider": "Google Cloud TTS",
+            "voice_count": 30
+        }
+    }
+
+@mcp.resource("docs://api")
+async def get_api_docs() -> dict:
+    """
+    Get comprehensive API documentation for MySalonCast MCP tools and resources.
+    
+    Returns detailed documentation for all available MCP endpoints.
+    """
+    logger.info("Resource 'docs://api' accessed")
+    
+    return {
+        "tools": {
+            "hello": {
+                "description": "Simple greeting tool for testing connectivity",
+                "parameters": [],
+                "returns": "String greeting message",
+                "example": "Hello, MCP Tester!"
+            },
+            "generate_podcast_async": {
+                "description": "Start async podcast generation with individual parameters",
+                "parameters": {
+                    "source_urls": "List[str] - URLs to extract content from (max 3)",
+                    "source_pdf_path": "str - Path to PDF file",
+                    "prominent_persons": "List[str] - People to research",
+                    "custom_prompt": "str - Additional instructions",
+                    "podcast_name": "str - Name of the podcast show",
+                    "podcast_tagline": "str - Tagline for the podcast",
+                    "output_language": "str - Language code (e.g., 'en', 'es')",
+                    "dialogue_style": "str - Style ('engaging', 'formal', 'casual')",
+                    "podcast_length": "str - Duration like '5-7 minutes'",
+                    "ending_message": "str - Custom ending message"
+                },
+                "returns": "Dict with task_id and initial status",
+                "workflow": "Returns immediately with task_id, use get_task_status to monitor"
+            },
+            "generate_podcast_async_pydantic": {
+                "description": "Start async podcast generation with structured PodcastRequest",
+                "parameters": {
+                    "request": "PodcastRequest - Complete request model"
+                },
+                "returns": "Dict with task_id and initial status",
+                "workflow": "Same as generate_podcast_async but with structured input"
+            },
+            "get_task_status": {
+                "description": "Get status and progress of async podcast generation",
+                "parameters": {
+                    "task_id": "str - Task ID from generate_podcast_async"
+                },
+                "returns": "Dict with status, progress_percentage, stage, message",
+                "status_values": ["queued", "preprocessing_sources", "generating_outline", "generating_transcript", "generating_audio", "completed", "failed"]
+            }
+        },
+        "resources": {
+            "config://supported_formats": "Supported input/output formats and configuration",
+            "config://app": "Application configuration and limits",
+            "docs://api": "This API documentation",
+            "examples://requests": "Example podcast generation requests",
+            "podcast://{task_id}/transcript": "Episode transcript for completed podcast",
+            "podcast://{task_id}/audio": "Audio file info for completed podcast",
+            "podcast://{task_id}/metadata": "Episode metadata for completed podcast"
+        },
+        "authentication": "None required for MCP protocol",
+        "rate_limits": "3 concurrent tasks maximum",
+        "error_handling": "All tools return success:false with error details on failure"
+    }
+
+@mcp.resource("examples://requests")
+async def get_example_requests() -> dict:
+    """
+    Get example podcast generation requests to guide users.
+    
+    Returns sample requests for different use cases and scenarios.
+    """
+    logger.info("Resource 'examples://requests' accessed")
+    
+    return {
+        "basic_url_example": {
+            "description": "Simple podcast from web articles",
+            "tool": "generate_podcast_async",
+            "request": {
+                "source_urls": [
+                    "https://example.com/tech-news-article",
+                    "https://example.com/industry-trends"
+                ],
+                "podcast_name": "Tech Weekly",
+                "podcast_tagline": "Your weekly dose of technology news",
+                "output_language": "en",
+                "dialogue_style": "engaging",
+                "podcast_length": "5-7 minutes"
+            }
+        },
+        "research_podcast_example": {
+            "description": "Research-focused podcast with prominent persons",
+            "tool": "generate_podcast_async",
+            "request": {
+                "source_urls": ["https://example.com/ai-research-paper"],
+                "prominent_persons": ["Geoffrey Hinton", "Yann LeCun"],
+                "custom_prompt": "Focus on the implications for neural network architecture",
+                "podcast_name": "AI Research Roundup",
+                "dialogue_style": "formal",
+                "podcast_length": "10-15 minutes",
+                "ending_message": "Thanks for listening to AI Research Roundup"
+            }
+        },
+        "pdf_example": {
+            "description": "Podcast from PDF document",
+            "tool": "generate_podcast_async",
+            "request": {
+                "source_pdf_path": "/path/to/research-paper.pdf",
+                "podcast_name": "Paper Review",
+                "dialogue_style": "casual",
+                "podcast_length": "7-10 minutes",
+                "custom_prompt": "Explain this in simple terms for a general audience"
+            }
+        },
+        "multilingual_example": {
+            "description": "Spanish language podcast",
+            "tool": "generate_podcast_async",
+            "request": {
+                "source_urls": ["https://example.com/spanish-news"],
+                "output_language": "es",
+                "podcast_name": "Noticias Tech",
+                "dialogue_style": "engaging",
+                "podcast_length": "5-7 minutes"
+            }
+        },
+        "pydantic_model_example": {
+            "description": "Using structured PodcastRequest model",
+            "tool": "generate_podcast_async_pydantic",
+            "request": {
+                "request": {
+                    "source_urls": ["https://example.com/startup-news"],
+                    "podcast_name": "Startup Stories",
+                    "podcast_tagline": "Inspiring entrepreneur journeys",
+                    "output_language": "en",
+                    "dialogue_style": "engaging",
+                    "podcast_length": "5-7 minutes",
+                    "custom_prompt": "Focus on lessons learned and actionable insights"
+                }
+            }
+        },
+        "workflow_example": {
+            "description": "Complete async workflow example",
+            "steps": [
+                {
+                    "step": 1,
+                    "action": "Submit generation request",
+                    "tool": "generate_podcast_async",
+                    "expected_response": {"success": True, "task_id": "uuid-here", "status": "queued"}
+                },
+                {
+                    "step": 2,
+                    "action": "Check initial status",
+                    "tool": "get_task_status",
+                    "parameters": {"task_id": "uuid-from-step-1"},
+                    "expected_response": {"success": True, "status": "preprocessing_sources", "progress_percentage": 5.0}
+                },
+                {
+                    "step": 3,
+                    "action": "Monitor progress",
+                    "tool": "get_task_status",
+                    "note": "Repeat every 10-30 seconds until status is 'completed' or 'failed'"
+                },
+                {
+                    "step": 4,
+                    "action": "Access completed podcast",
+                    "resources": [
+                        "podcast://{task_id}/transcript",
+                        "podcast://{task_id}/audio",
+                        "podcast://{task_id}/metadata"
+                    ]
+                }
+            ]
+        }
+    }
+
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()
 async def generate_podcast(request_data: PodcastRequest) -> dict:

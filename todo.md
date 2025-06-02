@@ -18,63 +18,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Unit tests for validation functions
 - [x] Error handling and user feedback
 
-### Task 1.3: Fix FastMCP Implementation - Core Setup (P1, S)
-- [x] Fix FastMCP initialization to use single string parameter: `mcp = FastMCP("MySalonCast Podcast Generator")`
-- [x] Remove incorrect `@mcp_server.on_event()` decorators (startup/shutdown)
-- [x] Rename `mcp_server` to `mcp` throughout the file
-- [x] Update `if __name__ == "__main__"` to use `mcp.app` instead of `mcp_server.app`
-- [x] Add proper error handling patterns that return dicts instead of raising exceptions
 
-### Task 1.4: Async Tool Implementation (P1, L) - COMPLETED
-- [x] Create `@mcp.tool()` for `generate_podcast_async`
-  - [x] Individual parameters: source_urls, source_pdf_path, prominent_persons, etc.
-  - [x] Convert parameters to PodcastRequest internally
-  - [x] Call `podcast_service.generate_podcast_async()`
-  - [x] Return dict with task_id and initial status
-  - [x] Handle validation errors gracefully
-- [x] Create `@mcp.tool()` for `generate_podcast_async_pydantic`
-  - [x] Accept PodcastRequest model directly
-  - [x] Pass through to service
-  - [x] Return same format as individual params version
-- [x] Create `@mcp.tool()` for `get_task_status`
-  - [x] Accept task_id parameter
-  - [x] Query StatusManager for current status
-  - [x] Return status, progress, and result when complete
-  - [x] Handle invalid task_id gracefully
-
-### Task 1.5: Resource Implementation (P1, M) - COMPLETED
-- [x] Create `@mcp.resource("podcast://{task_id}/transcript")` for transcript access
-- [x] Create `@mcp.resource("podcast://{task_id}/audio")` for audio file access
-- [x] Create `@mcp.resource("podcast://{task_id}/metadata")` for episode metadata
-- [x] Create `@mcp.resource("config://supported_formats")` for supported formats
-- [x] Implement proper file path resolution from PodcastEpisode data
-- [x] Handle file not found and invalid task_id cases
-
-### Task 1.6: End-to-End Testing of Async Tools (P1, M)
-- [ ] Test `generate_podcast_async` with various input combinations
-- [ ] Test `generate_podcast_async_pydantic` with PodcastRequest models
-- [ ] Test `get_task_status` throughout generation lifecycle
-- [ ] Test resource access for completed podcasts
-- [ ] Test error handling for invalid inputs and failed generations
-- [ ] Create MCP client test scripts
-- [ ] Document any issues or improvements needed
-
-### Task 1.7: Sync Tool Implementation (P1, M)
-- [ ] Create `@mcp.tool()` for `generate_podcast_sync`
-  - [ ] Individual parameters matching async version
-  - [ ] Call `await podcast_service.generate_podcast_from_source()`
-  - [ ] Return complete episode data in dict format
-- [ ] Create `@mcp.tool()` for `generate_podcast_sync_pydantic`
-  - [ ] Accept PodcastRequest model directly
-  - [ ] Same blocking behavior as individual params version
-- [ ] Test sync tools with same scenarios as async
-
-### Task 1.8: Optional Enhancements (P2, S)
-- [ ] Add `@mcp.prompt()` templates for common podcast generation requests
-- [ ] Add progress callbacks to Context for real-time updates
-- [ ] Create resource for listing all available tasks
-- [ ] Add tool for cancelling in-progress tasks
-- [ ] Consider adding webhook configuration via MCP
 
 ### Task 1.5: Content Extraction Service (V1 Scope) (P1, L)
 - [x] Implement PDF text extraction
@@ -283,33 +227,69 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Set up proper logging and error handling
 - [x] Create basic server lifecycle management
 
-### Phase 1.3: Fix FastMCP Implementation - Core Setup (P1, S) - COMPLETED
-- [x] Fix FastMCP initialization to use single string parameter
-- [x] Remove incorrect event handlers
-- [x] Update decorator usage
-- [x] Implement proper error handling
+### Phase 1.3: Fix FastMCP Implementation - Core Setup (P1, S)
+- [x] Fix FastMCP initialization to use single string parameter: `mcp = FastMCP("MySalonCast Podcast Generator")`
+- [x] Remove incorrect `@mcp_server.on_event()` decorators (startup/shutdown)
+- [x] Rename `mcp_server` to `mcp` throughout the file
+- [x] Update `if __name__ == "__main__"` to use `mcp.app` instead of `mcp_server.app`
+- [x] Add proper error handling patterns that return dicts instead of raising exceptions
 
 ### Phase 1.4: Async Tool Implementation (P1, L) - COMPLETED
-- [x] Implement async podcast generation tools
-- [x] Add task status checking
-- [x] Handle validation and errors
+- [x] Create `@mcp.tool()` for `generate_podcast_async`
+  - [x] Individual parameters: source_urls, source_pdf_path, prominent_persons, etc.
+  - [x] Convert parameters to PodcastRequest internally
+  - [x] Call `podcast_service.generate_podcast_async()`
+  - [x] Return dict with task_id and initial status
+  - [x] Handle validation errors gracefully
+- [x] Create `@mcp.tool()` for `generate_podcast_async_pydantic`
+  - [x] Accept PodcastRequest model directly
+  - [x] Pass through to service
+  - [x] Return same format as individual params version
+- [x] Create `@mcp.tool()` for `get_task_status`
+  - [x] Accept task_id parameter
+  - [x] Query StatusManager for current status
+  - [x] Return status, progress, and result when complete
+  - [x] Handle invalid task_id gracefully
 
 ### Phase 1.5: Resource Implementation (P1, M) - COMPLETED
-- [x] Add resources for content access  
-- [x] Implement file path resolution
-- [x] Handle errors appropriately
+- [x] Create `@mcp.resource("podcast://{task_id}/transcript")` for transcript access
+- [x] Create `@mcp.resource("podcast://{task_id}/audio")` for audio file access
+- [x] Create `@mcp.resource("podcast://{task_id}/metadata")` for episode metadata
+- [x] Create `@mcp.resource("config://supported_formats")` for supported formats
+- [x] Implement proper file path resolution from PodcastEpisode data
+- [x] Handle file not found and invalid task_id cases
 
-### Phase 1.6: End-to-End Testing (P1, M) - PLANNED
-- [ ] Test async tools with various inputs
-- [ ] Test resource access patterns
-- [ ] Test prompt generation functionality
-- [ ] Create integration tests with existing workflow
+### Phase 1.6: End-to-End Testing of Async Tools (P1, M)
+- [x] Test `generate_podcast_async` with various input combinations
+- [ ] Test `generate_podcast_async_pydantic` with PodcastRequest models
+- [x] Test `get_task_status` throughout generation lifecycle
+- [x] Test resource access for completed podcasts
+- [x] Test error handling for invalid inputs and failed generations
+- [x] Create MCP client test scripts
+- [x] Document any issues or improvements needed
+
+### Phase 1.7: Sync Tool Implementation (P1, M)
+- [ ] Create `@mcp.tool()` for `generate_podcast_sync`
+  - [ ] Individual parameters matching async version
+  - [ ] Call `await podcast_service.generate_podcast_from_source()`
+  - [ ] Return complete episode data in dict format
+- [ ] Create `@mcp.tool()` for `generate_podcast_sync_pydantic`
+  - [ ] Accept PodcastRequest model directly
+  - [ ] Same blocking behavior as individual params version
+- [ ] Test sync tools with same scenarios as async
+
+### Phase 1.8: Optional Enhancements (P2, S)
+- [ ] Add `@mcp.prompt()` templates for common podcast generation requests
+- [ ] Add progress callbacks to Context for real-time updates
+- [ ] Create resource for listing all available tasks
+- [ ] Add tool for cancelling in-progress tasks
+- [ ] Consider adding webhook configuration via MCP
 
 ### Phase 2.1: Static Resources (P1, M)
-- [ ] Expose configuration as `@mcp.resource("config://app")`
-- [ ] Expose API documentation as `@mcp.resource("docs://api")`
-- [ ] Expose example requests as `@mcp.resource("examples://requests")`
-- [ ] Create resource for supported file formats
+- [x] Expose configuration as `@mcp.resource("config://app")`
+- [x] Expose API documentation as `@mcp.resource("docs://api")`
+- [x] Expose example requests as `@mcp.resource("examples://requests")`
+- [x] Create resource for supported file formats
 
 ### Phase 2.2: Dynamic Resources - Podcast Data (P1, L)
 - [ ] Create `@mcp.resource("podcast://{podcast_id}/transcript")` for transcripts
