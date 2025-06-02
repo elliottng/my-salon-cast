@@ -297,10 +297,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Create `@mcp.resource("podcast://{podcast_id}/outline")` for outlines
 
 ### Phase 2.3: Dynamic Resources - Job Status (P2, M)
-- [ ] Create `@mcp.resource("jobs://{job_id}/status")` for generation progress status
+- [x] Create `@mcp.resource("jobs://{job_id}/status")` for generation progress status
 - [ ] Create `@mcp.resource("jobs://{job_id}/logs")` for processing logs
 - [ ] Create `@mcp.resource("jobs://{job_id}/warnings")` for warnings/errors
-- [ ] Implement proper error handling for missing resources
+- [x] Implement proper error handling for missing resources
 
 ### Phase 2.4: Dynamic Resources - LLM Outputs (P3, M)
 - [ ] Create `@mcp.resource("research://{job_id}/{person_id}")` for persona research
@@ -359,20 +359,9 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Create usage examples for MCP clients
 - [ ] Document available tools, resources, and prompts
 
-### Phase 6.4: Deployment Integration (P1, M)
-- [ ] Update existing deployment scripts to support MCP mode
-- [ ] Create option to run as MCP server vs. HTTP API
-- [ ] Ensure proper environment variable handling
-- [ ] Test with actual MCP clients (Claude Desktop, etc.)
+### Phase 6.4: Implement Staging and Deployment Plan (P1, L)
 
-#### Implementation Notes
 
-1. **Maintain Backward Compatibility**: Ensure existing HTTP API continues to work alongside MCP interface
-2. **Leverage Existing Code**: Reuse as much of the current podcast generation logic as possible
-3. **Progressive Implementation**: Start with core tools and add resources/prompts incrementally. Test along the way.
-4. **Error Handling**: Implement comprehensive error handling for robust client experience
-5. **Documentation**: Provide clear examples and documentation for MCP client integration
-## Task 1.8.4: FastMCP Auto-Generation (P2, M)
 
 
 
@@ -410,21 +399,11 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ### Documentation
 - [ ] MCP server setup guide
-- [ ] Claude Desktop integration guide
-- [ ] Troubleshooting and debugging guide
-
-## Task 1.8.7: Documentation & Deployment (P2, S)
-
-- [ ] Update API documentation with new endpoints
 - [ ] Create MCP server deployment guide
 - [ ] Document data model migration process
 - [ ] Update todo.md with future v.2 features (Wikipedia integration, standalone persona research)
 
----
 
-**Total Estimated Effort:** ~6-8 weeks for complete implementation
-
-**Critical Path:** Data model migration (Task 1.8.2) must complete before MCP implementation
 
 ### Task 1.9: Temporary File Management (P2, M)
 - Implement temporary file storage
@@ -435,32 +414,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - Return appropriate HTTP status codes
 - Set up logging
 
-## Phase 2: Frontend Development
 
-### Task 2.1: Basic HTML Structure & Styling (P1, M)
-- Create responsive layout
-- Style with Tailwind CSS
-- Add input fields
-
-### Task 2.2: JavaScript for Input Handling (P1, L)
-- Implement client-side validation
-- Handle PDF uploads
-- Make API calls
-
-### Task 2.3: UI for LLM Prompt Customization (P2, M)
-- Create collapsible text areas
-- Load default prompts
-- Add reset functionality
-- Implement validation
-
-### Task 2.4: Displaying Results (P1, M)
-- Integrate audio player
-- Display transcript with disclaimer
-- Add download buttons
-
-### Task 2.5: User Feedback & Progress Indication (P1, M)
-- Implement status updates
-- Display error messages
 
 ## Phase 3: LLM Prompt Iteration
 

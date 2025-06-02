@@ -58,6 +58,15 @@ class SimpleMCPTestClient:
         self.server_url = server_url
         self.mcp_client = MySalonCastMCPClient(server_url)
     
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.mcp_client.close()
+        return False
+    
     async def call_generate_podcast_async(self, **kwargs) -> Dict[str, Any]:
         """Generate podcast asynchronously via MCP protocol"""
         result = await self.mcp_client.call_tool("generate_podcast_async", kwargs)

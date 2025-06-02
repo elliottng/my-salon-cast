@@ -487,7 +487,8 @@ async def get_api_docs() -> dict:
             "podcast://{task_id}/transcript": "Episode transcript for completed podcast",
             "podcast://{task_id}/audio": "Audio file info for completed podcast",
             "podcast://{task_id}/metadata": "Episode metadata for completed podcast",
-            "podcast://{task_id}/outline": "Episode outline for completed podcast"
+            "podcast://{task_id}/outline": "Episode outline for completed podcast",
+            "jobs://{task_id}/status": "Comprehensive job status and progress information"
         },
         "authentication": "None required for MCP protocol",
         "rate_limits": "3 concurrent tasks maximum",
@@ -604,6 +605,72 @@ async def get_example_requests() -> dict:
             ]
         }
     }
+
+@mcp.resource("jobs://{task_id}/status")
+async def get_job_status_resource(task_id: str) -> dict:
+    """
+    Get comprehensive job status and progress information.
+    
+    Returns real-time status, progress, stage details, and timing for any task.
+    Works for active, completed, and failed tasks.
+    """
+    logger.info(f"Resource 'jobs://{task_id}/status' accessed for task_id: {task_id}")
+    
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    # Build comprehensive status response
+    response = {
+        "task_id": task_id,
+        "status": status_info.status,
+        "progress_percentage": status_info.progress_percentage,
+        "stage": status_info.status_description or "No description available",
+        "timestamps": {
+            "created_at": status_info.created_at.isoformat() if status_info.created_at else "",
+            "last_updated_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
+        }
+    }
+    
+    # Add request summary for context
+    if status_info.request_data:
+        response["request_summary"] = {
+            "prominent_persons": status_info.request_data.prominent_persons,
+            "source_urls": status_info.request_data.source_urls,
+            "desired_podcast_length": status_info.request_data.desired_podcast_length_str or "5 minutes",
+            "source_pdf_path": status_info.request_data.source_pdf_path,
+            "host_invented_name": status_info.request_data.host_invented_name,
+            "webhook_url": status_info.request_data.webhook_url
+        }
+    
+    # Add error details if task failed
+    if status_info.status == "failed":
+        response["error"] = {
+            "message": status_info.error_message or "Unknown error",
+            "details": status_info.error_details
+        }
+    
+    # Add completion details if task succeeded
+    if status_info.status == "completed" and status_info.result_episode:
+        episode = status_info.result_episode
+        response["completion"] = {
+            "title": episode.title,
+            "duration_seconds": episode.duration_seconds,
+            "warnings_count": len(episode.warnings) if episode.warnings else 0,
+            "artifacts_available": {
+                "transcript": bool(episode.transcript),
+                "audio": bool(episode.audio_filepath),
+                "outline": bool(episode.llm_podcast_outline_path),
+                "metadata": True
+            }
+        }
+    
+    # Add artifacts availability for any status
+    if status_info.artifacts:
+        response["artifacts"] = status_info.artifacts
+    
+    return response
 
 # Temporary sync tool for testing (will be moved to generate_podcast_sync later)
 @mcp.tool()
