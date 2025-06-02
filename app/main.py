@@ -365,43 +365,81 @@ async def cancel_task(task_id: str):
         404: If task_id is not found
         400: If task is not in a cancellable state
     """
-    status_manager = get_status_manager()
-    status = status_manager.get_status(task_id)
-    
-    if not status:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
-    # Check if task is in a cancellable state
-    if status.status in ["completed", "failed", "cancelled"]:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Task {task_id} is already {status.status} and cannot be cancelled"
-        )
-    
-    # Get task runner and attempt cancellation
-    task_runner = get_task_runner()
-    cancelled = await task_runner.cancel_task(task_id)
-    
-    if cancelled:
-        # Update status to reflect cancellation is pending
-        status_manager.update_status(
-            task_id,
-            "cancelled",
-            "Cancellation requested - task is being terminated",
-            progress_percentage=status.progress_percentage
-        )
-        return {
-            "task_id": task_id,
-            "cancelled": True,
-            "message": "Task cancellation initiated successfully"
-        }
-    else:
-        # Task not found in runner (might have already completed)
-        return {
-            "task_id": task_id,
-            "cancelled": False,
-            "message": "Task not found in active tasks (may have already completed)"
-        }
+    try:
+        logger.info(f"Handling POST /status/{task_id}/cancel request")
+        
+        # Get status from status manager
+        try:
+            status_manager = get_status_manager()
+            status = status_manager.get_status(task_id)
+            
+            if not status:
+                logger.warning(f"Task {task_id} not found in status manager")
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+                
+            logger.info(f"Found task {task_id} with status '{status.status}'")
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise
+            logger.error(f"Error retrieving task status: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error retrieving task status: {str(e)}")
+        
+        # Check if task is in a cancellable state
+        if status.status in ["completed", "failed", "cancelled"]:
+            logger.warning(f"Task {task_id} is already {status.status} and cannot be cancelled")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Task {task_id} is already {status.status} and cannot be cancelled"
+            )
+        
+        # Get task runner and attempt cancellation
+        try:
+            task_runner = get_task_runner()
+            cancelled = await task_runner.cancel_task(task_id)
+            logger.info(f"Cancellation attempt result for task {task_id}: {cancelled}")
+        except Exception as e:
+            logger.error(f"Error during task cancellation: {str(e)}")
+            # Mark as not cancelled due to error, but don't fail the request
+            return {
+                "task_id": task_id,
+                "cancelled": False,
+                "message": f"Error attempting to cancel task: {str(e)}"
+            }
+        
+        if cancelled:
+            try:
+                # Update status to reflect cancellation is pending
+                status_manager.update_status(
+                    task_id,
+                    "cancelled",
+                    "Cancellation requested - task is being terminated",
+                    progress_percentage=status.progress_percentage
+                )
+                logger.info(f"Task {task_id} marked as cancelled in status manager")
+            except Exception as e:
+                logger.error(f"Error updating status after cancellation: {str(e)}")
+                # Continue despite status update failure
+            
+            return {
+                "task_id": task_id,
+                "cancelled": True,
+                "message": "Task cancellation initiated successfully"
+            }
+        else:
+            # Task not found in runner (might have already completed)
+            logger.info(f"Task {task_id} not found in active tasks list")
+            return {
+                "task_id": task_id,
+                "cancelled": False,
+                "message": "Task not found in active tasks (may have already completed)"
+            }
+    except HTTPException:
+        # Re-raise HTTPExceptions for proper status code handling
+        raise
+    except Exception as e:
+        logger.error(f"Unhandled error in cancel_task endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 
 
 @app.get("/queue/status")
@@ -412,33 +450,78 @@ async def get_queue_status():
     Returns:
         Dict containing queue metrics and active task information
     """
-    task_runner = get_task_runner()
-    queue_status = task_runner.get_queue_status()
-    active_tasks = task_runner.get_active_tasks()
-    
-    # Get status information for active tasks
-    status_manager = get_status_manager()
-    active_task_details = []
-    
-    for task in active_tasks:
-        task_id = task["task_id"]
-        status = status_manager.get_status(task_id)
-        if status:
-            active_task_details.append({
-                "task_id": task_id,
-                "status": status.status,
-                "progress": status.progress_percentage,
-                "description": status.status_description,
-                "started_at": status.created_at.isoformat() if status.created_at else None,
-                "running": task["running"],
-                "cancelled": task["cancelled"]
-            })
-    
-    return {
-        "queue": queue_status,
-        "active_tasks": active_task_details,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    try:
+        logger.info("Handling GET /queue/status request")
+        task_runner = get_task_runner()
+        
+        # Get queue status
+        try:
+            queue_status = task_runner.get_queue_status()
+            logger.debug(f"Queue status: {queue_status}")
+        except Exception as e:
+            logger.error(f"Error getting queue status: {str(e)}")
+            queue_status = {
+                "max_workers": task_runner.max_workers,
+                "active_tasks": 0,
+                "available_slots": task_runner.max_workers,
+                "total_submitted": 0,
+                "task_ids": []
+            }
+        
+        # Get active tasks
+        try:
+            active_tasks = task_runner.get_active_tasks()
+            logger.debug(f"Active tasks count: {len(active_tasks)}")
+        except Exception as e:
+            logger.error(f"Error getting active tasks: {str(e)}")
+            active_tasks = []
+        
+        # Get status information for active tasks
+        status_manager = get_status_manager()
+        active_task_details = []
+        
+        for task in active_tasks:
+            try:
+                task_id = task["task_id"]
+                status = status_manager.get_status(task_id)
+                if status:
+                    # Ensure all datetime fields are properly serialized
+                    created_at_str = None
+                    if status.created_at:
+                        try:
+                            created_at_str = status.created_at.isoformat()
+                        except Exception as e:
+                            logger.error(f"Error serializing created_at: {str(e)}")
+                    
+                    active_task_details.append({
+                        "task_id": task_id,
+                        "status": status.status,
+                        "progress": status.progress_percentage,
+                        "description": status.status_description,
+                        "started_at": created_at_str,
+                        "running": task["running"],
+                        "cancelled": task["cancelled"]
+                    })
+            except Exception as e:
+                logger.error(f"Error processing task {task.get('task_id', 'unknown')}: {str(e)}")
+        
+        # Construct and return response
+        response = {
+            "queue": queue_status,
+            "active_tasks": active_task_details,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return response
+    except Exception as e:
+        logger.error(f"Unhandled error in get_queue_status endpoint: {str(e)}")
+        # Return a minimalist response rather than failing
+        return {
+            "queue": {"max_workers": 3, "active_tasks": 0, "available_slots": 3, "total_submitted": 0, "task_ids": []},
+            "active_tasks": [],
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": "Internal error fetching queue status"
+        }
 
 
 @app.get("/health")

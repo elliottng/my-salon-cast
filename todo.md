@@ -196,12 +196,20 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Document deployment configuration for GCP
 
 ### Phase 5.4: Implement True Async Processing (P2, L)
-- [ ] Add background task processing with asyncio
-- [ ] Update _generate_podcast_internal to spawn background task when async_mode=True
-- [ ] Implement proper task cancellation support
-- [ ] Add task queue management
-- [ ] Handle concurrent task limits
-- [ ] Add webhook/callback support for completion notifications
+- [x] Add background task processing with asyncio
+- [x] Update _generate_podcast_internal to spawn background task when async_mode=True
+- [x] Implement proper task cancellation support
+- [x] Add task queue management
+- [x] Handle concurrent task limits
+- [x] Add webhook/callback support for completion notifications
+
+**Completion Notes:**
+- Created `app/task_runner.py` with ThreadPoolExecutor for background processing
+- Implemented async wrappers for podcast generation with proper error handling
+- Added task cancellation support with status updates
+- Created queue management with concurrent task limits (max 3 by default)
+- Added webhook notifications for task completion/failure/cancellation
+- Fixed TaskRunner lifetime counter to correctly track total_submitted tasks even after completion
 
 ## Task 1.8.3: Direct FastMCP Implementation (P1, L)
 
