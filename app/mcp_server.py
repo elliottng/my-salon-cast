@@ -293,6 +293,54 @@ async def get_metadata_resource(task_id: str) -> dict:
         "completed_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
     }
 
+@mcp.resource("podcast://{task_id}/outline")
+async def get_outline_resource(task_id: str) -> dict:
+    """
+    Get the podcast outline for a completed podcast episode.
+    
+    Returns the structured outline including segments, timing, and content cues.
+    """
+    logger.info(f"Resource 'outline' accessed for task_id: {task_id}")
+    
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    if status_info.status != "completed":
+        raise ValueError(f"Task {task_id} is not completed. Status: {status_info.status}")
+    
+    if not status_info.result_episode:
+        raise ValueError(f"No result found for task {task_id}")
+    
+    episode = status_info.result_episode
+    
+    if not episode.llm_podcast_outline_path:
+        raise ValueError(f"No outline data available for task {task_id}")
+    
+    # Check if outline file exists
+    import os
+    import json
+    if not os.path.exists(episode.llm_podcast_outline_path):
+        raise ValueError(f"Outline file not found: {episode.llm_podcast_outline_path}")
+    
+    try:
+        # Read and return the outline JSON content
+        with open(episode.llm_podcast_outline_path, 'r', encoding='utf-8') as f:
+            outline_data = json.load(f)
+        
+        return {
+            "outline": outline_data,
+            "outline_filepath": episode.llm_podcast_outline_path,
+            "task_id": task_id,
+            "generated_at": status_info.created_at.isoformat() if status_info.created_at else ""
+        }
+        
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in outline file {episode.llm_podcast_outline_path}: {e}")
+    except Exception as e:
+        raise ValueError(f"Error reading outline file: {e}")
+
 @mcp.resource("config://supported_formats")
 async def get_supported_formats() -> dict:
     """
@@ -438,7 +486,8 @@ async def get_api_docs() -> dict:
             "examples://requests": "Example podcast generation requests",
             "podcast://{task_id}/transcript": "Episode transcript for completed podcast",
             "podcast://{task_id}/audio": "Audio file info for completed podcast",
-            "podcast://{task_id}/metadata": "Episode metadata for completed podcast"
+            "podcast://{task_id}/metadata": "Episode metadata for completed podcast",
+            "podcast://{task_id}/outline": "Episode outline for completed podcast"
         },
         "authentication": "None required for MCP protocol",
         "rate_limits": "3 concurrent tasks maximum",
@@ -548,7 +597,8 @@ async def get_example_requests() -> dict:
                     "resources": [
                         "podcast://{task_id}/transcript",
                         "podcast://{task_id}/audio",
-                        "podcast://{task_id}/metadata"
+                        "podcast://{task_id}/metadata",
+                        "podcast://{task_id}/outline"
                     ]
                 }
             ]

@@ -292,9 +292,9 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Create resource for supported file formats
 
 ### Phase 2.2: Dynamic Resources - Podcast Data (P1, L)
-- [ ] Create `@mcp.resource("podcast://{podcast_id}/transcript")` for transcripts
-- [ ] Create `@mcp.resource("podcast://{podcast_id}/audio")` for audio files
-- [ ] Create `@mcp.resource("podcast://{podcast_id}/outline")` for outlines
+- [x] Create `@mcp.resource("podcast://{podcast_id}/transcript")` for transcripts
+- [x] Create `@mcp.resource("podcast://{podcast_id}/audio")` for audio files
+- [x] Create `@mcp.resource("podcast://{podcast_id}/outline")` for outlines
 
 ### Phase 2.3: Dynamic Resources - Job Status (P2, M)
 - [ ] Create `@mcp.resource("jobs://{job_id}/status")` for generation progress status
