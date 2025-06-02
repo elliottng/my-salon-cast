@@ -4,6 +4,9 @@ from app.podcast_workflow import PodcastGeneratorService
 from app.podcast_models import PodcastRequest, PodcastEpisode
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
+from fastmcp.prompts.prompt import Message
+from pydantic import Field
+from typing import Literal, Optional
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -995,6 +998,109 @@ async def generate_podcast(request_data: PodcastRequest) -> dict:
             "details": str(e)
         }
 
+# =============================================================================
+# Phase 3.1: Core Prompt Templates
+# =============================================================================
+
+@mcp.prompt()
+def podcast_generation_request(
+    topic: str = Field(description="The main topic or subject for the podcast episode"),
+    sources: str = Field(description="URLs or content sources (comma-separated if multiple)"),
+    persons: Optional[str] = Field(default="", description="Prominent people to research and feature (comma-separated)"),
+    style: Literal["engaging", "educational", "conversational", "formal"] = "engaging",
+    length: Literal["3-5 minutes", "5-7 minutes", "7-10 minutes", "10-15 minutes"] = "5-7 minutes",
+    language: Literal["en", "es", "fr", "de"] = "en",
+    custom_focus: Optional[str] = Field(default="", description="Additional focus or angle for the podcast")
+) -> str:
+    """
+    Generates a structured prompt for podcast creation requests.
+    
+    This template helps format podcast generation requests with all necessary
+    parameters for the MySalonCast system.
+    """
+    
+    prompt = f"Create a {length} podcast episode about '{topic}' in {language}.\n\n"
+    prompt += f"**Content Sources:**\n{sources}\n\n"
+    
+    if persons:
+        prompt += f"**Featured Personas:**\nResearch and include perspectives from: {persons}\n\n"
+    
+    prompt += f"**Style Requirements:**\n"
+    prompt += f"- Dialogue style: {style}\n"
+    prompt += f"- Episode length: {length}\n"
+    prompt += f"- Language: {language}\n\n"
+    
+    if custom_focus:
+        prompt += f"**Special Focus:**\n{custom_focus}\n\n"
+    
+    prompt += "**Output Requirements:**\n"
+    prompt += "- Generate engaging dialogue between well-researched personas\n"
+    prompt += "- Include proper source attribution\n"
+    prompt += "- Create natural conversation flow\n"
+    prompt += "- Ensure factual accuracy from provided sources"
+    
+    return prompt
+
+@mcp.prompt()
+def persona_research_prompt(
+    person_name: str = Field(description="Name of the person to research"),
+    research_focus: Literal["voice_characteristics", "speaking_style", "expertise", "full_profile"] = "full_profile",
+    context_topic: Optional[str] = Field(default="", description="Specific topic or domain context for the research"),
+    detail_level: Literal["basic", "detailed", "comprehensive"] = "detailed",
+    time_period: Optional[str] = Field(default="", description="Specific time period or era to focus on (e.g., '1920s', 'early career')")
+) -> str:
+    """
+    Generates a structured prompt for persona research requests.
+    
+    This template helps create focused research prompts for developing
+    realistic personas for podcast dialogue generation.
+    """
+    
+    prompt = f"Research {person_name} for podcast persona development.\n\n"
+    
+    prompt += f"**Research Focus:** {research_focus}\n"
+    prompt += f"**Detail Level:** {detail_level}\n\n"
+    
+    if context_topic:
+        prompt += f"**Context Topic:** {context_topic}\n\n"
+        
+    if time_period:
+        prompt += f"**Time Period Focus:** {time_period}\n\n"
+    
+    prompt += "**Required Research Areas:**\n"
+    
+    if research_focus in ["voice_characteristics", "full_profile"]:
+        prompt += "- Speech patterns and communication style\n"
+        prompt += "- Vocabulary preferences and linguistic habits\n"
+        prompt += "- Tone and emotional expression patterns\n"
+    
+    if research_focus in ["speaking_style", "full_profile"]:
+        prompt += "- Argumentation and reasoning style\n"
+        prompt += "- How they explain complex concepts\n" 
+        prompt += "- Characteristic phrases or expressions\n"
+        
+    if research_focus in ["expertise", "full_profile"]:
+        prompt += "- Core areas of knowledge and expertise\n"
+        prompt += "- Key contributions and achievements\n"
+        prompt += "- Historical context and background\n"
+        
+    if research_focus == "full_profile":
+        prompt += "- Personality traits and characteristics\n"
+        prompt += "- Notable quotes and documented statements\n"
+        prompt += "- Relationships with other historical figures\n"
+    
+    prompt += "\n**Output Format:**\n"
+    prompt += "Provide structured research that can be used to:\n"
+    prompt += "1. Generate authentic dialogue in their voice\n"
+    prompt += "2. Ensure historically accurate representation\n"
+    prompt += "3. Create engaging conversational interactions\n"
+    
+    if context_topic:
+        prompt += f"4. Focus expertise on {context_topic} specifically"
+    
+    return prompt
+
+# =============================================================================
 if __name__ == "__main__":
     # Run the server using Starlette/Uvicorn
     import uvicorn

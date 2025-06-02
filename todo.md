@@ -268,7 +268,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Create MCP client test scripts
 - [x] Document any issues or improvements needed
 
-### Phase 1.7: Sync Tool Implementation (P1, M)
+### Phase 1.7: Sync Tool Implementation (P1, M) POSTPONED TO V1.1
 - [ ] Create `@mcp.tool()` for `generate_podcast_sync`
   - [ ] Individual parameters matching async version
   - [ ] Call `await podcast_service.generate_podcast_from_source()`
@@ -278,7 +278,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [ ] Same blocking behavior as individual params version
 - [ ] Test sync tools with same scenarios as async
 
-### Phase 1.8: Optional Enhancements (P2, S)
+### Phase 1.8: Optional Enhancements (P2, S) -POSTPONED TO V1.1
 - [ ] Add `@mcp.prompt()` templates for common podcast generation requests
 - [ ] Add progress callbacks to Context for real-time updates
 - [ ] Create resource for listing all available tasks
@@ -302,13 +302,13 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Create `@mcp.resource("jobs://{job_id}/warnings")` for warnings/errors
 - [x] Implement proper error handling for missing resources
 
-### Phase 2.4: Dynamic Resources - LLM Outputs (P3, M)
-- [ ] Create `@mcp.resource("research://{job_id}/{person_id}")` for persona research
+### Phase 2.4: Dynamic Resources - LLM Outputs (P2, M)
+- [x] Create `@mcp.resource("research://{job_id}/{person_id}")` for persona research
 
 ### Phase 3.1: Core Prompt Templates (P2, M)
-- [ ] Create `@mcp.prompt()` for podcast generation requests
-- [ ] Create `@mcp.prompt()` for persona research prompts
-- [ ] Include proper parameter validation and descriptions
+- [x] Create `@mcp.prompt()` for podcast generation requests
+- [x] Create `@mcp.prompt()` for persona research prompts
+- [x] Include proper parameter validation and descriptions
 
 ### Phase 4.1: Service Integration (P1, L)
 - [ ] Integrate with existing `PodcastGeneratorService`
@@ -359,11 +359,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Create usage examples for MCP clients
 - [ ] Document available tools, resources, and prompts
 
-### Phase 6.4: Implement Staging and Deployment Plan (P1, L)
+## Task 1.8.4: Implement Staging and Deployment Plan (P1, L)
 
-
-
-
+(see todo_deployment.md)
+- [ ] Integrate MCP server into stage and deployment plan
 
 ## Task 1.8.5: Claude Desktop Integration (P1, M)
 
@@ -419,10 +418,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 ## Phase 3: LLM Prompt Iteration
 
 ### Task 3.1: Source Analysis Prompt Iteration (P2, M)
-- Refine prompt for extracting key themes, facts, and insights from source texts (corresponds to `analyze_source_text_async`).
-- Test with diverse source materials (PDFs, YouTube, URLs).
-- Evaluate quality of analysis against PRD requirements (Section 4.2.2).
-- Iterate on prompt based on test results for clarity, comprehensiveness, and accuracy.
+- [x] Refine prompt for extracting key themes, facts, and insights from source texts (corresponds to `analyze_source_text_async`).
+- [x] Test with diverse source materials (PDFs, YouTube, URLs).
+- [x] Evaluate quality of analysis against PRD requirements (Section 4.2.2).
+- [x] Iterate on prompt based on test results for clarity, comprehensiveness, and accuracy.
 
 ### Task 3.2: Persona Research Prompt Iteration (P2, M)
 - Refine prompt for generating persona viewpoints, arguments, and speaking styles (corresponds to `research_persona_async`).
