@@ -77,7 +77,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [ ] `GET /api/v1/podcasts/{id}/transcript` (text download)
 
 - [ ] Add rate limiting (IP-based, 5 requests/day for anonymous users)
-- [ ] Integrate with existing `PodcastGeneratorService` workflow
+- [ ] Integrate with existing `PodcastGeneratorService`
 
 ## Task 1.8.2: Data Model Migration (P1, L)
 
@@ -311,13 +311,13 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Include proper parameter validation and descriptions
 
 ### Phase 4.1: Service Integration (P1, L)
-- [ ] Integrate with existing `PodcastGeneratorService`
+- [x] Integrate with existing `PodcastGeneratorService`
 
-### Phase 4.2: Model Compatibility (P1, M)
-- [ ] Ensure MCP models work with existing Pydantic models
-- [ ] If needed, create adapters for `PodcastRequest` → MCP tool parameters
-- [ ] Maintain compatibility with `PodcastEpisode` output format
-- [ ] If needed, handle type conversions between MCP and internal models
+### Phase 4.2: Validate Model Compatibility (P1, S)
+- [x] Ensure MCP models work with existing Pydantic models
+- [x] If needed, create adapters for `PodcastRequest` → MCP tool parameters
+- [x] Maintain compatibility with `PodcastEpisode` output format
+- [x] If needed, handle type conversions between MCP and internal models
 
 ### Phase 4.3: File Management (P1, M)
 - [ ] Integrate with existing temporary file management
