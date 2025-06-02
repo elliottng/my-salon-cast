@@ -18,7 +18,65 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Unit tests for validation functions
 - [x] Error handling and user feedback
 
-### Task 1.3: Content Extraction Service (V1 Scope) (P1, L)
+### Task 1.3: Fix FastMCP Implementation - Core Setup (P1, S)
+- [x] Fix FastMCP initialization to use single string parameter: `mcp = FastMCP("MySalonCast Podcast Generator")`
+- [x] Remove incorrect `@mcp_server.on_event()` decorators (startup/shutdown)
+- [x] Rename `mcp_server` to `mcp` throughout the file
+- [x] Update `if __name__ == "__main__"` to use `mcp.app` instead of `mcp_server.app`
+- [x] Add proper error handling patterns that return dicts instead of raising exceptions
+
+### Task 1.4: Async Tool Implementation (P1, L) - COMPLETED
+- [x] Create `@mcp.tool()` for `generate_podcast_async`
+  - [x] Individual parameters: source_urls, source_pdf_path, prominent_persons, etc.
+  - [x] Convert parameters to PodcastRequest internally
+  - [x] Call `podcast_service.generate_podcast_async()`
+  - [x] Return dict with task_id and initial status
+  - [x] Handle validation errors gracefully
+- [x] Create `@mcp.tool()` for `generate_podcast_async_pydantic`
+  - [x] Accept PodcastRequest model directly
+  - [x] Pass through to service
+  - [x] Return same format as individual params version
+- [x] Create `@mcp.tool()` for `get_task_status`
+  - [x] Accept task_id parameter
+  - [x] Query StatusManager for current status
+  - [x] Return status, progress, and result when complete
+  - [x] Handle invalid task_id gracefully
+
+### Task 1.5: Resource Implementation (P1, M)
+- [ ] Create `@mcp.resource("podcast://{task_id}/transcript")` for transcript access
+- [ ] Create `@mcp.resource("podcast://{task_id}/audio")` for audio file access
+- [ ] Create `@mcp.resource("podcast://{task_id}/metadata")` for episode metadata
+- [ ] Create `@mcp.resource("config://supported_formats")` for listing supported input types
+- [ ] Implement proper file path resolution from PodcastEpisode data
+- [ ] Handle file not found and invalid task_id cases
+
+### Task 1.6: End-to-End Testing of Async Tools (P1, M)
+- [ ] Test `generate_podcast_async` with various input combinations
+- [ ] Test `generate_podcast_async_pydantic` with PodcastRequest models
+- [ ] Test `get_task_status` throughout generation lifecycle
+- [ ] Test resource access for completed podcasts
+- [ ] Test error handling for invalid inputs and failed generations
+- [ ] Create MCP client test scripts
+- [ ] Document any issues or improvements needed
+
+### Task 1.7: Sync Tool Implementation (P1, M)
+- [ ] Create `@mcp.tool()` for `generate_podcast_sync`
+  - [ ] Individual parameters matching async version
+  - [ ] Call `await podcast_service.generate_podcast_from_source()`
+  - [ ] Return complete episode data in dict format
+- [ ] Create `@mcp.tool()` for `generate_podcast_sync_pydantic`
+  - [ ] Accept PodcastRequest model directly
+  - [ ] Same blocking behavior as individual params version
+- [ ] Test sync tools with same scenarios as async
+
+### Task 1.8: Optional Enhancements (P2, S)
+- [ ] Add `@mcp.prompt()` templates for common podcast generation requests
+- [ ] Add progress callbacks to Context for real-time updates
+- [ ] Create resource for listing all available tasks
+- [ ] Add tool for cancelling in-progress tasks
+- [ ] Consider adding webhook configuration via MCP
+
+### Task 1.5: Content Extraction Service (V1 Scope) (P1, L)
 - [x] Implement PDF text extraction
 - [x] Implement YouTube transcript fetching
 - [x] Implement best-effort text extraction for simple URLs
@@ -26,7 +84,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Basic error handling for failed extractions
 - [x] Handle errors gracefully
 
-### Task 1.4: LLM Interaction Service Wrapper (P1, M) 
+### Task 1.6: LLM Interaction Service Wrapper (P1, M) 
 - [x] Create Google Gemini 2.5 Pro API wrapper
 - [x] Implement method for source analysis
 - [x] Implement method for persona research
@@ -35,12 +93,12 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Manage API key securely
 - [x] Implement retry logic
 
-### Task 1.6: TTS Service Wrapper (P1, M) 
+### Task 1.7: TTS Service Wrapper (P1, M) 
 - [x] Create Google Cloud Text-to-Speech wrapper
 - [x] Implement text-to-audio conversion
 - [x] Implement voice selection based on LLM characteristics
 
-### Task 1.7: Core Podcast Generation Workflow (P1, L)
+### Task 1.8: Core Podcast Generation Workflow (P1, L)
 - [x] Establish `PodcastGeneratorService` for workflow orchestration (`generate_podcast_from_source` method).
 - [x] Integrate `PodcastRequest` as input and `PodcastEpisode` as output.
 - [x] Implement temporary directory management for job-specific files.
@@ -213,28 +271,37 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ## Task 1.8.3: Direct FastMCP Implementation (P1, L)
 
-### Phase 1.1: Install and Configure FastMCP 2.0 (P1, S)
+### Phase 1.1: Install and Configure FastMCP 2.0 (P1, S) - COMPLETED
 - [x] Install FastMCP 2.0: `pip install fastmcp`
 - [x] Verify installation with `fastmcp version`
 - [x] Update requirements.txt to include fastmcp
 - [x] Create basic MCP server structure
 
-### Phase 1.2: Create Base MCP Server Module (P1, M)
+### Phase 1.2: Create Base MCP Server Module (P1, M) - COMPLETED
 - [x] Create `app/mcp_server.py` as the main MCP interface
 - [x] Initialize FastMCP server with appropriate name and instructions
 - [x] Set up proper logging and error handling
 - [x] Create basic server lifecycle management
 
-### Phase 1.3: Tool Implementation - Core Podcast Generation (P1, L)
-- [ ] Create `@mcp.tool()` for `generate_podcast_from_source`
-  - [ ] Define proper Pydantic model for input parameters
-  - [ ] Handle multiple source URLs (max 3)
-  - [ ] Support PDF file path (max 1)
-  - [ ] Include prominent persons list
-  - [ ] Include podcast length specification
-- [ ] Implement proper error handling with ToolError
-- [ ] Add progress reporting via Context for long-running operations
-- [ ] Return structured podcast episode data
+### Phase 1.3: Fix FastMCP Implementation - Core Setup (P1, S) - COMPLETED
+- [x] Fix FastMCP initialization to use single string parameter
+- [x] Remove incorrect event handlers
+- [x] Update decorator usage
+- [x] Implement proper error handling
+
+### Phase 1.4: Async Tool Implementation (P1, L) - COMPLETED
+- [x] Implement async podcast generation tools
+- [x] Add task status checking
+- [x] Handle validation and errors
+
+### Phase 1.5: Resource Implementation (P1, M) - PLANNED
+- [ ] Add resources for content access
+- [ ] Handle file access properly
+
+### Phase 1.6-1.8: Testing and Sync Tools - PLANNED
+- [ ] Complete end-to-end testing of async tools before implementing sync versions
+
+---
 
 ### Phase 2.1: Static Resources (P1, M)
 - [ ] Expose configuration as `@mcp.resource("config://app")`

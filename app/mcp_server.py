@@ -1,91 +1,249 @@
 import logging
 from fastmcp import FastMCP
 from app.podcast_workflow import PodcastGeneratorService
-from app.podcast_models import PodcastRequest
-from app.podcast_models import PodcastEpisode
-# For clarity, even if instantiated by PodcastGeneratorService
-from app.llm_service import GeminiService
-from app.tts_service import GoogleCloudTtsService
+from app.podcast_models import PodcastRequest, PodcastEpisode
+from app.status_manager import get_status_manager
+from app.task_runner import get_task_runner
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Initialize services required by MCP tools
-# PodcastGeneratorService internally initializes GeminiService and GoogleCloudTtsService
-# Ensure any required environment variables (e.g., API keys) are set for these services.
 podcast_service = PodcastGeneratorService()
-logger.info("PodcastGeneratorService initialized for MCP.")
+status_manager = get_status_manager()
+task_runner = get_task_runner()
+logger.info("Services initialized for MCP.")
 
-# Initialize the FastMCP server
-# The name is a unique identifier for your server.
-# The description provides context to the LLM about the server's purpose.
-mcp_server = FastMCP(
-    name="MySalonCastMCP",
-    description="This MCP server manages tasks related to the MySalonCast podcast generation workflow.",
-)
+# Initialize the FastMCP server with correct API
+mcp = FastMCP("MySalonCast Podcast Generator")
 
-# Example: Define a simple command (we can add more complex ones later)
-@mcp_server.command()
+# Simple test tool
+@mcp.tool()
 async def hello(name: str = "world") -> str:
     """Returns a simple greeting."""
-    logger.info(f"Command 'hello' called with name: {name}")
+    logger.info(f"Tool 'hello' called with name: {name}")
     return f"Hello, {name}!"
 
-
-@mcp_server.tool()
-async def generate_podcast(request_data: PodcastRequest) -> PodcastEpisode:
+# Async podcast generation with individual parameters
+@mcp.tool()
+async def generate_podcast_async(
+    source_urls: list[str] = [],
+    source_pdf_path: str = "",
+    prominent_persons: list[str] = [],
+    custom_prompt: str = "",
+    podcast_name: str = "",
+    podcast_tagline: str = "",
+    output_language: str = "en",
+    dialogue_style: str = "engaging",
+    podcast_length: str = "5-7 minutes",
+    ending_message: str = ""
+) -> dict:
     """
-    Generates a podcast episode based on the provided source URLs or PDF path.
-
-    This tool orchestrates the entire podcast generation workflow, including:
-    1. Content extraction from sources.
-    2. Source analysis using an LLM.
-    3. Persona research for prominent figures.
-    4. Podcast outline generation.
-    5. Dialogue script generation.
-    6. Text-to-speech conversion for dialogue.
-    7. Audio mixing and final episode production.
-
+    Start async podcast generation and return immediately with task_id.
+    
+    Provide either source_urls OR source_pdf_path (not both).
+    Use get_task_status with the returned task_id to check progress.
+    
     Args:
-        request_data: A PodcastRequest object containing details like source URLs,
+        source_urls: List of URLs to extract content from (max 3)
+        source_pdf_path: Path to PDF file to extract content from
+        prominent_persons: List of people to research for the podcast
+        custom_prompt: Additional instructions for podcast generation
+        podcast_name: Name of the podcast show
+        podcast_tagline: Tagline for the podcast
+        output_language: Language code (e.g., 'en', 'es', 'fr')
+        dialogue_style: Style of dialogue ('engaging', 'formal', 'casual')
+        podcast_length: Duration like '5-7 minutes'
+        ending_message: Custom message for the end of the podcast
+        
+    Returns:
+        Dict with task_id and initial status
+    """
+    logger.info("MCP Tool 'generate_podcast_async' called")
+    
+    # Validate and convert to PodcastRequest
+    try:
+        request = PodcastRequest(
+            source_urls=source_urls if source_urls else None,
+            source_pdf_path=source_pdf_path if source_pdf_path else None,
+            prominent_persons=prominent_persons if prominent_persons else None,
+            custom_prompt=custom_prompt if custom_prompt else None,
+            podcast_name=podcast_name if podcast_name else None,
+            podcast_tagline=podcast_tagline if podcast_tagline else None,
+            output_language=output_language,
+            dialogue_style=dialogue_style,
+            podcast_length=podcast_length,
+            ending_message=ending_message if ending_message else None
+        )
+    except Exception as e:
+        logger.warning(f"Validation failed in generate_podcast_async: {e}")
+        return {
+            "success": False,
+            "error": "Invalid podcast generation parameters",
+            "details": str(e)
+        }
+    
+    # Submit async task
+    try:
+        task_id = await podcast_service.generate_podcast_async(request)
+        logger.info(f"Async podcast generation started with task_id: {task_id}")
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "queued",
+            "message": "Podcast generation started. Use get_task_status to check progress."
+        }
+    except Exception as e:
+        logger.error(f"Failed to start async podcast generation: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": "Failed to start podcast generation",
+            "details": str(e)
+        }
+
+# Async podcast generation with Pydantic model
+@mcp.tool()
+async def generate_podcast_async_pydantic(request: PodcastRequest) -> dict:
+    """
+    Start async podcast generation using a structured PodcastRequest model.
+    
+    Accepts a complete PodcastRequest object with all configuration options.
+    Use get_task_status with the returned task_id to check progress.
+    
+    Args:
+        request: PodcastRequest model with all generation parameters
+        
+    Returns:
+        Dict with task_id and initial status
+    """
+    logger.info("MCP Tool 'generate_podcast_async_pydantic' called")
+    
+    try:
+        task_id = await podcast_service.generate_podcast_async(request)
+        logger.info(f"Async podcast generation started with task_id: {task_id}")
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "queued",
+            "message": "Podcast generation started. Use get_task_status to check progress."
+        }
+    except Exception as e:
+        logger.error(f"Failed to start async podcast generation: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": "Failed to start podcast generation",
+            "details": str(e)
+        }
+
+# Get status of async task
+@mcp.tool()
+async def get_task_status(task_id: str) -> dict:
+    """
+    Get the status of an async podcast generation task.
+    
+    Returns current status, progress percentage, and result when complete.
+    
+    Args:
+        task_id: The task ID returned by generate_podcast_async
+        
+    Returns:
+        Dict with status information and episode data when complete
+    """
+    logger.info(f"MCP Tool 'get_task_status' called for task_id: {task_id}")
+    
+    try:
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            return {
+                "success": False,
+                "error": "Task not found",
+                "details": f"No task found with ID: {task_id}"
+            }
+        
+        # Build response based on status
+        response = {
+            "success": True,
+            "task_id": task_id,
+            "status": status_info["status"],
+            "progress": status_info.get("progress", 0),
+            "stage": status_info.get("stage", ""),
+            "message": status_info.get("message", "")
+        }
+        
+        # Add episode data if completed
+        if status_info["status"] == "completed" and "result" in status_info:
+            episode = status_info["result"]
+            response["episode"] = {
+                "title": episode.title,
+                "summary": episode.summary,
+                "transcript": episode.transcript,
+                "audio_filepath": episode.audio_filepath,
+                "duration_seconds": episode.duration_seconds,
+                "source_attributions": episode.source_attributions,
+                "warnings": episode.warnings
+            }
+        
+        # Add error details if failed
+        elif status_info["status"] == "failed":
+            response["error"] = status_info.get("error", "Unknown error")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Failed to get task status: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": "Failed to retrieve task status",
+            "details": str(e)
+        }
+
+# Temporary sync tool for testing (will be moved to generate_podcast_sync later)
+@mcp.tool()
+async def generate_podcast(request_data: PodcastRequest) -> dict:
+    """
+    [TEMPORARY - Will be renamed to generate_podcast_sync_pydantic]
+    Generates a podcast episode synchronously.
+
+    This tool orchestrates the entire podcast generation workflow.
+    
+    Args:
+        request_data: A PodcastRequest object containing source URLs,
                       PDF path, desired length, custom prompts, etc.
 
     Returns:
-        A PodcastEpisode object containing the title, summary, transcript, audio filepath,
-        and other metadata of the generated podcast. May return an error-like PodcastEpisode
-        if generation fails.
+        Dict with success status and episode data or error details.
     """
-    logger.info(f"MCP Tool 'generate_podcast' called with request_data: {{request_data.model_dump_json(indent=2)}})
+    logger.info(f"MCP Tool 'generate_podcast' called")
     try:
         episode = await podcast_service.generate_podcast_from_source(request_data=request_data)
         logger.info(f"MCP Tool 'generate_podcast' completed successfully. Episode title: {episode.title}")
-        return episode
+        
+        return {
+            "success": True,
+            "episode": {
+                "title": episode.title,
+                "summary": episode.summary,
+                "transcript": episode.transcript,
+                "audio_filepath": episode.audio_filepath,
+                "duration_seconds": episode.duration_seconds,
+                "source_attributions": episode.source_attributions,
+                "warnings": episode.warnings
+            }
+        }
     except Exception as e:
         logger.error(f"MCP Tool 'generate_podcast' failed: {e}", exc_info=True)
-        return PodcastEpisode(
-            title="Error During Podcast Generation",
-            summary=f"An error occurred: {str(e)}",
-            transcript="",
-            audio_filepath="",
-            source_attributions=[],
-            warnings=[f"Tool execution failed: {str(e)}"]
-        )
-
-
-@mcp_server.on_event("startup")
-async def startup_event():
-    logger.info("MySalonCastMCP server has started up successfully.")
-    # Here you could add logic like connecting to databases, loading initial resources, etc.
-
-@mcp_server.on_event("shutdown")
-async def shutdown_event():
-    logger.info("MySalonCastMCP server is shutting down.")
-    # Here you could add cleanup logic like closing database connections.
+        return {
+            "success": False,
+            "error": "Podcast generation failed",
+            "details": str(e)
+        }
 
 if __name__ == "__main__":
-    # This allows running the server directly for development/testing.
-    # In a production setup, you might use a different way to run it (e.g., via Uvicorn programmatically).
+    # Run the server with correct attribute
     import uvicorn
-    logger.info("Starting MySalonCastMCP server...")
-    uvicorn.run(mcp_server.app, host="0.0.0.0", port=8000)
+    logger.info("Starting MySalonCast MCP server...")
+    uvicorn.run(mcp.app, host="0.0.0.0", port=8000)
