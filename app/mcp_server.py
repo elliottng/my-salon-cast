@@ -489,7 +489,8 @@ async def get_api_docs() -> dict:
             "podcast://{task_id}/metadata": "Episode metadata for completed podcast",
             "podcast://{task_id}/outline": "Episode outline for completed podcast",
             "jobs://{task_id}/status": "Comprehensive job status and progress information",
-            "jobs://{task_id}/logs": "Detailed log entries with timestamps and progress updates"
+            "jobs://{task_id}/logs": "Detailed log entries with timestamps and progress updates",
+            "jobs://{task_id}/warnings": "Warnings and error information from generation process"
         },
         "authentication": "None required for MCP protocol",
         "rate_limits": "3 concurrent tasks maximum",
@@ -749,6 +750,80 @@ async def get_job_logs_resource(task_id: str) -> dict:
         "parsed_logs": parsed_logs,  # Structured log data
         "log_count": len(logs),
         "task_status": status_info.status,
+        "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
+    }
+
+@mcp.resource("jobs://{task_id}/warnings")
+async def get_job_warnings_resource(task_id: str) -> dict:
+    """
+    Get detailed warnings and error information for a podcast generation task.
+    
+    Returns warnings from both the generation process and final episode,
+    along with error details if the task failed.
+    """
+    logger.info(f"Resource 'jobs://{task_id}/warnings' accessed for task_id: {task_id}")
+    
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ValueError(f"Task not found: {task_id}")
+    
+    warnings = []
+    error_info = None
+    
+    # Get warnings from completed episode
+    if status_info.result_episode and status_info.result_episode.warnings:
+        warnings = status_info.result_episode.warnings
+    
+    # Get error information if task failed
+    if status_info.status == "failed":
+        error_info = {
+            "error_message": status_info.error_message,
+            "error_details": status_info.error_details,
+            "occurred_at": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
+        }
+        # Include error message as a warning entry for consistency
+        if status_info.error_message:
+            warnings.append(f"ERROR: {status_info.error_message}")
+    
+    # Parse warnings to extract structured data
+    parsed_warnings = []
+    for warning in warnings:
+        # Basic parsing of warning format
+        warning_entry = {
+            "message": warning,
+            "type": "error" if warning.startswith("ERROR:") or warning.startswith("CRITICAL") else 
+                    "warning" if warning.startswith("WARNING:") else "info",
+            "severity": "high" if any(keyword in warning.upper() for keyword in ["ERROR", "CRITICAL", "FAILED", "FAILURE"]) else
+                       "medium" if any(keyword in warning.upper() for keyword in ["WARNING", "WARN"]) else "low"
+        }
+        
+        # Extract stage information if available
+        if "analysis" in warning.lower():
+            warning_entry["stage"] = "source_analysis"
+        elif "persona" in warning.lower() or "research" in warning.lower():
+            warning_entry["stage"] = "persona_research"
+        elif "outline" in warning.lower():
+            warning_entry["stage"] = "outline_generation"
+        elif "dialogue" in warning.lower():
+            warning_entry["stage"] = "dialogue_generation"
+        elif "tts" in warning.lower() or "audio" in warning.lower():
+            warning_entry["stage"] = "audio_generation"
+        elif "stitch" in warning.lower():
+            warning_entry["stage"] = "audio_stitching"
+        else:
+            warning_entry["stage"] = "general"
+        
+        parsed_warnings.append(warning_entry)
+    
+    return {
+        "task_id": task_id,
+        "warnings": warnings,  # Raw warning messages
+        "parsed_warnings": parsed_warnings,  # Structured warning data
+        "warning_count": len(warnings),
+        "error_info": error_info,  # Detailed error info if failed
+        "task_status": status_info.status,
+        "has_errors": status_info.status == "failed",
         "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
     }
 

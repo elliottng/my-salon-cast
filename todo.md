@@ -299,7 +299,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 ### Phase 2.3: Dynamic Resources - Job Status (P2, M)
 - [x] Create `@mcp.resource("jobs://{job_id}/status")` for generation progress status
 - [x] Create `@mcp.resource("jobs://{job_id}/logs")` for processing logs
-- [ ] Create `@mcp.resource("jobs://{job_id}/warnings")` for warnings/errors
+- [x] Create `@mcp.resource("jobs://{job_id}/warnings")` for warnings/errors
 - [x] Implement proper error handling for missing resources
 
 ### Phase 2.4: Dynamic Resources - LLM Outputs (P3, M)
