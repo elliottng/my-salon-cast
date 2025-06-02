@@ -27,6 +27,7 @@ class TaskRunner:
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._running_tasks: Dict[str, asyncio.Task] = {}
         self._task_futures: Dict[str, asyncio.Future] = {}
+        self._lifetime_submitted_count = 0  # Track all tasks submitted during this instance's lifetime
         logger.info(f"TaskRunner initialized with max_workers={max_workers}")
     
     async def submit_task(
@@ -57,8 +58,9 @@ class TaskRunner:
         
         self._running_tasks[task_id] = task
         self._task_futures[task_id] = future
+        self._lifetime_submitted_count += 1  # Increment the lifetime counter
         
-        logger.info(f"Task {task_id} submitted for background execution")
+        logger.info(f"Task {task_id} submitted for background execution (total: {self._lifetime_submitted_count})")
     
     async def _monitor_task(self, task_id: str, future: asyncio.Future) -> Any:
         """
@@ -127,7 +129,7 @@ class TaskRunner:
             "max_workers": self.max_workers,
             "active_tasks": active_count,
             "available_slots": self.max_workers - active_count,
-            "total_submitted": len(self._running_tasks),
+            "total_submitted": self._lifetime_submitted_count,  # Use lifetime counter instead of current running tasks
             "task_ids": list(self._running_tasks.keys())
         }
     
