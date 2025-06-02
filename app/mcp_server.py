@@ -1,6 +1,7 @@
 import logging
 from fastmcp import FastMCP
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 from app.podcast_models import PodcastEpisode
 # For clarity, even if instantiated by PodcastGeneratorService
 from app.llm_service import GeminiService

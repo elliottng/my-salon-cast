@@ -40,7 +40,8 @@ async def main():
     # Apply the patch to the module
     with patch('app.content_extractor.extract_content_from_url', mock_extract_url):
         # Import after patching to ensure our patch is applied
-        from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+        from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
         
         # Initialize the service with the patched extraction function
         service = PodcastGeneratorService()

@@ -5,7 +5,7 @@ Handles running podcast generation tasks in the background using asyncio and Thr
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional, Callable, Any
+from typing import Dict, Optional, Callable, Any, List
 import logging
 from datetime import datetime
 import traceback
@@ -113,6 +113,40 @@ class TaskRunner:
             return True
         
         return False
+    
+    def get_queue_status(self) -> dict:
+        """
+        Get current queue status information.
+        
+        Returns:
+            Dict containing queue status metrics
+        """
+        active_count = sum(1 for task in self._running_tasks.values() if not task.done())
+        
+        return {
+            "max_workers": self.max_workers,
+            "active_tasks": active_count,
+            "available_slots": self.max_workers - active_count,
+            "total_submitted": len(self._running_tasks),
+            "task_ids": list(self._running_tasks.keys())
+        }
+    
+    def get_active_tasks(self) -> List[dict]:
+        """
+        Get information about currently active tasks.
+        
+        Returns:
+            List of dicts with task information
+        """
+        active_tasks = []
+        for task_id, task in self._running_tasks.items():
+            if not task.done():
+                active_tasks.append({
+                    "task_id": task_id,
+                    "running": task.running(),
+                    "cancelled": task.cancelled()
+                })
+        return active_tasks
     
     def shutdown(self) -> None:
         """Shutdown the task runner and cleanup resources."""

@@ -13,6 +13,7 @@ class PodcastRequest(BaseModel):
     host_invented_name: Optional[str] = None  # Added for host persona customization
     host_gender: Optional[str] = None  # Added for host persona customization
     custom_prompt_for_dialogue: Optional[str] = None  # Added for dialogue generation customization
+    webhook_url: Optional[str] = None  # Webhook URL for completion callbacks
     
     @property
     def has_valid_sources(self) -> bool:

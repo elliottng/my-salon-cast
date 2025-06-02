@@ -8,7 +8,8 @@ import os
 import sys
 import json
 import time
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 
 # Set up detailed logging to console
 logging.basicConfig(

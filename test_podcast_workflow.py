@@ -9,7 +9,8 @@ import sys
 
 # Add the project root to sys.path to fix import issues
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 
 # Configure logging
 logging.basicConfig(

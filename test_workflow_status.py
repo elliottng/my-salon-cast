@@ -8,7 +8,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 from app.status_manager import get_status_manager
 import logging
 

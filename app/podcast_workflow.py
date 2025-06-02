@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Any, Tuple
 from pydantic import ValidationError
+import aiohttp
 
 # Add the project root to the Python path so we can import modules correctly
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -134,14 +135,45 @@ class PodcastGeneratorService:
         try:
             logger.info(f"Starting background podcast generation for task {task_id}")
             
+            # Set the task_id in a thread-local variable so we can check for cancellation
+            import threading
+            current_thread = threading.current_thread()
+            current_thread.task_id = task_id
+            
             # Call the existing _generate_podcast_internal with async_mode=False
             # We set async_mode=False here because we're already running asynchronously via the task runner
-            _, podcast_episode = await self._generate_podcast_internal(request_data, async_mode=False)
+            _, podcast_episode = await self._generate_podcast_internal(request_data, async_mode=False, background_task_id=task_id)
             
             logger.info(f"Background generation complete for task {task_id}")
             
-            # The status updates are already handled within _generate_podcast_internal
-            # No need to duplicate them here
+            # Send webhook notification if configured
+            if request_data.webhook_url:
+                await self._send_webhook_notification(
+                    request_data.webhook_url,
+                    task_id,
+                    "completed",
+                    podcast_episode
+                )
+            
+        except asyncio.CancelledError:
+            logger.info(f"Task {task_id} was cancelled")
+            status_manager.update_status(
+                task_id,
+                "cancelled",
+                "Task was cancelled by user request",
+                progress_percentage=None
+            )
+            
+            # Send webhook notification for cancellation
+            if request_data.webhook_url:
+                await self._send_webhook_notification(
+                    request_data.webhook_url,
+                    task_id,
+                    "cancelled",
+                    None
+                )
+            
+            raise  # Re-raise to properly handle cancellation
             
         except Exception as e:
             logger.error(f"Background task {task_id} failed with error: {str(e)}")
@@ -149,9 +181,89 @@ class PodcastGeneratorService:
             # Log the full traceback for debugging
             logger.exception("Exception details:")
             
+            # Send webhook notification for failure
+            if request_data.webhook_url:
+                await self._send_webhook_notification(
+                    request_data.webhook_url,
+                    task_id,
+                    "failed",
+                    None,
+                    error=str(e)
+                )
+            
         finally:
             logger.info(f"Background task {task_id} execution completed (success or failure)")
-            # Any necessary cleanup can be added here
+            # Clean up thread-local variable
+            if hasattr(current_thread, 'task_id'):
+                delattr(current_thread, 'task_id')
+    
+    async def _send_webhook_notification(
+        self,
+        webhook_url: str,
+        task_id: str,
+        status: str,
+        podcast_episode: Optional[PodcastEpisode],
+        error: Optional[str] = None
+    ) -> None:
+        """
+        Send a webhook notification about task completion.
+        
+        Args:
+            webhook_url: The URL to send the notification to
+            task_id: The task ID
+            status: The final status (completed, failed, cancelled)
+            podcast_episode: The generated episode (if successful)
+            error: Error message (if failed)
+        """
+        payload = {
+            "task_id": task_id,
+            "status": status,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        
+        if status == "completed" and podcast_episode:
+            payload["result"] = {
+                "title": podcast_episode.title,
+                "summary": podcast_episode.summary,
+                "audio_filepath": podcast_episode.audio_filepath,
+                "has_transcript": bool(podcast_episode.transcript),
+                "source_count": len(podcast_episode.source_attributions),
+                "warnings": podcast_episode.warnings
+            }
+        elif status == "failed" and error:
+            payload["error"] = error
+        
+        # Attempt to send webhook with retry logic
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        webhook_url,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=10.0)
+                    ) as response:
+                        if response.status < 300:
+                            logger.info(f"Webhook notification sent successfully for task {task_id}")
+                            return
+                        else:
+                            logger.warning(
+                                f"Webhook returned status {response.status} for task {task_id}, "
+                                f"attempt {attempt + 1}/{max_retries}"
+                            )
+            except Exception as e:
+                logger.warning(
+                    f"Webhook notification failed for task {task_id}, "
+                    f"attempt {attempt + 1}/{max_retries}: {str(e)}"
+                )
+            
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+        
+        logger.error(f"Failed to send webhook notification for task {task_id} after {max_retries} attempts")
     
     def _run_podcast_generation_sync_wrapper(self, task_id: str, request_data: PodcastRequest) -> None:
         """
@@ -173,10 +285,35 @@ class PodcastGeneratorService:
             # Clean up the event loop
             loop.close()
     
+    def _check_cancellation(self, task_id: Optional[str] = None) -> None:
+        """
+        Check if the current task has been cancelled.
+        Raises CancelledError if the task was cancelled.
+        
+        Args:
+            task_id: Optional task ID to check. If not provided, checks thread-local task_id.
+        """
+        if not task_id:
+            # Try to get task_id from thread-local storage
+            import threading
+            current_thread = threading.current_thread()
+            if hasattr(current_thread, 'task_id'):
+                task_id = current_thread.task_id
+            else:
+                return  # No task_id, not a background task
+        
+        # Check if this task has been cancelled
+        task_runner = get_task_runner()
+        if task_id in task_runner._running_tasks:
+            task = task_runner._running_tasks[task_id]
+            if task.cancelled():
+                raise asyncio.CancelledError(f"Task {task_id} was cancelled")
+    
     async def _generate_podcast_internal(
         self,
         request_data: PodcastRequest,
-        async_mode: bool = False
+        async_mode: bool = False,
+        background_task_id: Optional[str] = None
     ) -> Tuple[str, PodcastEpisode]:
         """
         Internal method that handles both sync and async podcast generation.
@@ -184,6 +321,7 @@ class PodcastGeneratorService:
         Args:
             request_data: The podcast generation request
             async_mode: If True, will return immediately and process in background (future implementation)
+            background_task_id: The task ID for background tasks, used for cancellation checks
         
         Returns:
             Tuple of (task_id, PodcastEpisode)
@@ -386,6 +524,10 @@ class PodcastGeneratorService:
                 source_content_extracted=True
             )
             
+            # Check for cancellation after content extraction
+            if background_task_id:
+                self._check_cancellation(background_task_id)
+            
             # 3. LLM - Source Analysis
             logger.info("STEP: Starting Source Analysis...")
             source_analysis_obj: Optional[SourceAnalysis] = None
@@ -431,6 +573,10 @@ class PodcastGeneratorService:
                     task_id,
                     source_analysis_complete=True
                 )
+            
+            # Check for cancellation after source analysis
+            if background_task_id:
+                self._check_cancellation(background_task_id)
             
             # 4. LLM - Persona Research (Iterative)
             logger.info("STEP: Starting Persona Research...")
@@ -497,6 +643,10 @@ class PodcastGeneratorService:
                 persona_research_complete=True
             )
 
+            # Check for cancellation after persona research
+            if background_task_id:
+                self._check_cancellation(background_task_id)
+            
             # 4.5. Assign Invented Names and Genders to Personas (mirroring podcast_workflow.py)
             logger.info("STEP: Assigning invented names and genders to personas...")
             # Create a map of PersonaResearch objects for easy lookup by person_id - PRIMARY APPROACH
@@ -712,6 +862,10 @@ class PodcastGeneratorService:
                     podcast_outline_complete=True
                 )
             
+            # Check for cancellation after outline generation
+            if background_task_id:
+                self._check_cancellation(background_task_id)
+            
             # 6. LLM - Dialogue Turns Generation
             logger.info("STEP: Starting Dialogue Turns Generation...")
             dialogue_turns_list: Optional[List[DialogueTurn]] = None
@@ -800,6 +954,10 @@ class PodcastGeneratorService:
                     task_id,
                     dialogue_script_complete=True
                 )
+            
+            # Check for cancellation after dialogue generation
+            if background_task_id:
+                self._check_cancellation(background_task_id)
             
             # 7. TTS Generation for Dialogue Turns
             logger.info("STEP: Starting TTS generation for dialogue turns...")
@@ -891,6 +1049,10 @@ class PodcastGeneratorService:
                 logger.warning("No dialogue turns available for TTS processing or TTS service missing.")
                 warnings_list.append("TTS skipped: No dialogue turns or TTS service missing.")
                 logger.info("STEP: Skipping TTS generation as no dialogue turns are available or tts_service is missing.")
+            
+            # Check for cancellation after TTS generation
+            if background_task_id:
+                self._check_cancellation(background_task_id)
             
             # 8. Audio Stitching
             logger.info("STEP: Starting audio stitching...")

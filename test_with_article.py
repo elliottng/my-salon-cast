@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import after path setup
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 
 async def main():
     """Run a direct test of the podcast generation workflow"""

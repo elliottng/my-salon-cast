@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 # Import the required modules from the app package
 sys.path.insert(0, os.path.dirname(__file__))
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 
 async def main():
     """Run a test of the podcast generation workflow"""

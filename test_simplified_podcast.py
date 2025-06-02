@@ -19,7 +19,7 @@ load_dotenv()
 
 # Add the app directory to the path so we can import our modules
 from app.podcast_models import PodcastEpisode, PodcastOutline, OutlineSegment
-from app.podcast_workflow import PodcastRequest
+from app.podcast_models import PodcastRequest
 from app.llm_service import GeminiService
 from app.podcast_workflow import PodcastGeneratorService
 

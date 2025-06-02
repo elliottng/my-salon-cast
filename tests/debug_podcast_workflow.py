@@ -6,7 +6,8 @@ import logging
 import tempfile
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from app.podcast_workflow import PodcastGeneratorService, PodcastRequest
+from app.podcast_workflow import PodcastGeneratorService
+from app.podcast_models import PodcastRequest
 from app.content_extraction import extract_content_from_url, extract_text_from_pdf_path
 from app.common_exceptions import ExtractionError
 

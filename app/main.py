@@ -11,6 +11,8 @@ from app.podcast_models import PodcastEpisode, PodcastStatus, PodcastRequest
 from pydantic import BaseModel
 from typing import List, Optional
 from app.status_manager import get_status_manager
+from app.task_runner import get_task_runner
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -346,3 +348,99 @@ async def delete_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     
     return {"message": f"Task {task_id} deleted successfully"}
+
+
+@app.post("/status/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    """
+    Cancel a running podcast generation task.
+    
+    Args:
+        task_id: The ID of the task to cancel
+        
+    Returns:
+        Dict with success status and message
+        
+    Raises:
+        404: If task_id is not found
+        400: If task is not in a cancellable state
+    """
+    status_manager = get_status_manager()
+    status = status_manager.get_status(task_id)
+    
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    
+    # Check if task is in a cancellable state
+    if status.status in ["completed", "failed", "cancelled"]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Task {task_id} is already {status.status} and cannot be cancelled"
+        )
+    
+    # Get task runner and attempt cancellation
+    task_runner = get_task_runner()
+    cancelled = await task_runner.cancel_task(task_id)
+    
+    if cancelled:
+        # Update status to reflect cancellation is pending
+        status_manager.update_status(
+            task_id,
+            "cancelled",
+            "Cancellation requested - task is being terminated",
+            progress_percentage=status.progress_percentage
+        )
+        return {
+            "task_id": task_id,
+            "cancelled": True,
+            "message": "Task cancellation initiated successfully"
+        }
+    else:
+        # Task not found in runner (might have already completed)
+        return {
+            "task_id": task_id,
+            "cancelled": False,
+            "message": "Task not found in active tasks (may have already completed)"
+        }
+
+
+@app.get("/queue/status")
+async def get_queue_status():
+    """
+    Get the current status of the task queue.
+    
+    Returns:
+        Dict containing queue metrics and active task information
+    """
+    task_runner = get_task_runner()
+    queue_status = task_runner.get_queue_status()
+    active_tasks = task_runner.get_active_tasks()
+    
+    # Get status information for active tasks
+    status_manager = get_status_manager()
+    active_task_details = []
+    
+    for task in active_tasks:
+        task_id = task["task_id"]
+        status = status_manager.get_status(task_id)
+        if status:
+            active_task_details.append({
+                "task_id": task_id,
+                "status": status.status,
+                "progress": status.progress_percentage,
+                "description": status.status_description,
+                "started_at": status.created_at.isoformat() if status.created_at else None,
+                "running": task["running"],
+                "cancelled": task["cancelled"]
+            })
+    
+    return {
+        "queue": queue_status,
+        "active_tasks": active_task_details,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/health")
+async def get_health():
+    return {"status": "healthy"}
