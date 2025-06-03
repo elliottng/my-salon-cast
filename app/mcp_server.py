@@ -832,8 +832,8 @@ async def get_job_warnings_resource(task_id: str) -> dict:
         
         # Extract warnings from episode data if available
         warnings = []
-        if status_info.episode and hasattr(status_info.episode, 'warnings'):
-            warnings = status_info.episode.warnings or []
+        if status_info.result_episode and hasattr(status_info.result_episode, 'warnings'):
+            warnings = status_info.result_episode.warnings or []
         
         return {
             "task_id": task_id,
@@ -841,7 +841,7 @@ async def get_job_warnings_resource(task_id: str) -> dict:
             "warning_count": len(warnings),
             "has_errors": status_info.status == "failed",
             "error_message": status_info.error_message,
-            "last_updated": status_info.last_updated.isoformat() if status_info.last_updated else None,
+            "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
             "resource_type": "job_warnings"
         }
         
@@ -872,15 +872,15 @@ async def get_podcast_transcript_resource(task_id: str) -> dict:
         if not status_info:
             raise ToolError(f"Task not found: {task_id}")
         
-        if not status_info.episode:
+        if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
         return {
             "task_id": task_id,
-            "transcript": status_info.episode.transcript or "",
-            "title": status_info.episode.title or "",
-            "summary": status_info.episode.summary or "",
-            "character_count": len(status_info.episode.transcript) if status_info.episode.transcript else 0,
+            "transcript": status_info.result_episode.transcript or "",
+            "title": status_info.result_episode.title or "",
+            "summary": status_info.result_episode.summary or "",
+            "character_count": len(status_info.result_episode.transcript) if status_info.result_episode.transcript else 0,
             "resource_type": "podcast_transcript"
         }
         
@@ -911,10 +911,10 @@ async def get_podcast_audio_resource(task_id: str) -> dict:
         if not status_info:
             raise ToolError(f"Task not found: {task_id}")
         
-        if not status_info.episode:
+        if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
-        audio_filepath = status_info.episode.audio_filepath or ""
+        audio_filepath = status_info.result_episode.audio_filepath or ""
         audio_exists = os.path.exists(audio_filepath) if audio_filepath else False
         
         return {
@@ -952,15 +952,15 @@ async def get_podcast_metadata_resource(task_id: str) -> dict:
         if not status_info:
             raise ToolError(f"Task not found: {task_id}")
         
-        if not status_info.episode:
+        if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
         return {
             "task_id": task_id,
-            "title": status_info.episode.title or "",
-            "summary": status_info.episode.summary or "",
-            "duration": getattr(status_info.episode, 'duration', None),
-            "source_attributions": status_info.episode.source_attributions or [],
+            "title": status_info.result_episode.title or "",
+            "summary": status_info.result_episode.summary or "",
+            "duration": getattr(status_info.result_episode, 'duration', None),
+            "source_attributions": status_info.result_episode.source_attributions or [],
             "creation_date": status_info.start_time.isoformat() if status_info.start_time else None,
             "completion_date": status_info.end_time.isoformat() if status_info.end_time else None,
             "resource_type": "podcast_metadata"
@@ -993,11 +993,11 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         if not status_info:
             raise ToolError(f"Task not found: {task_id}")
         
-        if not status_info.episode:
+        if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
         # Try to get outline from episode data
-        outline_data = getattr(status_info.episode, 'outline', None)
+        outline_data = getattr(status_info.result_episode, 'outline', None)
         
         return {
             "task_id": task_id,
