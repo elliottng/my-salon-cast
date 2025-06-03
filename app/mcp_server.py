@@ -965,8 +965,8 @@ async def get_podcast_metadata_resource(task_id: str) -> dict:
             "summary": status_info.result_episode.summary or "",
             "duration": getattr(status_info.result_episode, 'duration', None),
             "source_attributions": status_info.result_episode.source_attributions or [],
-            "creation_date": status_info.start_time.isoformat() if status_info.start_time else None,
-            "completion_date": status_info.end_time.isoformat() if status_info.end_time else None,
+            "creation_date": status_info.created_at.isoformat() if status_info.created_at else None,
+            "completion_date": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
             "resource_type": "podcast_metadata"
         }
         
@@ -1061,8 +1061,8 @@ async def get_persona_research_resource(job_id: str, person_id: str) -> dict:
                 "pace": "moderate"
             },
             "file_metadata": {
-                "created": status_info.start_time.isoformat() if status_info.start_time else None,
-                "last_updated": status_info.last_updated.isoformat() if status_info.last_updated else None
+                "created": status_info.created_at.isoformat() if status_info.created_at else None,
+                "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
             },
             "resource_type": "persona_research"
         }
