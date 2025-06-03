@@ -33,6 +33,117 @@ logger.info("Services initialized for MCP.")
 # Initialize the FastMCP server with correct API
 mcp = FastMCP("MySalonCast Podcast Generator")
 
+# =============================================================================
+# MCP PROMPTS
+# =============================================================================
+
+@mcp.prompt()
+def create_podcast_from_url(
+    url: str, 
+    personas: str = "Einstein, Marie Curie", 
+    length: Literal["short", "medium", "long"] = "medium",
+    language: Literal["en", "es", "fr", "de", "it", "pt", "hi", "ar"] = "en"
+) -> str:
+    """Generates a prompt template for creating a podcast from a URL with specific personas and length.
+    
+    Args:
+        url: The source URL to create a podcast from
+        personas: Comma-separated list of personas/characters for the discussion
+        length: Desired podcast length (short=~5min, medium=~10min, long=~15min)
+        language: Output language for the podcast
+    """
+    return f"""I'd like to create a podcast discussion from this URL: {url}
+
+Please generate a conversational podcast featuring these personas: {personas}
+
+Requirements:
+- Length: {length} (short=~5min, medium=~10min, long=~15min)
+- Language: {language}
+- Style: Natural conversation with different perspectives from each persona
+- Include interesting insights and contrasting viewpoints
+
+Use the MySalonCast tools to:
+1. First, generate the podcast: generate_podcast_async with source_urls=["{url}"], prominent_persons=[{", ".join([f'"{p.strip()}"' for p in personas.split(",")])}], output_language="{language}"
+2. Monitor progress with: get_task_status using the returned task_id
+3. Access results via the podcast resources when complete
+
+What aspects of this content would you like the personas to focus on?"""
+
+@mcp.prompt()
+def discuss_persona_viewpoint(
+    task_id: str, 
+    person_id: str, 
+    topic: str
+) -> str:
+    """Generates a prompt for exploring a specific persona's viewpoint on a topic from their research.
+    
+    Args:
+        task_id: The podcast generation task ID
+        person_id: The specific persona/person ID to research
+        topic: The topic or aspect to explore
+    """
+    return f"""Let's explore {person_id}'s perspective on "{topic}" from the podcast research.
+
+Please use the MySalonCast resources to:
+1. Get the persona research: research://{task_id}/{person_id}
+2. Review their background, expertise, and viewpoints
+
+Based on their research profile, help me understand:
+- How would {person_id} approach this topic "{topic}"?
+- What unique insights would they bring?
+- What questions would they ask?
+- How does their background influence their perspective?
+
+Use the research data to provide specific examples of how {person_id} would discuss "{topic}" in a podcast conversation."""
+
+@mcp.prompt()
+def analyze_podcast_content(
+    task_id: str,
+    analysis_type: Literal["outline", "transcript", "personas", "summary"] = "summary"
+) -> str:
+    """Generates a prompt for analyzing different aspects of podcast content.
+    
+    Args:
+        task_id: The podcast generation task ID  
+        analysis_type: Type of analysis to perform
+    """
+    resource_map = {
+        "outline": f"podcast://{task_id}/outline",
+        "transcript": f"podcast://{task_id}/transcript", 
+        "personas": f"research://{task_id}/[person_id]",
+        "summary": f"podcast://{task_id}/metadata"
+    }
+    
+    if analysis_type == "personas":
+        return f"""Let's analyze the persona research for this podcast task: {task_id}
+
+First, get the podcast metadata to see available personas: podcast://{task_id}/metadata
+
+Then for each persona, examine their research:
+- research://{task_id}/[person_id] (replace [person_id] with actual IDs)
+
+Help me understand:
+- What personas were researched for this podcast?
+- What are their key characteristics and expertise areas?
+- How do their perspectives complement each other?
+- What interesting contrasts or synergies exist between them?"""
+    
+    return f"""Let's analyze the {analysis_type} for podcast task: {task_id}
+
+Please access the resource: {resource_map[analysis_type]}
+
+Based on the {analysis_type} data, help me understand:
+- What are the key themes and topics covered?
+- How well structured is the content?
+- What are the most interesting insights or discussion points?
+- Are there any areas that could be enhanced or expanded?
+
+Provide a thoughtful analysis with specific examples from the content."""
+
+# =============================================================================
+# MCP TOOLS  
+# =============================================================================
+
 # Simple test tool
 @mcp.tool()
 async def hello(name: str = "world") -> str:

@@ -187,15 +187,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - Tested with `test_database_persistence.py` and `test_status_rest_api.py`
 
 #### Stage 2: Production Deployment with Cloud SQL
-- [ ] Document Cloud SQL setup process for PostgreSQL
-- [ ] Create environment variable configuration (DATABASE_URL)
-- [ ] Ensure SQLModel code works with both SQLite and PostgreSQL
-- [ ] Add connection pooling for Cloud SQL
-- [ ] Create database initialization scripts
-- [ ] Add indexes for performance (task_id, created_at)
-- [ ] Implement cleanup job for old tasks (30+ days)
-- [ ] Handle database connection failures gracefully
-- [ ] Document deployment configuration for GCP
+
 
 ### Phase 5.4: Implement True Async Processing (P2, L)
 - [x] Add background task processing with asyncio
@@ -352,6 +344,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Enhanced `update_status()` with optional `progress_details` parameter
   - [x] Comprehensive test coverage for all workflow phases (58 progress logs)
   - [x] Error handling and failure scenario logging (success [x], failure [ ], warning [ ])
+
   - [x] **Phase 5.1 Option 2: Enhanced Progress Reporting - COMPLETE**
 - [ ] Add resource access for reading intermediate files
 - [ ] Include request ID tracking for job correlation
@@ -370,8 +363,8 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Secure file access and temporary directory management
 
 ### Phase 6.1: MCP-Specific Testing (P1, M)
-- [ ] Create test suite for MCP tools using FastMCP Client
-- [ ] Test resource access patterns
+- [x] Create test suite for MCP tools using FastMCP Client
+- [x] Test resource access patterns
 - [ ] Test prompt generation functionality
 - [ ] Create integration tests with existing workflow
 
