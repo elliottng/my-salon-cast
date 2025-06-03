@@ -167,27 +167,30 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
         print(f"❌ Step 2 failed: {e}")
         return False
 
-async def step3_poll_status_until_personas(ctx: IntegrationTestContext) -> bool:
-    """Step 3: Poll get_task_status until generating_outline."""
-    print("\n🔸 Step 3: Monitor Progress Until Personas Complete")
+async def step3_monitor_progress(ctx: IntegrationTestContext) -> bool:
+    """Step 3: Monitor task progress until completion."""
+    print("\n🔸 Step 3: Monitor Progress Until Completion")
     print("=" * 60)
     
     try:
-        max_wait_time = 600  # 10 minutes
-        poll_interval = 10   # 10 seconds
+        task_id = ctx.task_id
         start_time = time.time()
-        mock_ctx = MockMCPContext()
-        
-        # Log the start of monitoring
-        print(f"⏱️ Starting polling - maximum {max_wait_time}s with {poll_interval}s intervals")
-        previous_status_str = None
         poll_count = 0
+        previous_status_str = ""
+        
+        # Configuration for monitoring until completion
+        poll_interval = 10  # seconds between polls
+        max_wait_time = 15 * 60  # 15 minutes max wait time
+        
+        print(f"🔍 Monitoring task {task_id} until completion...")
+        print(f"⏰ Will poll every {poll_interval}s for up to {max_wait_time//60} minutes")
         
         while time.time() - start_time < max_wait_time:
-            # Poll status
             poll_count += 1
             poll_start = time.time()
-            status_result = await get_task_status(ctx=mock_ctx, task_id=ctx.task_id)
+            
+            # Get task status via MCP tool
+            status_result = await get_task_status(ctx=MockMCPContext(), task_id=task_id)
             poll_duration = time.time() - poll_start
             ctx.status_history.append(status_result)
             
@@ -219,24 +222,23 @@ async def step3_poll_status_until_personas(ctx: IntegrationTestContext) -> bool:
                 print(f"⏱️ [{elapsed:6.1f}s] Status: {current_status_str} (poll took {poll_duration:.2f}s)")
                 previous_status_str = current_status_str
             
-            # Determine if we've reached the generating_outline stage
-            # This is challenging due to inconsistent status format, so check multiple ways
-            at_outline_stage = False
+            # Check for completion (success)
+            is_completed = False
             if isinstance(current_status, dict):
-                # Check for outline stage in dictionary structure
-                status_str = current_status.get('status')
-                desc_str = current_status.get('status_description', '')
-                if status_str == "generating_outline" or "outline" in desc_str.lower():
-                    at_outline_stage = True
-            elif current_status == "generating_outline":
-                at_outline_stage = True
-            elif isinstance(current_status, str) and "outline" in current_status.lower():
-                at_outline_stage = True
+                # Check for completion in dictionary structure
+                status_str = current_status.get('status', '').lower()
+                desc_str = current_status.get('status_description', '').lower()
+                if status_str == "completed" or "completed" in desc_str or status_str == "success":
+                    is_completed = True
+            elif isinstance(current_status, str):
+                status_lower = current_status.lower()
+                if "completed" in status_lower or "success" in status_lower:
+                    is_completed = True
             
-            # Check if persona research is complete
-            if at_outline_stage:
-                print(f"✅ Personas complete! Status progressed to outline generation")
-                print(f"   Elapsed time: {elapsed:.1f}s ({poll_count} polls)")
+            if is_completed:
+                print(f"🎉 Task completed successfully!")
+                print(f"   Total time: {elapsed:.1f}s ({poll_count} polls)")
+                print(f"   Final status: {current_status_str}")
                 return True
             
             # Check for failure states - more precise error detection
@@ -272,7 +274,7 @@ async def step3_poll_status_until_personas(ctx: IntegrationTestContext) -> bool:
             # Wait before next poll
             await asyncio.sleep(poll_interval)
         
-        print(f"❌ Timeout waiting for generating_outline (waited {max_wait_time}s)")
+        print(f"❌ Timeout waiting for task completion (waited {max_wait_time}s)")
         print(f"   Last status received: {current_status_str}")
         return False
         
@@ -287,8 +289,8 @@ async def step4_get_persona_research(ctx: IntegrationTestContext) -> bool:
     
     try:
         for persona in TEST_PERSONAS:
-            # Convert persona name to person_id format (lowercase, spaces to hyphens)
-            person_id = persona.lower().replace(" ", "-")
+            # Convert persona name to person_id format (lowercase, spaces to underscores)
+            person_id = persona.lower().replace(" ", "_")
             
             print(f"\n👤 Fetching research for: {persona} (ID: {person_id})")
             print("-" * 40)
@@ -325,118 +327,6 @@ async def step4_get_persona_research(ctx: IntegrationTestContext) -> bool:
         
     except Exception as e:
         print(f"❌ Step 4 failed: {e}")
-        return False
-
-async def step5_poll_status_until_outline(ctx: IntegrationTestContext) -> bool:
-    """Step 5: Continue polling until outline_complete."""
-    print("\n🔸 Step 5: Monitor Progress Until Outline Complete")
-    print("=" * 60)
-    
-    try:
-        max_wait_time = 600  # 10 minutes from current point
-        poll_interval = 10   # 10 seconds
-        start_time = time.time()
-        mock_ctx = MockMCPContext()
-        
-        # Log the start of monitoring
-        print(f"⏱️ Starting polling - maximum {max_wait_time}s with {poll_interval}s intervals")
-        previous_status_str = None
-        poll_count = 0
-        
-        while time.time() - start_time < max_wait_time:
-            # Poll status
-            poll_count += 1
-            poll_start = time.time()
-            status_result = await get_task_status(ctx=mock_ctx, task_id=ctx.task_id)
-            poll_duration = time.time() - poll_start
-            ctx.status_history.append(status_result)
-            
-            # Extract status string, handling both string and dictionary formats
-            current_status = status_result.get('status', 'unknown')
-            current_status_str = "unknown"
-            
-            # Handle different status formats with robust extraction
-            try:
-                if isinstance(current_status, dict):
-                    # If status is a dictionary, try to extract status_description or status field
-                    current_status_str = current_status.get('status_description') or current_status.get('status')
-                    # Add progress percentage when available
-                    progress = current_status.get('progress_percentage')
-                    if progress is not None:
-                        current_status_str = f"{current_status_str} ({progress:.1f}%)"
-                elif isinstance(current_status, str):
-                    current_status_str = current_status
-                else:
-                    current_status_str = str(current_status)
-            except Exception as e:
-                print(f"⚠️ Error extracting status: {e}")
-                current_status_str = f"Error: {type(current_status).__name__}"
-            
-            elapsed = time.time() - start_time
-            
-            # Only print status if it changed or every 6th poll (about once per minute)
-            if current_status_str != previous_status_str or poll_count % 6 == 0:
-                print(f"⏱️ [{elapsed:6.1f}s] Status: {current_status_str} (poll took {poll_duration:.2f}s)")
-                previous_status_str = current_status_str
-            
-            # Determine if we've reached the outline_complete stage
-            at_outline_complete = False
-            if isinstance(current_status, dict):
-                # Check for outline completion in dictionary structure
-                status_str = current_status.get('status')
-                desc_str = current_status.get('status_description', '')
-                if status_str == "outline_complete" or ("outline" in desc_str.lower() and "complete" in desc_str.lower()):
-                    at_outline_complete = True
-            elif current_status == "outline_complete":
-                at_outline_complete = True
-            elif isinstance(current_status, str) and "outline" in current_status.lower() and "complete" in current_status.lower():
-                at_outline_complete = True
-            
-            # Check if outline is complete
-            if at_outline_complete:
-                print(f"✅ Outline complete! Status: {current_status_str}")
-                print(f"   Elapsed time: {elapsed:.1f}s ({poll_count} polls)")
-                return True
-            
-            # Check for failure states - more precise error detection
-            is_failed = False
-            error_message = None
-            
-            # Only consider actual error conditions
-            if isinstance(current_status, dict):
-                # Check if status is explicitly failed or cancelled
-                status_str = current_status.get('status', '').lower()
-                if status_str in ["failed", "cancelled", "error"]:
-                    is_failed = True
-                
-                # Check if there's an actual error message
-                if current_status.get('error_message'):
-                    is_failed = True
-                    error_message = current_status.get('error_message')
-            elif isinstance(current_status, str):
-                # For string statuses, check for explicit failure states
-                if current_status.lower() in ["failed", "cancelled", "error"]:
-                    is_failed = True
-            
-            # Check the top-level error field as well
-            if status_result.get('error'):
-                is_failed = True
-                error_message = status_result.get('error')
-            
-            if is_failed:
-                print(f"❌ Task failed with status: {current_status_str}")
-                print(f"   Error: {error_message or 'Unknown error'}")
-                return False
-            
-            # Wait before next poll
-            await asyncio.sleep(poll_interval)
-        
-        print(f"❌ Timeout waiting for outline_complete (waited {max_wait_time}s)")
-        print(f"   Last status received: {current_status_str}")
-        return False
-        
-    except Exception as e:
-        print(f"❌ Step 5 failed: {e}")
         return False
 
 async def step6_get_podcast_outline(ctx: IntegrationTestContext) -> bool:
@@ -495,185 +385,64 @@ async def step6_get_podcast_outline(ctx: IntegrationTestContext) -> bool:
         print(f"❌ Step 6 failed: {e}")
         return False
 
-async def step7_poll_until_complete_and_get_final_content(ctx: IntegrationTestContext) -> bool:
-    """Step 7: Poll until totally complete, then get transcript and audio."""
-    print("\n🔸 Step 7: Monitor Until Complete & Get Final Content")
+async def step8_get_final_content(ctx: IntegrationTestContext) -> bool:
+    """Step 8: Get final content (transcript and audio) - task should already be completed."""
+    print("\n🔸 Step 8: Get Final Content")
     print("=" * 60)
     
     try:
-        # First, poll until complete
-        max_wait_time = 1200  # 20 minutes for full generation
-        poll_interval = 15    # 15 seconds
-        start_time = time.time()
-        mock_ctx = MockMCPContext()
+        print(f"🎯 Getting final content for completed task: {ctx.task_id}")
+        print("-" * 50)
         
-        # Log the start of monitoring
-        print(f"⏱️ Starting final polling - maximum {max_wait_time}s with {poll_interval}s intervals")
-        previous_status_str = None
-        poll_count = 0
-        
-        while time.time() - start_time < max_wait_time:
-            # Poll status
-            poll_count += 1
-            poll_start = time.time()
-            status_result = await get_task_status(ctx=mock_ctx, task_id=ctx.task_id)
-            poll_duration = time.time() - poll_start
-            ctx.status_history.append(status_result)
-            
-            # Extract status string, handling both string and dictionary formats
-            current_status = status_result.get('status', 'unknown')
-            current_status_str = "unknown"
-            progress_percentage = None
-            
-            # Handle different status formats with robust extraction
-            try:
-                if isinstance(current_status, dict):
-                    # If status is a dictionary, try to extract status_description or status field
-                    current_status_str = current_status.get('status_description') or current_status.get('status')
-                    # Get progress percentage when available
-                    progress_percentage = current_status.get('progress_percentage')
-                    if progress_percentage is not None:
-                        current_status_str = f"{current_status_str} ({progress_percentage:.1f}%)"
-                elif isinstance(current_status, str):
-                    current_status_str = current_status
-                else:
-                    current_status_str = str(current_status)
-            except Exception as e:
-                print(f"⚠️ Error extracting status: {e}")
-                current_status_str = f"Error: {type(current_status).__name__}"
-            
-            elapsed = time.time() - start_time
-            
-            # Only print status if it changed or every 6th poll (about once per minute)
-            if current_status_str != previous_status_str or poll_count % 6 == 0:
-                print(f"⏱️ [{elapsed:6.1f}s] Status: {current_status_str} (poll took {poll_duration:.2f}s)")
-                previous_status_str = current_status_str
-            
-            # Determine if we've reached the complete stage
-            at_complete_stage = False
-            if isinstance(current_status, dict):
-                # Check for completion in dictionary structure
-                status_str = current_status.get('status')
-                desc_str = current_status.get('status_description', '')
-                if status_str == "complete" or "complete" in desc_str.lower():
-                    at_complete_stage = True
-            elif current_status == "complete":
-                at_complete_stage = True
-            
-            # Also check progress percentage if we have it
-            if progress_percentage is not None and progress_percentage >= 99.9:
-                at_complete_stage = True
-            
-            # Check if podcast generation is complete
-            if at_complete_stage:
-                print(f"✅ Podcast generation complete! Status: {current_status_str}")
-                print(f"   Elapsed time: {elapsed:.1f}s ({poll_count} polls)")
-                print(f"   Getting final content...")
-                break
-            
-            # Check for failure states - more precise error detection
-            is_failed = False
-            error_message = None
-            
-            # Only consider actual error conditions
-            if isinstance(current_status, dict):
-                # Check if status is explicitly failed or cancelled
-                status_str = current_status.get('status', '').lower()
-                if status_str in ["failed", "cancelled", "error"]:
-                    is_failed = True
-                
-                # Check if there's an actual error message
-                if current_status.get('error_message'):
-                    is_failed = True
-                    error_message = current_status.get('error_message')
-            elif isinstance(current_status, str):
-                # For string statuses, check for explicit failure states
-                if current_status.lower() in ["failed", "cancelled", "error"]:
-                    is_failed = True
-            
-            # Check the top-level error field as well
-            if status_result.get('error'):
-                is_failed = True
-                error_message = status_result.get('error')
-            
-            if is_failed:
-                print(f"❌ Task failed with status: {current_status_str}")
-                print(f"   Error: {error_message or 'Unknown error'}")
-                return False
-            
-            # Wait before next poll
-            await asyncio.sleep(poll_interval)
-        else:
-            print(f"❌ Timeout waiting for completion (waited {max_wait_time}s)")
-            print(f"   Last status received: {current_status_str}")
-            return False
-        
-        # Now get transcript and audio
-        print(f"\n📜 Getting Podcast Transcript...")
-        print("-" * 40)
-        
+        # Get transcript
+        print(f"\n📜 Fetching transcript...")
         try:
-            transcript_result = await get_podcast_transcript_resource(ctx=mock_ctx, task_id=ctx.task_id)
+            transcript_result = await get_podcast_transcript_resource(task_id=ctx.task_id)
             ctx.transcript_data = transcript_result
             
-            print(f"   ✅ Has transcript: {transcript_result.get('has_transcript', False)}")
-            print(f"   📄 File: {transcript_result.get('file_metadata', {}).get('transcript_file_path', 'N/A')}")
-            print(f"   📊 File size: {transcript_result.get('file_metadata', {}).get('file_size', 'N/A')} bytes")
-            
-            # Print transcript content (first 500 chars)
-            transcript_content = transcript_result.get('transcript_content', '')
+            print(f"📜 Transcript Resource Result:")
+            transcript_content = transcript_result.get('transcript_content')
             if transcript_content:
-                print(f"\n🎙️  TRANSCRIPT PREVIEW:")
-                print("-" * 30)
-                print(transcript_content[:500] + "..." if len(transcript_content) > 500 else transcript_content)
-                print("-" * 30)
-            
+                print(f"   ✅ Has transcript: {len(transcript_content)} characters")
+                print(f"   📄 File: {transcript_result.get('file_metadata', {}).get('transcript_file_path', 'N/A')}")
+                print(f"   📊 Size: {transcript_result.get('file_metadata', {}).get('file_size', 'N/A')} bytes")
+                
+                # Show first few lines of transcript
+                lines = transcript_content.split('\n')[:5]
+                print(f"   📝 Preview (first 5 lines):")
+                for line in lines:
+                    if line.strip():
+                        print(f"      {line[:80]}...")
+            else:
+                print(f"   ⚠️  No transcript content found")
+                
         except Exception as e:
             print(f"❌ Failed to get transcript: {e}")
             return False
         
-        print(f"\n🔊 Getting Podcast Audio...")
-        print("-" * 40)
-        
+        # Get audio
+        print(f"\n🔊 Fetching audio...")
         try:
-            audio_result = await get_podcast_audio_resource(ctx=mock_ctx, task_id=ctx.task_id)
+            audio_result = await get_podcast_audio_resource(task_id=ctx.task_id)
             ctx.audio_data = audio_result
             
-            audio_filepath = audio_result.get('audio_filepath', '')
-            
-            print(f"   ✅ Has audio: {audio_result.get('audio_exists', False)}")
-            print(f"   📄 File: {audio_filepath}")
-            print(f"   📊 File size: {audio_result.get('file_size', 'N/A')} bytes")
-            
-            # Show how to listen to the podcast
-            if audio_result.get('audio_exists', False) and audio_filepath:
-                print(f"\n🎧 HOW TO LISTEN TO YOUR PODCAST:")
-                print("=" * 50)
-                print(f"📁 Audio File: {audio_filepath}")
-                print(f"\n🎵 Option 1 - Open directly:")
-                print(f"   Just double-click the file or drag it to any audio player")
-                print(f"\n🎵 Option 2 - Command line players:")
-                print(f"   mpv '{audio_filepath}'")
-                print(f"   vlc '{audio_filepath}'")
-                print(f"   aplay '{audio_filepath}'")
-                print(f"\n🌐 Option 3 - Web interface (if running Flask app):")
-                # Extract task_id for web URL
-                task_id_for_web = ctx.task_id
-                print(f"   http://localhost:8080/audio/{task_id_for_web}/final.mp3")
-                print(f"   http://localhost:8080/podcast/{task_id_for_web}/audio")
-                print("=" * 50)
+            print(f"🔊 Audio Resource Result:")
+            if audio_result.get('audio_exists'):
+                print(f"   ✅ Has audio file: {audio_result.get('audio_file_path', 'N/A')}")
+                print(f"   📊 Size: {audio_result.get('file_size', 'N/A')} bytes")
+                print(f"   ⏱️  Duration: {audio_result.get('duration_seconds', 'N/A')} seconds")
             else:
-                print(f"⚠️  Audio file not found at: {audio_filepath}")
-            
+                print(f"   ⚠️  No audio file found")
+                
         except Exception as e:
             print(f"❌ Failed to get audio: {e}")
             return False
         
-        print(f"\n✅ Successfully retrieved transcript and audio content")
+        print(f"\n✅ Successfully retrieved all final content")
         return True
         
     except Exception as e:
-        print(f"❌ Step 7 failed: {e}")
+        print(f"❌ Step 8 failed: {e}")
         return False
 
 async def print_test_summary(ctx: IntegrationTestContext):
@@ -782,11 +551,10 @@ async def run_integration_test():
     steps = [
         ("Prompt-Guided Setup", step1_prompt_guided_setup),
         ("Podcast Generation", step2_podcast_generation),
-        ("Monitor Until Personas", step3_poll_status_until_personas),
+        ("Monitor Until Completion", step3_monitor_progress),
         ("Get Persona Research", step4_get_persona_research),
-        ("Monitor Until Outline", step5_poll_status_until_outline),
         ("Get Podcast Outline", step6_get_podcast_outline),
-        ("Complete & Get Final Content", step7_poll_until_complete_and_get_final_content),
+        ("Get Final Content", step8_get_final_content),
     ]
     
     try:
