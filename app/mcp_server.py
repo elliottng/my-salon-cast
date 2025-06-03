@@ -885,8 +885,10 @@ async def get_podcast_transcript_resource(task_id: str) -> dict:
         }
         
     except Exception as e:
-        if "Task not found" in str(e) or "not available" in str(e):
+        if "Task not found" in str(e):
             raise ToolError(f"Task not found: {task_id}")
+        elif "not available" in str(e):
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve podcast transcript: {str(e)}")
 
 
@@ -926,8 +928,10 @@ async def get_podcast_audio_resource(task_id: str) -> dict:
         }
         
     except Exception as e:
-        if "Task not found" in str(e) or "not available" in str(e):
+        if "Task not found" in str(e):
             raise ToolError(f"Task not found: {task_id}")
+        elif "not available" in str(e):
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve podcast audio: {str(e)}")
 
 
@@ -967,8 +971,10 @@ async def get_podcast_metadata_resource(task_id: str) -> dict:
         }
         
     except Exception as e:
-        if "Task not found" in str(e) or "not available" in str(e):
+        if "Task not found" in str(e):
             raise ToolError(f"Task not found: {task_id}")
+        elif "not available" in str(e):
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve podcast metadata: {str(e)}")
 
 
@@ -1007,8 +1013,10 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         }
         
     except Exception as e:
-        if "Task not found" in str(e) or "not available" in str(e):
+        if "Task not found" in str(e):
             raise ToolError(f"Task not found: {task_id}")
+        elif "not available" in str(e):
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve podcast outline: {str(e)}")
 
 
