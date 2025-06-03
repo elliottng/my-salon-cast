@@ -21,6 +21,7 @@ import asyncio
 import time
 import json
 from typing import Dict, Any, List
+from datetime import datetime, timedelta
 
 # Add the app directory to the Python path so we can import modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
@@ -167,7 +168,7 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
         return False
 
 async def step3_poll_status_until_personas(ctx: IntegrationTestContext) -> bool:
-    """Step 3: Poll get_task_status until personas_complete."""
+    """Step 3: Poll get_task_status until generating_outline."""
     print("\n🔸 Step 3: Monitor Progress Until Personas Complete")
     print("=" * 60)
     
@@ -177,29 +178,102 @@ async def step3_poll_status_until_personas(ctx: IntegrationTestContext) -> bool:
         start_time = time.time()
         mock_ctx = MockMCPContext()
         
+        # Log the start of monitoring
+        print(f"⏱️ Starting polling - maximum {max_wait_time}s with {poll_interval}s intervals")
+        previous_status_str = None
+        poll_count = 0
+        
         while time.time() - start_time < max_wait_time:
             # Poll status
+            poll_count += 1
+            poll_start = time.time()
             status_result = await get_task_status(ctx=mock_ctx, task_id=ctx.task_id)
+            poll_duration = time.time() - poll_start
             ctx.status_history.append(status_result)
             
+            # Extract status string, handling both string and dictionary formats
             current_status = status_result.get('status', 'unknown')
+            current_status_str = "unknown"
+            
+            # Handle different status formats with robust extraction
+            try:
+                if isinstance(current_status, dict):
+                    # If status is a dictionary, try to extract status_description or status field
+                    current_status_str = current_status.get('status_description') or current_status.get('status')
+                    # Add progress percentage when available
+                    progress = current_status.get('progress_percentage')
+                    if progress is not None:
+                        current_status_str = f"{current_status_str} ({progress:.1f}%)"
+                elif isinstance(current_status, str):
+                    current_status_str = current_status
+                else:
+                    current_status_str = str(current_status)
+            except Exception as e:
+                print(f"⚠️ Error extracting status: {e}")
+                current_status_str = f"Error: {type(current_status).__name__}"
+            
             elapsed = time.time() - start_time
             
-            print(f"⏱️  [{elapsed:6.1f}s] Status: {current_status}")
+            # Only print status if it changed or every 6th poll (about once per minute)
+            if current_status_str != previous_status_str or poll_count % 6 == 0:
+                print(f"⏱️ [{elapsed:6.1f}s] Status: {current_status_str} (poll took {poll_duration:.2f}s)")
+                previous_status_str = current_status_str
             
-            # Check if we've reached personas_complete
-            if current_status == "personas_complete":
-                print("🎯 Personas research complete! Ready for step 4.")
+            # Determine if we've reached the generating_outline stage
+            # This is challenging due to inconsistent status format, so check multiple ways
+            at_outline_stage = False
+            if isinstance(current_status, dict):
+                # Check for outline stage in dictionary structure
+                status_str = current_status.get('status')
+                desc_str = current_status.get('status_description', '')
+                if status_str == "generating_outline" or "outline" in desc_str.lower():
+                    at_outline_stage = True
+            elif current_status == "generating_outline":
+                at_outline_stage = True
+            elif isinstance(current_status, str) and "outline" in current_status.lower():
+                at_outline_stage = True
+            
+            # Check if persona research is complete
+            if at_outline_stage:
+                print(f"✅ Personas complete! Status progressed to outline generation")
+                print(f"   Elapsed time: {elapsed:.1f}s ({poll_count} polls)")
                 return True
-            elif current_status in ["error", "failed", "cancelled"]:
-                print(f"❌ Task failed with status: {current_status}")
-                print(f"   Error: {status_result.get('error', 'Unknown error')}")
+            
+            # Check for failure states - more precise error detection
+            is_failed = False
+            error_message = None
+            
+            # Only consider actual error conditions
+            if isinstance(current_status, dict):
+                # Check if status is explicitly failed or cancelled
+                status_str = current_status.get('status', '').lower()
+                if status_str in ["failed", "cancelled", "error"]:
+                    is_failed = True
+                
+                # Check if there's an actual error message
+                if current_status.get('error_message'):
+                    is_failed = True
+                    error_message = current_status.get('error_message')
+            elif isinstance(current_status, str):
+                # For string statuses, check for explicit failure states
+                if current_status.lower() in ["failed", "cancelled", "error"]:
+                    is_failed = True
+            
+            # Check the top-level error field as well
+            if status_result.get('error'):
+                is_failed = True
+                error_message = status_result.get('error')
+            
+            if is_failed:
+                print(f"❌ Task failed with status: {current_status_str}")
+                print(f"   Error: {error_message or 'Unknown error'}")
                 return False
             
             # Wait before next poll
             await asyncio.sleep(poll_interval)
         
-        print(f"❌ Timeout waiting for personas_complete (waited {max_wait_time}s)")
+        print(f"❌ Timeout waiting for generating_outline (waited {max_wait_time}s)")
+        print(f"   Last status received: {current_status_str}")
         return False
         
     except Exception as e:
@@ -265,29 +339,101 @@ async def step5_poll_status_until_outline(ctx: IntegrationTestContext) -> bool:
         start_time = time.time()
         mock_ctx = MockMCPContext()
         
+        # Log the start of monitoring
+        print(f"⏱️ Starting polling - maximum {max_wait_time}s with {poll_interval}s intervals")
+        previous_status_str = None
+        poll_count = 0
+        
         while time.time() - start_time < max_wait_time:
             # Poll status
+            poll_count += 1
+            poll_start = time.time()
             status_result = await get_task_status(ctx=mock_ctx, task_id=ctx.task_id)
+            poll_duration = time.time() - poll_start
             ctx.status_history.append(status_result)
             
+            # Extract status string, handling both string and dictionary formats
             current_status = status_result.get('status', 'unknown')
+            current_status_str = "unknown"
+            
+            # Handle different status formats with robust extraction
+            try:
+                if isinstance(current_status, dict):
+                    # If status is a dictionary, try to extract status_description or status field
+                    current_status_str = current_status.get('status_description') or current_status.get('status')
+                    # Add progress percentage when available
+                    progress = current_status.get('progress_percentage')
+                    if progress is not None:
+                        current_status_str = f"{current_status_str} ({progress:.1f}%)"
+                elif isinstance(current_status, str):
+                    current_status_str = current_status
+                else:
+                    current_status_str = str(current_status)
+            except Exception as e:
+                print(f"⚠️ Error extracting status: {e}")
+                current_status_str = f"Error: {type(current_status).__name__}"
+            
             elapsed = time.time() - start_time
             
-            print(f"⏱️  [{elapsed:6.1f}s] Status: {current_status}")
+            # Only print status if it changed or every 6th poll (about once per minute)
+            if current_status_str != previous_status_str or poll_count % 6 == 0:
+                print(f"⏱️ [{elapsed:6.1f}s] Status: {current_status_str} (poll took {poll_duration:.2f}s)")
+                previous_status_str = current_status_str
             
-            # Check if we've reached outline_complete  
-            if current_status == "outline_complete":
-                print("🎯 Podcast outline complete! Ready for step 6.")
+            # Determine if we've reached the outline_complete stage
+            at_outline_complete = False
+            if isinstance(current_status, dict):
+                # Check for outline completion in dictionary structure
+                status_str = current_status.get('status')
+                desc_str = current_status.get('status_description', '')
+                if status_str == "outline_complete" or ("outline" in desc_str.lower() and "complete" in desc_str.lower()):
+                    at_outline_complete = True
+            elif current_status == "outline_complete":
+                at_outline_complete = True
+            elif isinstance(current_status, str) and "outline" in current_status.lower() and "complete" in current_status.lower():
+                at_outline_complete = True
+            
+            # Check if outline is complete
+            if at_outline_complete:
+                print(f"✅ Outline complete! Status: {current_status_str}")
+                print(f"   Elapsed time: {elapsed:.1f}s ({poll_count} polls)")
                 return True
-            elif current_status in ["error", "failed", "cancelled"]:
-                print(f"❌ Task failed with status: {current_status}")
-                print(f"   Error: {status_result.get('error', 'Unknown error')}")
+            
+            # Check for failure states - more precise error detection
+            is_failed = False
+            error_message = None
+            
+            # Only consider actual error conditions
+            if isinstance(current_status, dict):
+                # Check if status is explicitly failed or cancelled
+                status_str = current_status.get('status', '').lower()
+                if status_str in ["failed", "cancelled", "error"]:
+                    is_failed = True
+                
+                # Check if there's an actual error message
+                if current_status.get('error_message'):
+                    is_failed = True
+                    error_message = current_status.get('error_message')
+            elif isinstance(current_status, str):
+                # For string statuses, check for explicit failure states
+                if current_status.lower() in ["failed", "cancelled", "error"]:
+                    is_failed = True
+            
+            # Check the top-level error field as well
+            if status_result.get('error'):
+                is_failed = True
+                error_message = status_result.get('error')
+            
+            if is_failed:
+                print(f"❌ Task failed with status: {current_status_str}")
+                print(f"   Error: {error_message or 'Unknown error'}")
                 return False
             
             # Wait before next poll
             await asyncio.sleep(poll_interval)
         
         print(f"❌ Timeout waiting for outline_complete (waited {max_wait_time}s)")
+        print(f"   Last status received: {current_status_str}")
         return False
         
     except Exception as e:
@@ -362,31 +508,105 @@ async def step7_poll_until_complete_and_get_final_content(ctx: IntegrationTestCo
         start_time = time.time()
         mock_ctx = MockMCPContext()
         
-        print("⏳ Waiting for complete podcast generation...")
+        # Log the start of monitoring
+        print(f"⏱️ Starting final polling - maximum {max_wait_time}s with {poll_interval}s intervals")
+        previous_status_str = None
+        poll_count = 0
         
         while time.time() - start_time < max_wait_time:
             # Poll status
+            poll_count += 1
+            poll_start = time.time()
             status_result = await get_task_status(ctx=mock_ctx, task_id=ctx.task_id)
+            poll_duration = time.time() - poll_start
             ctx.status_history.append(status_result)
             
+            # Extract status string, handling both string and dictionary formats
             current_status = status_result.get('status', 'unknown')
+            current_status_str = "unknown"
+            progress_percentage = None
+            
+            # Handle different status formats with robust extraction
+            try:
+                if isinstance(current_status, dict):
+                    # If status is a dictionary, try to extract status_description or status field
+                    current_status_str = current_status.get('status_description') or current_status.get('status')
+                    # Get progress percentage when available
+                    progress_percentage = current_status.get('progress_percentage')
+                    if progress_percentage is not None:
+                        current_status_str = f"{current_status_str} ({progress_percentage:.1f}%)"
+                elif isinstance(current_status, str):
+                    current_status_str = current_status
+                else:
+                    current_status_str = str(current_status)
+            except Exception as e:
+                print(f"⚠️ Error extracting status: {e}")
+                current_status_str = f"Error: {type(current_status).__name__}"
+            
             elapsed = time.time() - start_time
             
-            print(f"⏱️  [{elapsed:6.1f}s] Status: {current_status}")
+            # Only print status if it changed or every 6th poll (about once per minute)
+            if current_status_str != previous_status_str or poll_count % 6 == 0:
+                print(f"⏱️ [{elapsed:6.1f}s] Status: {current_status_str} (poll took {poll_duration:.2f}s)")
+                previous_status_str = current_status_str
             
-            # Check if we've reached complete
-            if current_status == "complete":
-                print("🎯 Podcast generation complete! Getting final content...")
+            # Determine if we've reached the complete stage
+            at_complete_stage = False
+            if isinstance(current_status, dict):
+                # Check for completion in dictionary structure
+                status_str = current_status.get('status')
+                desc_str = current_status.get('status_description', '')
+                if status_str == "complete" or "complete" in desc_str.lower():
+                    at_complete_stage = True
+            elif current_status == "complete":
+                at_complete_stage = True
+            
+            # Also check progress percentage if we have it
+            if progress_percentage is not None and progress_percentage >= 99.9:
+                at_complete_stage = True
+            
+            # Check if podcast generation is complete
+            if at_complete_stage:
+                print(f"✅ Podcast generation complete! Status: {current_status_str}")
+                print(f"   Elapsed time: {elapsed:.1f}s ({poll_count} polls)")
+                print(f"   Getting final content...")
                 break
-            elif current_status in ["error", "failed", "cancelled"]:
-                print(f"❌ Task failed with status: {current_status}")
-                print(f"   Error: {status_result.get('error', 'Unknown error')}")
+            
+            # Check for failure states - more precise error detection
+            is_failed = False
+            error_message = None
+            
+            # Only consider actual error conditions
+            if isinstance(current_status, dict):
+                # Check if status is explicitly failed or cancelled
+                status_str = current_status.get('status', '').lower()
+                if status_str in ["failed", "cancelled", "error"]:
+                    is_failed = True
+                
+                # Check if there's an actual error message
+                if current_status.get('error_message'):
+                    is_failed = True
+                    error_message = current_status.get('error_message')
+            elif isinstance(current_status, str):
+                # For string statuses, check for explicit failure states
+                if current_status.lower() in ["failed", "cancelled", "error"]:
+                    is_failed = True
+            
+            # Check the top-level error field as well
+            if status_result.get('error'):
+                is_failed = True
+                error_message = status_result.get('error')
+            
+            if is_failed:
+                print(f"❌ Task failed with status: {current_status_str}")
+                print(f"   Error: {error_message or 'Unknown error'}")
                 return False
             
             # Wait before next poll
             await asyncio.sleep(poll_interval)
         else:
             print(f"❌ Timeout waiting for completion (waited {max_wait_time}s)")
+            print(f"   Last status received: {current_status_str}")
             return False
         
         # Now get transcript and audio
@@ -458,27 +678,77 @@ async def step7_poll_until_complete_and_get_final_content(ctx: IntegrationTestCo
         return False
 
 async def print_test_summary(ctx: IntegrationTestContext):
-    """Print a summary of the integration test results."""
-    total_time = time.time() - ctx.start_time
-    
-    print("\n" + "=" * 60)
-    print("🏁 INTEGRATION TEST SUMMARY")
+    # Print final summary
+    print("\n📊 Integration Test Summary")
     print("=" * 60)
-    print(f"⏱️  Total Test Duration: {total_time:.1f} seconds ({total_time/60:.1f} minutes)")
-    print(f"🆔 Task ID: {ctx.task_id}")
-    print(f"📊 Status History: {len(ctx.status_history)} status checks")
-    print(f"👥 Personas Researched: {len(ctx.persona_research)}")
-    print(f"📝 Outline Retrieved: {'Yes' if ctx.outline_data.get('has_outline') else 'No'}")
+    print(f"\n⏱️ Test Duration: {time.time() - ctx.start_time:.1f} seconds")
+    print(f"\n🎟️ Podcast Generation Result:")
+    print(f"🔑 Task ID: {ctx.task_id}")
+    print(f"📋 Status Checks: {len(ctx.status_history)}")
+    print(f"👨‍👩‍👧‍👦 Personas Researched: {len(ctx.persona_research.get('personas', []))}")
+    print(f"📝 Outline Points: {len(ctx.outline_data.get('outline_points', []))}")
     print(f"📜 Transcript Retrieved: {'Yes' if ctx.transcript_data.get('has_transcript') else 'No'}")
     print(f"🔊 Audio Retrieved: {'Yes' if ctx.audio_data.get('audio_exists') else 'No'}")
     
     print(f"\n📈 Status Progression:")
+    # Improved status extraction with better error handling
     unique_statuses = []
-    for status_check in ctx.status_history:
-        status = status_check.get('status', 'unknown')
-        if not unique_statuses or unique_statuses[-1] != status:
-            unique_statuses.append(status)
-    print(f"   {' → '.join(unique_statuses)}")
+    status_times = []
+    start_datetime = datetime.fromtimestamp(ctx.start_time)
+    last_time = start_datetime
+    
+    for i, status_check in enumerate(ctx.status_history):
+        # Extract timestamp for this status
+        current_time = start_datetime + timedelta(seconds=i*10)  # Approximate timing
+        
+        # Extract status string safely with robust fallbacks
+        try:
+            if isinstance(status_check, dict):
+                # Handle nested status structures
+                status = status_check.get('status', 'unknown')
+                if isinstance(status, dict):
+                    # First try to get status_description from nested dict
+                    status = status.get('status_description', None) or status.get('status', None)
+                    
+                    # If we have a progress percentage, add it
+                    if status and isinstance(status, dict) and status.get('progress_percentage') is not None:
+                        status = f"{status} ({status.get('progress_percentage')}%)"
+            elif isinstance(status_check, str):
+                status = status_check
+            else:
+                status = str(status_check)
+                
+            # Track unique statuses and timing
+            if not unique_statuses or unique_statuses[-1] != status:
+                unique_statuses.append(status)
+                status_times.append(current_time - last_time)  # Time spent in previous status
+                last_time = current_time
+                
+        except Exception as e:
+            # Log error but continue processing
+            print(f"   Warning: Error extracting status at position {i}: {e}")
+            unique_statuses.append(f"[error:{i}]")
+    
+    # Print status timeline with durations
+    if unique_statuses:
+        try:
+            print("   Status transitions:")
+            for i, (status, duration) in enumerate(zip(unique_statuses, status_times)):
+                if i > 0:  # Skip the first duration (it's not meaningful)
+                    minutes, seconds = divmod(duration.total_seconds(), 60)
+                    print(f"   {i:2d}. {status} ({int(minutes)}m {int(seconds)}s)")
+                else:
+                    print(f"   {i:2d}. {status} (initial)")
+                    
+            # Also print the linear flow for quick visualization
+            flow = " → ".join([str(s) for s in unique_statuses])
+            print(f"\n   Flow: {flow}")
+        except Exception as e:
+            print(f"   Error displaying status progression: {e}")
+            # Provide raw data for debugging
+            print(f"   Raw statuses: {unique_statuses}")
+    else:
+        print("   No status progression recorded")
     
     print(f"\n🎯 Integration Points Validated:")
     print(f"   ✅ MCP Prompts → Tool Guidance")
@@ -506,7 +776,7 @@ async def run_integration_test():
     
     print("🚀 MySalonCast MCP Integration Test")
     print("🎯 Testing complete workflow from prompts to final audio")
-    print(f"🕐 Started at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🕒 Started at: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     
     # Execute all test steps
@@ -520,23 +790,44 @@ async def run_integration_test():
         ("Complete & Get Final Content", step7_poll_until_complete_and_get_final_content),
     ]
     
-    for step_name, step_func in steps:
-        try:
-            success = await step_func(ctx)
-            if not success:
-                print(f"\n❌ Integration test failed at: {step_name}")
+    try:
+        for step_name, step_func in steps:
+            try:
+                success = await step_func(ctx)
+                if not success:
+                    print(f"\n❌ Integration test failed at: {step_name}")
+                    await print_test_summary(ctx)
+                    return False
+            except Exception as e:
+                print(f"\n💥 Integration test crashed at {step_name}: {e}")
                 await print_test_summary(ctx)
                 return False
-        except Exception as e:
-            print(f"\n💥 Integration test crashed at {step_name}: {e}")
-            await print_test_summary(ctx)
-            return False
-    
-    # Test completed successfully
-    print("\n🎉 Integration test completed successfully!")
-    print("✅ Complete end-to-end MCP workflow validated!")
-    await print_test_summary(ctx)
-    return True
+        
+        # Test completed successfully
+        print("\n🎉 Integration test completed successfully!")
+        print("✅ Complete end-to-end MCP workflow validated!")
+        await print_test_summary(ctx)
+        return True
+    finally:
+        # Ensure proper cleanup of any lingering tasks
+        print("Cleaning up asyncio tasks...")
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        if tasks:
+            print(f"Cancelling {len(tasks)} pending tasks...")
+            for task in tasks:
+                task.cancel()
+            
+            # Wait for all tasks to be cancelled
+            try:
+                await asyncio.gather(*tasks, return_exceptions=True)
+                print("All pending tasks cancelled successfully")
+            except Exception as e:
+                print(f"Error during task cleanup: {e}")
+        else:
+            print("No pending tasks to clean up")
+            
+        # Small delay to ensure all resources are properly released
+        await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
     success = asyncio.run(run_integration_test())

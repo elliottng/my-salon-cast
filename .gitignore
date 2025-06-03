@@ -1,5 +1,8 @@
 # Service account keys
 terraform-sa-key.json
+*-credentials.json
+gcp-*.json
+google-*.json
 
 # Environment variables
 .env

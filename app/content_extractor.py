@@ -85,6 +85,20 @@ async def extract_text_from_pdf_path(pdf_path: str) -> str:
         raise ExtractionError(err_msg)
 
 
+# Global client to prevent 'cannot schedule new futures after shutdown' errors
+_http_client = None
+
+async def get_http_client():
+    """
+    Returns a singleton httpx.AsyncClient instance to prevent 
+    'cannot schedule new futures after shutdown' errors when 
+    processing multiple URLs in sequence.
+    """
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=10.0)
+    return _http_client
+
 async def extract_content_from_url(url: str) -> str:
     """
     Fetches and extracts relevant text content from a given URL.
@@ -92,38 +106,39 @@ async def extract_content_from_url(url: str) -> str:
     """
     all_text = []
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client: # Added timeout
-            response = await client.get(url, follow_redirects=True) # Added follow_redirects
-            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+        # Use the singleton client instead of creating a new one each time
+        client = await get_http_client()
+        response = await client.get(url, follow_redirects=True)
+        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
-            content_type = response.headers.get("content-type", "").lower()
-            if "html" not in content_type:
-                print(f"Content at {url} is not HTML (type: {content_type}). Returning raw content if text-based.")
-                # For non-HTML, decide if we want to return raw text or nothing
-                # For now, let's try to decode if it's a text type, otherwise empty
-                if "text/" in content_type:
-                    return response.text
-                raise ExtractionError(f"Content at {url} is not HTML and not a recognized text type (type: {content_type}).")
+        content_type = response.headers.get("content-type", "").lower()
+        if "html" not in content_type:
+            print(f"Content at {url} is not HTML (type: {content_type}). Returning raw content if text-based.")
+            # For non-HTML, decide if we want to return raw text or nothing
+            # For now, let's try to decode if it's a text type, otherwise empty
+            if "text/" in content_type:
+                return response.text
+            raise ExtractionError(f"Content at {url} is not HTML and not a recognized text type (type: {content_type}).")
 
-            soup = BeautifulSoup(response.content, 'html.parser')
+        soup = BeautifulSoup(response.content, 'html.parser')
 
-            # Remove script and style elements
-            for script_or_style in soup(["script", "style"]):
-                script_or_style.decompose()
+        # Remove script and style elements
+        for script_or_style in soup(["script", "style"]):
+            script_or_style.decompose()
 
-            # Get text from the body, or specific tags. This is a basic approach.
-            # More sophisticated extraction might target <article>, <main>, or specific class/id attributes.
-            body = soup.find('body')
-            if body:
-                # Get text from all elements, join with space, then strip extra whitespace
-                text_content = body.get_text(separator=' ', strip=True)
-                return text_content
-            else:
-                # Fallback if no body tag (unlikely for valid HTML)
-                text_content = soup.get_text(separator=' ', strip=True)
-                if not text_content:
-                    raise ExtractionError(f"No text content found in body or fallback for URL: {url}")
-                return text_content
+        # Get text from the body, or specific tags. This is a basic approach.
+        # More sophisticated extraction might target <article>, <main>, or specific class/id attributes.
+        body = soup.find('body')
+        if body:
+            # Get text from all elements, join with space, then strip extra whitespace
+            text_content = body.get_text(separator=' ', strip=True)
+            return text_content
+        else:
+            # Fallback if no body tag (unlikely for valid HTML)
+            text_content = soup.get_text(separator=' ', strip=True)
+            if not text_content:
+                raise ExtractionError(f"No text content found in body or fallback for URL: {url}")
+            return text_content
 
     except httpx.HTTPStatusError as e:
         err_msg = f"HTTP error {e.response.status_code} while fetching {url}: {e}"
