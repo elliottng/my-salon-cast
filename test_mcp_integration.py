@@ -295,8 +295,7 @@ async def step4_get_persona_research(ctx: IntegrationTestContext) -> bool:
             
             try:
                 # Get persona research via MCP resource
-                mock_ctx = MockMCPContext()
-                research_result = await get_persona_research_resource(ctx=mock_ctx, task_id=ctx.task_id, person_id=person_id)
+                research_result = await get_persona_research_resource(task_id=ctx.task_id, person_id=person_id)
                 
                 ctx.persona_research[person_id] = research_result
                 

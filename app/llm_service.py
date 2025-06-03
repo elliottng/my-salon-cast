@@ -257,7 +257,7 @@ class GeminiService:
             logger.info("Calling generate_text_async for source analysis...")
             
             try:
-                response = await self.generate_text_async(prompt)
+                response = await self.generate_text_async(prompt, timeout_seconds=360)
                 logger.info(f"generate_text_async returned response of length: {len(response) if response else 0} characters")
                 
                 if not response:
@@ -413,7 +413,7 @@ Your output MUST be a single, valid JSON object only, with no additional text be
         json_response_str: str = None  # Initialize
         try:
             logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
-            json_response_str = await self.generate_text_async(prompt)
+            json_response_str = await self.generate_text_async(prompt, timeout_seconds=420)
             
             logger.debug(f"Raw LLM response for persona research of '{person_name}': {json_response_str}")
 
@@ -1017,8 +1017,8 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
             )
             logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
 
-            # Use extended timeout (300s) for podcast outline generation as it's a complex prompt
-            raw_response_text = await self.generate_text_async(final_prompt, timeout_seconds=300)
+            # Use extended timeout (360s) for podcast outline generation as it's a complex prompt
+            raw_response_text = await self.generate_text_async(final_prompt, timeout_seconds=360)
             
             # Attempt to strip markdown fences if present
             cleaned_response_text = raw_response_text.strip()
@@ -1281,7 +1281,7 @@ Additional User Instructions:
         """
         try:
             logger.debug(f"Sending segment dialogue prompt for segment {segment.segment_id}")
-            raw_response_text = await self.generate_text_async(segment_dialogue_prompt)
+            raw_response_text = await self.generate_text_async(segment_dialogue_prompt, timeout_seconds=360)
             
             # Clean the response
             cleaned_response_text = raw_response_text.strip()
