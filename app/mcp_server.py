@@ -6,9 +6,11 @@ from app.podcast_models import PodcastRequest, PodcastEpisode
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.cleanup_config import cleanup_manager, get_cleanup_manager, CleanupPolicy
+from app.tts_service import GoogleCloudTtsService
 from fastmcp.prompts.prompt import Message
 from pydantic import Field
 from typing import Literal, Optional, List
+from datetime import datetime
 import os
 import tempfile
 import base64
@@ -492,7 +494,7 @@ async def cleanup_task_files(
             import glob
             temp_dirs_pattern = os.path.join(tempfile.gettempdir(), f"podcast_job_*")
             for temp_dir in glob.glob(temp_dirs_pattern):
-                if task_id[:8] in temp_dir:
+                if task_id[:8] in temp_dir and os.path.isdir(temp_dir):
                     try:
                         import shutil
                         dir_size = sum(os.path.getsize(os.path.join(dirpath, filename))
@@ -838,6 +840,164 @@ async def get_cleanup_config_resource() -> dict:
         }
     }
 
+# =============================================================================
+# HEALTH AND MONITORING TOOLS
+# =============================================================================
+
+@mcp.tool()
+async def get_service_health(ctx, include_details: bool = True) -> dict:
+    """
+    Get health and performance metrics for MySalonCast services.
+    
+    Returns current status and performance metrics for TTS service, task runner,
+    and other critical components to help monitor service health in production.
+    
+    Args:
+        include_details: Whether to include detailed performance metrics
+    
+    Returns:
+        Dict with service health status and performance metrics
+    """
+    # Enhanced logging with MCP context
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    logger.info(f"[{request_id}] MCP Tool 'get_service_health' called")
+    
+    try:
+        # Get TTS service metrics
+        tts_metrics = GoogleCloudTtsService.get_current_metrics()
+        
+        # Get task runner status
+        task_runner_status = {
+            "active_tasks": len(task_runner.active_tasks) if hasattr(task_runner, 'active_tasks') else 0,
+            "total_completed": getattr(task_runner, 'total_completed', 0)
+        }
+        
+        # Get status manager info
+        status_count = len(status_manager.statuses) if hasattr(status_manager, 'statuses') else 0
+        
+        # Overall health assessment
+        tts_healthy = tts_metrics.get("executor_status") == "healthy"
+        overall_health = "healthy" if tts_healthy else "degraded"
+        
+        health_data = {
+            "overall_health": overall_health,
+            "timestamp": datetime.now().isoformat(),
+            "services": {
+                "tts_service": tts_metrics,
+                "task_runner": task_runner_status,
+                "status_manager": {
+                    "tracked_tasks": status_count
+                }
+            },
+            "recommendations": []
+        }
+        
+        # Add performance recommendations
+        if tts_metrics.get("worker_utilization_pct", 0) > 80:
+            health_data["recommendations"].append("High TTS worker utilization - consider scaling")
+        
+        if tts_metrics.get("queue_size", 0) > 20:
+            health_data["recommendations"].append("Large TTS queue - audio generation may be delayed")
+        
+        if tts_metrics.get("success_rate_pct", 100) < 95:
+            health_data["recommendations"].append("Low TTS success rate - check Google Cloud TTS API status")
+        
+        return {
+            "success": True,
+            "health_data": health_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting service health: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": f"Failed to retrieve service health: {str(e)}",
+            "health_data": {
+                "overall_health": "error",
+                "services": {},
+                "recommendations": ["Service health monitoring is experiencing issues"]
+            }
+        }
+
+@mcp.tool()
+async def test_tts_service(ctx, text: str = "Health monitoring test", output_filename: Optional[str] = None) -> dict:
+    """
+    Test TTS service functionality and update health metrics.
+    
+    This tool is specifically for testing and validating TTS health monitoring.
+    It triggers TTS operations within the MCP server process to update metrics.
+    
+    Args:
+        text: Text to synthesize (default: "Health monitoring test")
+        output_filename: Optional filename for audio output (uses temp file if not provided)
+    
+    Returns:
+        Dict with TTS operation result and basic metrics
+    """
+    import tempfile
+    import os
+    
+    # Enhanced logging with MCP context
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    
+    logger.info(f"[{request_id}] MCP Tool 'test_tts_service' called")
+    logger.info(f"[{request_id}] Testing TTS with text: '{text[:50]}...'")
+    
+    try:
+        # Create output path
+        if output_filename:
+            output_path = os.path.join(tempfile.gettempdir(), output_filename)
+        else:
+            temp_fd, output_path = tempfile.mkstemp(suffix='.wav', prefix='tts_health_test_')
+            os.close(temp_fd)  # Close the file descriptor, keep the path
+        
+        # Get TTS metrics before operation
+        initial_metrics = GoogleCloudTtsService.get_current_metrics()
+        initial_jobs = initial_metrics.get('total_jobs_completed', 0)
+        
+        logger.info(f"[{request_id}] TTS metrics before operation: {initial_jobs} jobs completed")
+        
+        # Trigger TTS operation within MCP server process
+        tts_service = GoogleCloudTtsService()
+        await tts_service.text_to_audio_async(text, output_path)
+        
+        # Get TTS metrics after operation  
+        final_metrics = GoogleCloudTtsService.get_current_metrics()
+        final_jobs = final_metrics.get('total_jobs_completed', 0)
+        
+        logger.info(f"[{request_id}] TTS metrics after operation: {final_jobs} jobs completed")
+        logger.info(f"[{request_id}] TTS test completed successfully: {output_path}")
+        
+        # Check if file was created
+        file_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+        
+        return {
+            "success": True,
+            "message": "TTS service test completed successfully",
+            "output_path": output_path,
+            "file_size_bytes": file_size,
+            "metrics": {
+                "jobs_before": initial_jobs,
+                "jobs_after": final_jobs,
+                "jobs_incremented": final_jobs - initial_jobs,
+                "executor_status": final_metrics.get('executor_status', 'unknown'),
+                "success_rate": final_metrics.get('success_rate_pct', 0)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] TTS service test failed: {e}")
+        return {
+            "success": False,
+            "error": f"TTS service test failed: {str(e)}",
+            "metrics": {
+                "jobs_before": initial_jobs if 'initial_jobs' in locals() else 0,
+                "jobs_after": 0,
+                "jobs_incremented": 0
+            }
+        }
+
+# =============================================================================
 # PHASE 4.4: Job Status and Podcast Resources
 # =============================================================================
 

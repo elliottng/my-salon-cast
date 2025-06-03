@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from concurrent.futures import ThreadPoolExecutor
 import functools
+import atexit
 
 # Load environment variables from env file
 load_dotenv()
@@ -18,6 +19,84 @@ load_dotenv()
 # Configure logger
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+class TtsMetrics:
+    """Track TTS service performance metrics."""
+    
+    def __init__(self):
+        self.jobs_completed = 0
+        self.jobs_failed = 0
+        self.total_processing_time = 0.0
+        self.min_processing_time = float('inf')
+        self.max_processing_time = 0.0
+        self.last_minute_jobs = []
+        self.last_metrics_log = time.time()
+    
+    def record_job(self, processing_time: float, success: bool):
+        """Record a completed TTS job."""
+        current_time = time.time()
+        
+        if success:
+            self.jobs_completed += 1
+            self.total_processing_time += processing_time
+            self.min_processing_time = min(self.min_processing_time, processing_time)
+            self.max_processing_time = max(self.max_processing_time, processing_time)
+        else:
+            self.jobs_failed += 1
+        
+        # Track jobs in last minute
+        self.last_minute_jobs.append(current_time)
+        # Remove jobs older than 1 minute
+        self.last_minute_jobs = [t for t in self.last_minute_jobs if current_time - t <= 60]
+    
+    def get_metrics(self, active_workers: int, max_workers: int, queue_size: int) -> dict:
+        """Get current metrics snapshot."""
+        total_jobs = self.jobs_completed + self.jobs_failed
+        avg_time = (self.total_processing_time / self.jobs_completed) if self.jobs_completed > 0 else 0
+        
+        return {
+            "active_workers": active_workers,
+            "max_workers": max_workers,
+            "queue_size": queue_size,
+            "worker_utilization_pct": round((active_workers / max_workers) * 100, 1),
+            "jobs_completed": self.jobs_completed,
+            "jobs_failed": self.jobs_failed,
+            "success_rate_pct": round((self.jobs_completed / total_jobs) * 100, 1) if total_jobs > 0 else 100,
+            "avg_processing_time_ms": round(avg_time * 1000, 1),
+            "min_processing_time_ms": round(self.min_processing_time * 1000, 1) if self.min_processing_time != float('inf') else 0,
+            "max_processing_time_ms": round(self.max_processing_time * 1000, 1),
+            "jobs_completed_last_minute": len(self.last_minute_jobs)
+        }
+    
+    def should_log_metrics(self) -> bool:
+        """Check if it's time to log metrics (every 30 seconds during activity)."""
+        current_time = time.time()
+        if current_time - self.last_metrics_log >= 30:
+            self.last_metrics_log = current_time
+            return True
+        return False
+
+    def get_avg_processing_time(self) -> float:
+        """Get average processing time."""
+        if self.jobs_completed > 0:
+            return self.total_processing_time / self.jobs_completed
+        return 0.0
+
+    def get_jobs_last_minute(self) -> int:
+        """Get number of jobs completed in the last minute."""
+        return len(self.last_minute_jobs)
+    
+    def has_recent_activity(self, minutes: int = 2) -> bool:
+        """Check if there has been TTS activity in the last N minutes."""
+        if not self.last_minute_jobs:
+            return False
+        
+        current_time = time.time()
+        cutoff_time = current_time - (minutes * 60)
+        
+        # Check if any job was completed in the specified time window
+        recent_jobs = [t for t in self.last_minute_jobs if t >= cutoff_time]
+        return len(recent_jobs) > 0
 
 class GoogleCloudTtsService:
     # Cache file path for storing voice list
@@ -27,15 +106,164 @@ class GoogleCloudTtsService:
     
     # Shared thread pool executor for TTS calls to prevent shutdown issues
     _executor = None
+    _shutdown_registered = False
+    _metrics = TtsMetrics()
     
     @classmethod
     def _get_executor(cls):
         """Get or create a shared thread pool executor for TTS operations."""
-        if cls._executor is None:
-            cls._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tts_worker")
+        if cls._executor is None or cls._executor._shutdown:
+            cls._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tts_worker")
             logger.info("Created shared TTS thread pool executor")
+            
+            # Register shutdown handler only once
+            if not cls._shutdown_registered:
+                atexit.register(cls._shutdown_executor)
+                cls._shutdown_registered = True
+                
         return cls._executor
     
+    @classmethod
+    def _shutdown_executor(cls):
+        """Safely shutdown the shared thread pool executor."""
+        if cls._executor and not cls._executor._shutdown:
+            try:
+                cls._executor.shutdown(wait=True, cancel_futures=False)
+                logger.info("TTS thread pool executor shutdown complete")
+            except Exception as e:
+                logger.warning(f"Error during TTS executor shutdown: {e}")
+    
+    @classmethod
+    def _executor_is_healthy(cls):
+        """Check if the executor is available and not shutdown."""
+        return cls._executor is not None and not cls._executor._shutdown
+
+    @classmethod
+    def get_current_metrics(cls) -> Dict[str, Any]:
+        """Get current TTS service metrics and performance statistics."""
+        try:
+            # Get executor info
+            if cls._executor is None:
+                return {
+                    "executor_status": "not_initialized",
+                    "max_workers": 0,
+                    "active_workers": 0,
+                    "queue_size": 0,
+                    "worker_utilization_pct": 0.0,
+                    "total_jobs_completed": cls._metrics.jobs_completed if cls._metrics else None,
+                    "total_jobs_failed": cls._metrics.jobs_failed if cls._metrics else None,
+                    "success_rate_pct": 100.0 if not cls._metrics or cls._metrics.jobs_failed == 0 else 
+                                      (cls._metrics.jobs_completed / (cls._metrics.jobs_completed + cls._metrics.jobs_failed)) * 100,
+                    "avg_processing_time_sec": cls._metrics.get_avg_processing_time() if cls._metrics else None,
+                    "min_processing_time_sec": cls._metrics.min_processing_time if cls._metrics else None,
+                    "max_processing_time_sec": cls._metrics.max_processing_time if cls._metrics else None,
+                    "jobs_last_minute": cls._metrics.get_jobs_last_minute() if cls._metrics else 0,
+                    "last_updated": datetime.now().isoformat()
+                }
+            
+            executor = cls._executor
+            max_workers = executor._max_workers
+            
+            # Calculate active workers more safely
+            active_workers = 0
+            try:
+                # Try different ways to get active thread count
+                if hasattr(executor, '_threads'):
+                    total_threads = len(executor._threads) if hasattr(executor._threads, '__len__') else executor._threads
+                    if hasattr(executor, '_idle_semaphore'):
+                        idle_sem = executor._idle_semaphore
+                        if hasattr(idle_sem, '_value'):
+                            idle_count = idle_sem._value if isinstance(idle_sem._value, int) else len(idle_sem._value)
+                            active_workers = max(0, total_threads - idle_count)
+                        else:
+                            active_workers = total_threads  # Fallback
+                    else:
+                        active_workers = total_threads  # Fallback
+                else:
+                    active_workers = 0
+            except Exception:
+                # Fallback to 0 if we can't determine
+                active_workers = 0
+            
+            # Calculate queue size more safely
+            queue_size = 0
+            try:
+                if hasattr(executor, '_work_queue'):
+                    work_queue = executor._work_queue
+                    if hasattr(work_queue, 'qsize'):
+                        queue_size = work_queue.qsize()
+                    elif hasattr(work_queue, '__len__'):
+                        queue_size = len(work_queue)
+            except Exception:
+                queue_size = 0
+            
+            # Calculate utilization
+            utilization_pct = (active_workers / max_workers * 100) if max_workers > 0 else 0.0
+            
+            # Get metrics data
+            total_completed = cls._metrics.jobs_completed if cls._metrics else 0
+            total_failed = cls._metrics.jobs_failed if cls._metrics else 0
+            success_rate = 100.0 if total_failed == 0 and total_completed > 0 else \
+                          (total_completed / (total_completed + total_failed) * 100) if (total_completed + total_failed) > 0 else 100.0
+            
+            return {
+                "executor_status": "healthy" if not executor._shutdown else "shutdown",
+                "max_workers": max_workers,
+                "active_workers": active_workers,
+                "queue_size": queue_size,
+                "worker_utilization_pct": utilization_pct,
+                "total_jobs_completed": total_completed,
+                "total_jobs_failed": total_failed,
+                "success_rate_pct": success_rate,
+                "avg_processing_time_sec": cls._metrics.get_avg_processing_time() if cls._metrics else None,
+                "min_processing_time_sec": cls._metrics.min_processing_time if cls._metrics else None,
+                "max_processing_time_sec": cls._metrics.max_processing_time if cls._metrics else None,
+                "jobs_last_minute": cls._metrics.get_jobs_last_minute() if cls._metrics else 0,
+                "last_updated": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            # Return minimal safe metrics on any error
+            return {
+                "executor_status": "error",
+                "max_workers": 0,
+                "active_workers": 0,
+                "queue_size": 0,
+                "worker_utilization_pct": 0.0,
+                "total_jobs_completed": None,
+                "total_jobs_failed": None,
+                "success_rate_pct": 0.0,
+                "avg_processing_time_sec": None,
+                "error": str(e),
+                "last_updated": datetime.now().isoformat()
+            }
+
+    @classmethod 
+    def log_metrics_if_needed(cls):
+        """Log TTS metrics every 30 seconds during active operations."""
+        if cls._metrics is None:
+            return
+            
+        # Only log if we have recent activity (last 2 minutes)
+        if not cls._metrics.has_recent_activity(minutes=2):
+            return
+            
+        # Get current metrics
+        metrics = cls.get_current_metrics()
+        
+        # Log comprehensive metrics
+        logger.info(
+            f"TTS Metrics - Status: {metrics['executor_status']}, "
+            f"Workers: {metrics['active_workers']}/{metrics['max_workers']} "
+            f"({metrics['worker_utilization_pct']:.1f}%), "
+            f"Queue: {metrics['queue_size']}, "
+            f"Completed: {metrics['total_jobs_completed']}, "
+            f"Failed: {metrics['total_jobs_failed']}, "
+            f"Success Rate: {metrics['success_rate_pct']:.1f}%, "
+            f"Avg Time: {metrics['avg_processing_time_sec']:.2f}s, "
+            f"Last Minute: {metrics['jobs_last_minute']}"
+        )
+
     def __init__(self):
         """
         Initializes the Google Cloud Text-to-Speech client.
@@ -342,22 +570,77 @@ class GoogleCloudTtsService:
                 
             logger.info(log_message)
 
+            # Log metrics periodically during active TTS operations
+            self.log_metrics_if_needed()
+
             # The synthesize_speech method is blocking, so run it in a separate thread
-            executor = self._get_executor()
+            # Check executor health before attempting to use it
+            if not self._executor_is_healthy():
+                logger.warning("TTS executor is shutdown, attempting to recreate...")
+                # Try to recreate the executor
+                self._executor = None
+                executor = self._get_executor()
+                if not self._executor_is_healthy():
+                    logger.error("Unable to create healthy TTS executor, falling back to synchronous execution")
+                    # Fall back to synchronous execution as last resort
+                    synthesis_func = functools.partial(
+                        self.client.synthesize_speech,
+                        request={
+                            "input": synthesis_input,
+                            "voice": voice_selection_params,
+                            "audio_config": audio_config,
+                        }
+                    )
+                    try:
+                        response = synthesis_func()
+                    except Exception as e:
+                        logger.error(f"Synchronous TTS fallback failed: {e}")
+                        raise RuntimeError(f"TTS synthesis failed with synchronous fallback: {e}")
+                else:
+                    executor = self._get_executor()
+            else:
+                executor = self._get_executor()
             
-            # Create a partial function to avoid event loop issues
-            synthesis_func = functools.partial(
-                self.client.synthesize_speech,
-                request={
-                    "input": synthesis_input,
-                    "voice": voice_selection_params,
-                    "audio_config": audio_config,
-                }
-            )
-            
-            # Submit to our dedicated executor and await the result
-            future = executor.submit(synthesis_func)
-            response = await asyncio.wrap_future(future)
+            if self._executor_is_healthy():
+                # Create a partial function to avoid event loop issues
+                synthesis_func = functools.partial(
+                    self.client.synthesize_speech,
+                    request={
+                        "input": synthesis_input,
+                        "voice": voice_selection_params,
+                        "audio_config": audio_config,
+                    }
+                )
+                
+                # Submit to our dedicated executor and await the result
+                try:
+                    start_time = time.time()
+                    future = executor.submit(synthesis_func)
+                    response = await asyncio.wrap_future(future)
+                    processing_time = time.time() - start_time
+                    self._metrics.record_job(processing_time, True)
+                except RuntimeError as e:
+                    if "cannot schedule new futures after interpreter shutdown" in str(e):
+                        logger.warning("Executor shutdown during TTS call, falling back to synchronous execution")
+                        # Fall back to synchronous execution
+                        response = synthesis_func()
+                        processing_time = time.time() - start_time
+                        self._metrics.record_job(processing_time, True)
+                    else:
+                        raise
+            else:
+                # If executor is not healthy, use synchronous execution
+                synthesis_func = functools.partial(
+                    self.client.synthesize_speech,
+                    request={
+                        "input": synthesis_input,
+                        "voice": voice_selection_params,
+                        "audio_config": audio_config,
+                    }
+                )
+                response = synthesis_func()
+                processing_time = time.time() - start_time
+                self._metrics.record_job(processing_time, True)
             
             # Ensure output directory exists
             output_dir = os.path.dirname(output_filepath)
@@ -371,6 +654,7 @@ class GoogleCloudTtsService:
 
         except Exception as e:
             logger.error(f"Error during text-to-speech synthesis: {e}", exc_info=True)
+            self._metrics.record_job(0, False)
             return False
 
 # Example usage (for testing purposes, can be removed later)
