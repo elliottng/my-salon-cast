@@ -533,33 +533,86 @@ class PodcastGeneratorService:
             # 3. LLM - Source Analysis
             logger.info("STEP: Starting Source Analysis...")
             source_analysis_obj: Optional[SourceAnalysis] = None
+            
+            status_manager.add_progress_log(
+                task_id,
+                "analyzing_sources",
+                "llm_source_analysis_start",
+                f"Analyzing {len(extracted_text):,} characters of content"
+            )
+            
             try:
                 logger.info("STEP: Attempting LLM Source Analysis...")
+                status_manager.add_progress_log(
+                    task_id,
+                    "analyzing_sources",
+                    "llm_processing",
+                    "Sending content to LLM for analysis"
+                )
+                
                 # llm_service.analyze_source_text_async now returns a SourceAnalysis object directly or raises an error
                 source_analysis_obj = await self.llm_service.analyze_source_text_async(extracted_text)
                 
                 if source_analysis_obj:
                     logger.info("Source analysis successful.")
+                    status_manager.add_progress_log(
+                        task_id,
+                        "analyzing_sources",
+                        "llm_analysis_success",
+                        f"✓ Generated analysis with {len(source_analysis_obj.summary_points)} points"
+                    )
+                    
                     source_analyses_content.append(source_analysis_obj.model_dump_json()) # For LLM input
                     llm_source_analysis_filepath = os.path.join(tmpdir_path, "source_analysis.json")
                     with open(llm_source_analysis_filepath, 'w') as f:
                         json.dump(source_analysis_obj.model_dump(), f, indent=2) # Save the model dump
                     logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
                     logger.info(f"STEP: Source Analysis object created successfully: {source_analysis_obj is not None}")
+                    
+                    status_manager.add_progress_log(
+                        task_id,
+                        "analyzing_sources",
+                        "analysis_saved",
+                        f"Analysis saved to file: {os.path.basename(llm_source_analysis_filepath)}"
+                    )
                 else:
                     # This case should ideally not be reached if analyze_source_text_async raises an error on failure or returns None
                     logger.error("LLM source analysis returned no data (or None unexpectedly).")
                     warnings_list.append("LLM source analysis returned no data.")
+                    status_manager.add_progress_log(
+                        task_id,
+                        "analyzing_sources",
+                        "analysis_empty",
+                        "⚠ LLM returned empty analysis"
+                    )
 
             except LLMProcessingError as llm_e: # Catch specific LLM errors from the service
                 logger.error(f"LLM processing error during source analysis: {llm_e}")
                 warnings_list.append(f"LLM source analysis failed: {llm_e}")
+                status_manager.add_progress_log(
+                    task_id,
+                    "analyzing_sources",
+                    "llm_processing_error",
+                    f"✗ LLM processing failed: {llm_e}"
+                )
             except ValidationError as val_e: # Catch Pydantic validation errors (e.g., if service returns malformed data that passes initial parsing but fails model validation)
                 logger.error(f"Validation error during source analysis processing: {val_e}")
                 warnings_list.append(f"Source analysis validation failed: {val_e}")
+                status_manager.add_progress_log(
+                    task_id,
+                    "analyzing_sources",
+                    "validation_error", 
+                    f"✗ Response validation failed: {val_e}"
+                )
             except Exception as e: # Catch any other unexpected errors
                 logger.error(f"Error during source analysis: {e}", exc_info=True)
                 warnings_list.append(f"Critical error during source analysis: {e}")
+                status_manager.add_progress_log(
+                    task_id,
+                    "analyzing_sources",
+                    "critical_error",
+                    f"✗ Critical error: {e}"
+                )
 
             logger.info("STEP: Source Analysis phase complete.")
             
@@ -568,7 +621,7 @@ class PodcastGeneratorService:
                 status_manager.update_status(
                     task_id,
                     "researching_personas",
-                    "Source analysis complete, researching personas",
+                    f"Source analysis complete, researching personas with {len(source_analysis_obj.summary_points)} key points",
                     30.0
                 )
                 status_manager.update_artifacts(
@@ -584,14 +637,35 @@ class PodcastGeneratorService:
             logger.info("STEP: Starting Persona Research...")
             persona_research_objects: List[PersonaResearch] = []
             if request_data.prominent_persons and extracted_text:
+                status_manager.add_progress_log(
+                    task_id,
+                    "researching_personas",
+                    "persona_research_start",
+                    f"Researching {len(request_data.prominent_persons)} person(s): {', '.join(request_data.prominent_persons)}"
+                )
+                
                 for person_name in request_data.prominent_persons:
                     try:
                         logger.info(f"STEP: Attempting Persona Research for '{person_name}'...")
+                        status_manager.add_progress_log(
+                            task_id,
+                            "researching_personas",
+                            "persona_research_individual",
+                            f"Researching {person_name}"
+                        )
+                        
                         persona_research_obj = await self.llm_service.research_persona_async(
                             source_text=extracted_text, person_name=person_name
                         )
                         if persona_research_obj:
                             logger.info(f"STEP: Persona Research for '{person_name}' successful. Object created.")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "researching_personas",
+                                "persona_research_success",
+                                f"✓ Generated persona research for {person_name}"
+                            )
+                            
                             persona_research_docs_content.append(persona_research_obj.model_dump_json())
                             # Save persona research to file
                             persona_research_filepath = os.path.join(tmpdir_path, f"persona_research_{persona_research_obj.person_id}.json")
@@ -599,6 +673,13 @@ class PodcastGeneratorService:
                                 json.dump(json.loads(persona_research_obj.model_dump_json()), f, indent=2)
                             llm_persona_research_filepaths.append(persona_research_filepath)
                             logger.info(f"Persona research for {person_name} saved to {persona_research_filepath}")
+                            
+                            status_manager.add_progress_log(
+                                task_id,
+                                "researching_personas",
+                                "persona_saved",
+                                f"Research saved: {os.path.basename(persona_research_filepath)}"
+                            )
                             
                             # Print detailed information about the PersonaResearch object
                             print(f"\n============ PersonaResearch for {person_name} ============")
@@ -621,13 +702,22 @@ class PodcastGeneratorService:
                         else:
                             logger.error(f"Persona research for {person_name} returned None.")
                             warnings_list.append(f"Persona research for {person_name} failed to produce a result.")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "researching_personas",
+                                "persona_research_empty",
+                                f"⚠ Persona research for {person_name} returned no data"
+                            )
                     except ValueError as e:
                         logger.error(f"Persona research for {person_name} failed (ValueError): {e}", exc_info=True)
                         warnings_list.append(f"Persona research for {person_name} failed: {e}")
                         logger.error(f"STEP: Persona Research for '{person_name}' FAILED.")
-                    except Exception as e:
-                        logger.error(f"Unexpected error during persona research for {person_name}: {e}", exc_info=True)
-                        warnings_list.append(f"Unexpected error in persona research for {person_name}: {e}")
+                        status_manager.add_progress_log(
+                            task_id,
+                            "researching_personas",
+                            "persona_research_error",
+                            f"✗ Persona research failed for {person_name}: {e}"
+                        )
             else:
                 logger.info("No prominent persons requested or no extracted text for persona research.")
 
@@ -810,11 +900,25 @@ class PodcastGeneratorService:
             logger.info("STEP: Starting Podcast Outline Generation...")
             podcast_outline_obj: Optional[PodcastOutline] = None
             if extracted_text:
+                status_manager.add_progress_log(
+                    task_id,
+                    "generating_outline",
+                    "outline_generation_start",
+                    f"Generating outline from {len(source_analyses_content)} sources and {len(persona_research_docs_content)} personas"
+                )
+                
                 try:
                     logger.info("STEP: Attempting LLM Podcast Outline Generation...")
                     num_persons = len(request_data.prominent_persons) if request_data.prominent_persons else 0
                     # Use desired_podcast_length_str directly from request_data as PodcastRequest model defines it as such
                     desired_length_str = request_data.desired_podcast_length_str
+                    
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_outline",
+                        "outline_llm_processing",
+                        f"Requesting outline for {desired_length_str or '5-7 minutes'} podcast with {num_persons} persons"
+                    )
 
                     # TEMPORARY: Still passing persona_details_map while service methods require it
                     # This will be removed once all methods are updated to use PersonaResearch exclusively
@@ -829,12 +933,26 @@ class PodcastGeneratorService:
                     )
                     if podcast_outline_obj:
                         logger.info("Podcast outline generated successfully.")
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_outline",
+                            "outline_generation_success",
+                            f"✓ Generated outline: {podcast_outline_obj.title_suggestion}"
+                        )
+                        
                         podcast_title = podcast_outline_obj.title_suggestion
                         podcast_summary = podcast_outline_obj.summary_suggestion
                         llm_podcast_outline_filepath = os.path.join(tmpdir_path, "podcast_outline.json")
                         with open(llm_podcast_outline_filepath, 'w') as f:
                             json.dump(podcast_outline_obj.model_dump(), f, indent=2)
                         logger.info(f"Podcast outline saved to {llm_podcast_outline_filepath}")
+                        
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_outline",
+                            "outline_saved",
+                            f"Outline saved: {os.path.basename(llm_podcast_outline_filepath)}"
+                        )
                         
                         # Display the formatted outline in the terminal
                         print("\n=== Generated Podcast Outline ===\n")
@@ -843,11 +961,29 @@ class PodcastGeneratorService:
                     else:
                         logger.error("Podcast outline generation returned None.")
                         warnings_list.append("Podcast outline generation failed to produce an outline.")
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_outline",
+                            "outline_generation_empty",
+                            "⚠ Outline generation returned no data"
+                        )
                 except Exception as e:
                     logger.error(f"Error during podcast outline generation: {e}", exc_info=True)
                     warnings_list.append(f"Critical error during podcast outline generation: {e}")
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_outline",
+                        "outline_generation_error",
+                        f"✗ Outline generation failed: {e}"
+                    )
             else:
                 warnings_list.append("Skipping outline generation as extracted_text is empty.")
+                status_manager.add_progress_log(
+                    task_id,
+                    "generating_outline",
+                    "outline_skipped",
+                    "⚠ Skipping outline generation - no content available"
+                )
 
             logger.info("STEP: Podcast Outline Generation phase complete.")
             
@@ -872,6 +1008,13 @@ class PodcastGeneratorService:
             logger.info("STEP: Starting Dialogue Turns Generation...")
             dialogue_turns_list: Optional[List[DialogueTurn]] = None
             if podcast_outline_obj and extracted_text:
+                status_manager.add_progress_log(
+                    task_id,
+                    "generating_dialogue",
+                    "dialogue_generation_start",
+                    f"Generating dialogue for outline: '{podcast_outline_obj.title_suggestion}'"
+                )
+                
                 try:
                     logger.info("STEP: Attempting LLM Dialogue Turns Generation...")
                     prominent_persons_details_for_dialogue: List[Tuple[str, str, str]] = []
@@ -882,6 +1025,13 @@ class PodcastGeneratorService:
                             prominent_persons_details_for_dialogue.append((name, initial, gender_for_tts))
                     
                     logger.info("STEP: Attempting LLM Dialogue Turns Generation...")
+                    
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_dialogue",
+                        "dialogue_preprocessing",
+                        f"Processing {len(source_analyses_content)} source analyses and {len(persona_research_docs_content)} persona docs"
+                    )
 
                     # Convert JSON strings to Pydantic objects for generate_dialogue_async
                     source_analysis_objects = []
@@ -892,6 +1042,12 @@ class PodcastGeneratorService:
                         except (json.JSONDecodeError, TypeError, ValidationError) as e:
                             logger.error(f"Failed to parse source_analyses_content for dialogue generation: {e}", exc_info=True)
                             warnings_list.append("Failed to process source analysis for dialogue generation.")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "generating_dialogue",
+                                "source_analysis_parse_error",
+                                f"✗ Failed to parse source analysis: {e}"
+                            )
                             # Potentially raise or handle error to prevent proceeding with bad data
                     
                     persona_research_objects_for_dialogue = []
@@ -902,7 +1058,20 @@ class PodcastGeneratorService:
                         except (json.JSONDecodeError, TypeError, ValidationError) as e:
                             logger.error(f"Failed to parse a persona_research_doc for dialogue generation: {e}", exc_info=True)
                             warnings_list.append("Failed to process one or more persona research docs for dialogue.")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "generating_dialogue",
+                                "persona_parse_error",
+                                f"✗ Failed to parse persona research: {e}"
+                            )
                             # Potentially skip this persona or handle error
+                    
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_dialogue",
+                        "dialogue_llm_processing",
+                        "Sending outline and context to LLM for dialogue generation"
+                    )
 
                     # TEMPORARY: Still passing persona_details_map while service methods require it
                     # This will be removed once all methods are updated to use PersonaResearch exclusively
@@ -916,28 +1085,67 @@ class PodcastGeneratorService:
 
                     if dialogue_turns_list:
                         logger.info(f"Podcast dialogue turns generated successfully ({len(dialogue_turns_list)} turns).")
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_dialogue",
+                            "dialogue_generation_success",
+                            f"✓ Generated {len(dialogue_turns_list)} dialogue turns"
+                        )
+                        
                         llm_dialogue_turns_filepath = os.path.join(tmpdir_path, "dialogue_turns.json")
                         serialized_turns = [turn.model_dump() for turn in dialogue_turns_list]
                         with open(llm_dialogue_turns_filepath, 'w') as f:
                             json.dump(serialized_turns, f, indent=2)
                         logger.info(f"Dialogue turns saved to {llm_dialogue_turns_filepath}")
                         
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_dialogue",
+                            "dialogue_saved",
+                            f"Dialogue saved: {os.path.basename(llm_dialogue_turns_filepath)}"
+                        )
+                        
                         transcript_parts = [f"{turn.speaker_id}: {turn.text}" for turn in dialogue_turns_list]
                         podcast_transcript = "\n".join(transcript_parts)
                         logger.info("Transcript constructed from dialogue turns.")
+                        
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_dialogue",
+                            "transcript_constructed",
+                            f"Constructed transcript with {len(transcript_parts)} dialogue turns"
+                        )
                     else:
                         logger.error("Dialogue generation returned None or empty list of turns.")
                         warnings_list.append("Dialogue generation failed to produce turns.")
                         podcast_transcript = "Error: Dialogue generation failed."
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_dialogue",
+                            "dialogue_generation_empty",
+                            "⚠ Dialogue generation returned no turns"
+                        )
 
                 except LLMProcessingError as e:
                     logger.error(f"LLMProcessingError during dialogue generation: {e}", exc_info=True)
                     warnings_list.append(f"LLM processing error during dialogue generation: {e}")
                     podcast_transcript = f"Error: LLM processing failed during dialogue generation. {e}"
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_dialogue",
+                        "dialogue_llm_error",
+                        f"✗ LLM processing failed: {e}"
+                    )
                 except Exception as e:
                     logger.error(f"Unexpected error during dialogue generation: {e}", exc_info=True)
                     warnings_list.append(f"Critical error during dialogue generation: {e}")
                     podcast_transcript = f"Error: Critical error during dialogue generation. {e}"
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_dialogue",
+                        "dialogue_critical_error",
+                        f"✗ Critical error: {e}"
+                    )
             else:
                 warnings_list.append("Skipping dialogue generation as outline or extracted_text is missing.")
                 podcast_transcript = "Dialogue generation skipped due to missing prerequisites."
@@ -964,9 +1172,23 @@ class PodcastGeneratorService:
             # 7. TTS Generation for Dialogue Turns
             logger.info("STEP: Starting TTS generation for dialogue turns...")
             if dialogue_turns_list and self.tts_service:
+                status_manager.add_progress_log(
+                    task_id,
+                    "generating_audio_segments",
+                    "tts_generation_start",
+                    f"Generating TTS audio for {len(dialogue_turns_list)} dialogue turns"
+                )
+                
                 audio_segments_dir = os.path.join(tmpdir_path, "audio_segments")
                 os.makedirs(audio_segments_dir, exist_ok=True)
                 logger.info(f"Created directory for audio segments: {audio_segments_dir}")
+                
+                status_manager.add_progress_log(
+                    task_id,
+                    "generating_audio_segments",
+                    "audio_directory_created",
+                    f"Created audio directory: {os.path.basename(audio_segments_dir)}"
+                )
 
                 total_turns = len(dialogue_turns_list)
                 for i, turn in enumerate(dialogue_turns_list):
@@ -977,6 +1199,13 @@ class PodcastGeneratorService:
                         "generating_audio_segments",
                         f"Generating audio {i+1}/{total_turns} - {turn.speaker_id}",
                         progress
+                    )
+                    
+                    status_manager.add_progress_log(
+                        task_id,
+                        "generating_audio_segments",
+                        "tts_turn_start",
+                        f"Processing turn {i+1}/{total_turns}: {turn.speaker_id}"
                     )
                     
                     turn_audio_filename = f"turn_{i:03d}_{turn.speaker_id.replace(' ','_')}.mp3"
@@ -1026,31 +1255,49 @@ class PodcastGeneratorService:
                             individual_turn_audio_paths.append(turn_audio_filepath)
                             logger.info(f"STEP: TTS for turn {i} successful. Audio saved to {turn_audio_filepath}")
                             logger.info(f"Generated audio for turn {i}: {turn_audio_filepath}")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "generating_audio_segments",
+                                "tts_turn_success",
+                                f"✓ Generated audio for turn {i+1}: {turn.speaker_id}"
+                            )
                         else:
                             logger.warning(f"STEP: TTS for turn {i} FAILED. Skipping audio for this turn.")
                             logger.warning(f"TTS generation failed for turn {i}. Skipping audio for this turn.")
                             warnings_list.append(f"TTS failed for turn {i}: {turn.text[:30]}...")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "generating_audio_segments",
+                                "tts_turn_failed",
+                                f"✗ TTS failed for turn {i+1}: {turn.speaker_id}"
+                            )
                     except Exception as e:
                         logger.error(f"Error during TTS for turn {i}: {e}", exc_info=True)
                         warnings_list.append(f"TTS critical error for turn {i}: {e}")
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_audio_segments",
+                            "tts_turn_error",
+                            f"✗ Critical TTS error for turn {i+1}: {e}"
+                        )
                 
                 logger.info(f"STEP: TTS generation for all turns complete. {len(individual_turn_audio_paths)} audio files generated.")
-                
-                # Update status after TTS generation completes
-                status_manager.update_status(
+                status_manager.add_progress_log(
                     task_id,
-                    "stitching_audio",
-                    "Audio segments complete, stitching final podcast",
-                    90.0
-                )
-                status_manager.update_artifacts(
-                    task_id,
-                    individual_audio_segments_complete=True
+                    "generating_audio_segments",
+                    "tts_generation_complete",
+                    f"✓ TTS complete: {len(individual_turn_audio_paths)}/{len(dialogue_turns_list)} audio files generated"
                 )
             else:
                 logger.warning("No dialogue turns available for TTS processing or TTS service missing.")
                 warnings_list.append("TTS skipped: No dialogue turns or TTS service missing.")
                 logger.info("STEP: Skipping TTS generation as no dialogue turns are available or tts_service is missing.")
+                status_manager.add_progress_log(
+                    task_id,
+                    "generating_audio_segments",
+                    "tts_skipped",
+                    "⚠ TTS skipped: No dialogue turns or TTS service missing"
+                )
             
             # Check for cancellation after TTS generation
             if background_task_id:
@@ -1060,19 +1307,44 @@ class PodcastGeneratorService:
             logger.info("STEP: Starting audio stitching...")
             final_audio_filepath = "placeholder_error.mp3"  # Default in case of issues
             if individual_turn_audio_paths:
+                status_manager.add_progress_log(
+                    task_id,
+                    "stitching_audio",
+                    "audio_stitching_start",
+                    f"Stitching {len(individual_turn_audio_paths)} audio segments into final podcast"
+                )
+                
                 logger.info(f"Attempting to stitch {len(individual_turn_audio_paths)} audio segments.")
                 logger.info(f"STEP: Attempting to stitch {len(individual_turn_audio_paths)} audio segments...")
                 stitched_audio_path = await self._stitch_audio_segments_async(individual_turn_audio_paths, tmpdir_path)
                 if stitched_audio_path and os.path.exists(stitched_audio_path):
                     final_audio_filepath = stitched_audio_path
                     logger.info(f"STEP: Audio stitching successful. Final audio at {final_audio_filepath}")
+                    status_manager.add_progress_log(
+                        task_id,
+                        "stitching_audio",
+                        "audio_stitching_success",
+                        f"✓ Successfully stitched final podcast: {os.path.basename(final_audio_filepath)}"
+                    )
                 else:
                     logger.error("STEP: Audio stitching FAILED or produced no output.")
                     logger.error("Audio stitching failed or no audio segments were available.")
                     warnings_list.append("Audio stitching failed or produced no output.")
+                    status_manager.add_progress_log(
+                        task_id,
+                        "stitching_audio",
+                        "audio_stitching_failed",
+                        "✗ Audio stitching failed or produced no output"
+                    )
             else:
                 logger.warning("No individual audio segments to stitch.")
                 warnings_list.append("Audio stitching skipped: No audio segments available.")
+                status_manager.add_progress_log(
+                    task_id,
+                    "stitching_audio",
+                    "audio_stitching_skipped",
+                    "⚠ Audio stitching skipped: No audio segments available"
+                )
             logger.info("STEP: Audio stitching phase complete.")
 
             # Update status after audio stitching
@@ -1086,6 +1358,12 @@ class PodcastGeneratorService:
                 status_manager.update_artifacts(
                     task_id,
                     final_podcast_audio_available=True
+                )
+                status_manager.add_progress_log(
+                    task_id,
+                    "postprocessing_final_episode",
+                    "episode_finalization_start",
+                    "Creating final podcast episode with all components"
                 )
 
             # Final PodcastEpisode construction
@@ -1104,6 +1382,13 @@ class PodcastGeneratorService:
             )
             logger.info(f"STEP_COMPLETED_TRY_BLOCK: PodcastEpisode object created. Title: {podcast_episode.title}, Audio: {podcast_episode.audio_filepath}, Warnings: {len(podcast_episode.warnings)}")
             
+            status_manager.add_progress_log(
+                task_id,
+                "postprocessing_final_episode",
+                "episode_creation_success",
+                f"✓ Created episode: '{podcast_episode.title}' with {len(podcast_episode.warnings)} warnings"
+            )
+            
             # Update status to completed with final episode
             status_manager.update_status(
                 task_id,
@@ -1114,6 +1399,13 @@ class PodcastGeneratorService:
             status_manager.update_artifacts(
                 task_id,
                 final_podcast_transcript_available=True
+            )
+            
+            status_manager.add_progress_log(
+                task_id,
+                "completed",
+                "workflow_completed",
+                f"✓ Podcast generation workflow completed successfully"
             )
             
             # Update the result in the status

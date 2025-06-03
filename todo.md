@@ -367,8 +367,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 ### Phase 5.3: Authentication and Security (P2, M)
 - [ ] Consider adding basic authentication if needed
 - [ ] Implement rate limiting for resource-intensive operations
-- [ ] Secure file access and temporary directory management
-- [ ] Validate and sanitize all input parameters
+- [x] Secure file access and temporary directory management
 
 ### Phase 6.1: MCP-Specific Testing (P1, M)
 - [ ] Create test suite for MCP tools using FastMCP Client
@@ -388,7 +387,6 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ## Task 1.8.4: Implement Staging and Deployment Plan (P1, L)
 
-(see todo_deployment.md)
 - [ ] Integrate MCP server into stage and deployment plan
 
 ## Task 1.8.5: Claude Desktop Integration (P1, M)

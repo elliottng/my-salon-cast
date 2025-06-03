@@ -51,7 +51,7 @@ async def generate_podcast_async(
     podcast_tagline: Optional[str] = None,
     output_language: Literal["en", "es", "fr", "de", "it", "pt", "hi", "ar"] = "en",
     dialogue_style: Literal["interview", "conversation", "debate", "educational"] = "conversation",
-    podcast_length: Literal["short", "medium", "long"] = "medium",
+    podcast_length: str = "5-7 minutes",  # Accept time strings like "7 minutes", "5-7 minutes", etc.
     ending_message: Optional[str] = None
 ) -> dict:
     """
@@ -89,13 +89,8 @@ async def generate_podcast_async(
             source_urls=source_urls if source_urls else None,
             source_pdf_path=source_pdf_path if source_pdf_path else None,
             prominent_persons=prominent_persons if prominent_persons else None,
-            custom_prompt=custom_prompt if custom_prompt else None,
-            podcast_name=podcast_name if podcast_name else None,
-            podcast_tagline=podcast_tagline if podcast_tagline else None,
-            output_language=output_language,
-            dialogue_style=dialogue_style,
-            podcast_length=podcast_length,
-            ending_message=ending_message if ending_message else None
+            desired_podcast_length_str=podcast_length,
+            custom_prompt_for_outline=custom_prompt if custom_prompt else None
         )
     except Exception as e:
         raise ToolError("Invalid podcast generation parameters", str(e))

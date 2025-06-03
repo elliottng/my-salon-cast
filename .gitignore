@@ -46,3 +46,8 @@ mysaloncast/google-cloud-sdk/
 # Log files
 server.log
 outputs/
+
+# Security documentation (local only)
+security-design.md
+docs/security/
+*security*.md

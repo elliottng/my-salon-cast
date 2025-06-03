@@ -143,7 +143,8 @@ class StatusManager:
         task_id: str, 
         new_status: PodcastProgressStatus,
         description: Optional[str] = None,
-        progress: Optional[float] = None
+        progress: Optional[float] = None,
+        progress_details: Optional[str] = None
     ) -> Optional[PodcastStatus]:
         """
         Update the status of an existing task.
@@ -153,6 +154,7 @@ class StatusManager:
             new_status: New status value
             description: Optional status description
             progress: Optional progress percentage (0-100)
+            progress_details: Optional detailed progress information for sub-tasks
             
         Returns:
             Updated PodcastStatus if found, None otherwise
@@ -171,9 +173,19 @@ class StatusManager:
                 db_status.progress = progress
             db_status.last_updated_at = datetime.utcnow()
             
-            # Add log entry
+            # Add enhanced log entry with structured progress information
             logs = deserialize_from_json(db_status.logs) or []
-            logs.append(f"{db_status.last_updated_at.isoformat()}Z - Status: {new_status}")
+            
+            # Create structured progress log entry
+            timestamp = db_status.last_updated_at.isoformat() + "Z"
+            progress_str = f"{progress:.1f}%" if progress is not None else "N/A"
+            
+            if progress_details:
+                log_entry = f"{timestamp} - [{new_status}] {progress_str} - {description or 'Status update'} | {progress_details}"
+            else:
+                log_entry = f"{timestamp} - [{new_status}] {progress_str} - {description or 'Status update'}"
+            
+            logs.append(log_entry)
             db_status.logs = serialize_to_json(logs)
             
             session.add(db_status)
@@ -181,6 +193,51 @@ class StatusManager:
             session.refresh(db_status)
             
             logger.info(f"Updated status for task_id: {task_id} - New status: {new_status}, Progress: {progress}%")
+            return self._db_to_model(db_status)
+    
+    def add_progress_log(
+        self,
+        task_id: str,
+        stage: str,
+        sub_task: str,
+        details: Optional[str] = None
+    ) -> Optional[PodcastStatus]:
+        """
+        Add a detailed progress log entry without changing the main status.
+        
+        Args:
+            task_id: Task identifier
+            stage: Current processing stage
+            sub_task: Specific sub-task being performed
+            details: Additional details about the sub-task
+            
+        Returns:
+            Updated PodcastStatus if found, None otherwise
+        """
+        with get_session() as session:
+            db_status = session.get(PodcastStatusDB, task_id)
+            if not db_status:
+                logger.error(f"Cannot add progress log - task_id not found: {task_id}")
+                return None
+            
+            # Add detailed progress log entry
+            logs = deserialize_from_json(db_status.logs) or []
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            
+            if details:
+                log_entry = f"{timestamp} - [PROGRESS] {stage} → {sub_task} | {details}"
+            else:
+                log_entry = f"{timestamp} - [PROGRESS] {stage} → {sub_task}"
+            
+            logs.append(log_entry)
+            db_status.logs = serialize_to_json(logs)
+            db_status.last_updated_at = datetime.utcnow()
+            
+            session.add(db_status)
+            session.commit()
+            session.refresh(db_status)
+            
+            logger.info(f"Added progress log for task_id: {task_id} - {stage} → {sub_task}")
             return self._db_to_model(db_status)
     
     def update_artifacts(self, task_id: str, **artifact_updates) -> Optional[PodcastStatus]:
