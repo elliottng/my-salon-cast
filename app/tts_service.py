@@ -9,6 +9,8 @@ import json
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
+from concurrent.futures import ThreadPoolExecutor
+import functools
 
 # Load environment variables from env file
 load_dotenv()
@@ -22,6 +24,17 @@ class GoogleCloudTtsService:
     VOICE_CACHE_FILE = os.path.join(os.path.dirname(__file__), 'tts_voices_cache.json')
     # Cache expiration time (24 hours)
     CACHE_EXPIRATION = 24 * 60 * 60  # seconds
+    
+    # Shared thread pool executor for TTS calls to prevent shutdown issues
+    _executor = None
+    
+    @classmethod
+    def _get_executor(cls):
+        """Get or create a shared thread pool executor for TTS operations."""
+        if cls._executor is None:
+            cls._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tts_worker")
+            logger.info("Created shared TTS thread pool executor")
+        return cls._executor
     
     def __init__(self):
         """
@@ -240,7 +253,7 @@ class GoogleCloudTtsService:
         self,
         text_input: str,
         output_filepath: str,
-        language_code: str = "en-US",
+        language_code: Optional[str] = "en-US",
         speaker_gender: str = None,  # e.g., "Male", "Female", "Neutral", or None for default
         voice_name: str = None,      # e.g., "en-US-Neural2-F", overrides gender if provided
         voice_params: dict = None    # Optional additional voice parameters like speaking_rate and pitch
@@ -274,10 +287,23 @@ class GoogleCloudTtsService:
                 language_code=language_code
             )
 
-            # If voice_name is provided, use it (overrides gender)
+            # If a specific voice name is provided, it overrides gender selection
             if voice_name:
-                voice_selection_params.name = voice_name
-                logger.info(f"Using specific voice: {voice_name}")
+                # Example: "en-US-Neural2-F"
+                # Extract language code from voice name if possible
+                if '-' in voice_name:
+                    # Extract language code from voice name (e.g., "en-GB" from "en-GB-Neural2-C")
+                    extracted_lang_code = '-'.join(voice_name.split('-')[:2]).lower()
+                    # Use extracted language code if available, otherwise use provided language_code
+                    voice_language_code = extracted_lang_code
+                    logger.info(f"Extracted language code '{voice_language_code}' from voice name '{voice_name}'")
+                else:
+                    voice_language_code = language_code
+                    
+                voice_selection_params = texttospeech.VoiceSelectionParams(
+                    language_code=voice_language_code,
+                    name=voice_name,
+                )
             # Otherwise use gender if provided
             elif speaker_gender:
                 if speaker_gender.lower() == "male":
@@ -317,7 +343,10 @@ class GoogleCloudTtsService:
             logger.info(log_message)
 
             # The synthesize_speech method is blocking, so run it in a separate thread
-            response = await asyncio.to_thread(
+            executor = self._get_executor()
+            
+            # Create a partial function to avoid event loop issues
+            synthesis_func = functools.partial(
                 self.client.synthesize_speech,
                 request={
                     "input": synthesis_input,
@@ -325,6 +354,10 @@ class GoogleCloudTtsService:
                     "audio_config": audio_config,
                 }
             )
+            
+            # Submit to our dedicated executor and await the result
+            future = executor.submit(synthesis_func)
+            response = await asyncio.wrap_future(future)
             
             # Ensure output directory exists
             output_dir = os.path.dirname(output_filepath)
