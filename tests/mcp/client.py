@@ -69,6 +69,8 @@ class SimpleMCPTestClient:
     
     async def call_generate_podcast_async(self, **kwargs) -> Dict[str, Any]:
         """Generate podcast asynchronously via MCP protocol"""
+        # Add ctx parameter required by MCP tools
+        kwargs["ctx"] = {"request_id": "test-request", "client_name": "test-client"}
         result = await self.mcp_client.call_tool("generate_podcast_async", kwargs)
         # FastMCP returns a list of content objects, extract the text and parse as JSON
         if isinstance(result, list) and result:
@@ -82,7 +84,12 @@ class SimpleMCPTestClient:
     
     async def get_task_status(self, task_id: str) -> Dict[str, Any]:
         """Get task status via MCP protocol"""
-        result = await self.mcp_client.call_tool("get_task_status", {"task_id": task_id})
+        # Add ctx parameter required by MCP tools
+        arguments = {
+            "ctx": {"request_id": "test-request", "client_name": "test-client"},
+            "task_id": task_id
+        }
+        result = await self.mcp_client.call_tool("get_task_status", arguments)
         # FastMCP returns a list of content objects, extract the text and parse as JSON
         if isinstance(result, list) and result:
             content = result[0]
@@ -103,6 +110,9 @@ class SimpleMCPTestClient:
     
     async def call_tool(self, tool_name: str, arguments: dict) -> Dict[str, Any]:
         """Call an MCP tool"""
+        # Add ctx parameter if not already present
+        if "ctx" not in arguments:
+            arguments["ctx"] = {"request_id": "test-request", "client_name": "test-client"}
         result = await self.mcp_client.call_tool(tool_name, arguments)
         # FastMCP returns a list of content objects, extract the text and parse as JSON
         if isinstance(result, list) and result:

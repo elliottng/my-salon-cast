@@ -726,221 +726,351 @@ async def get_cleanup_config_resource() -> dict:
         }
     }
 
-# Security and file management helpers
-def _validate_task_ownership(task_id: str) -> dict:
-    """Validate task exists and return status info."""
-    status_info = status_manager.get_status(task_id)
-    if not status_info:
-        raise ValueError("Task not found: " + task_id)
-    return status_info
+# PHASE 4.4: Job Status and Podcast Resources
+# =============================================================================
 
-def _validate_file_access(filepath: str, task_id: str = None) -> bool:
-    """Validate file path for security (prevent directory traversal)."""
-    if not filepath:
-        return False
-    
-    # Convert to absolute path and resolve any .. or . components
-    abs_path = os.path.abspath(filepath)
-    
-    # Check if file exists
-    if not os.path.exists(abs_path):
-        return False
-    
-    # Ensure file is within temp directory or outputs directory
-    temp_dir = tempfile.gettempdir()
-    outputs_dir = os.path.abspath("./outputs")
-    
-    # File must be within temp directory (for active tasks) or outputs directory
-    is_in_temp = abs_path.startswith(temp_dir)
-    is_in_outputs = abs_path.startswith(outputs_dir)
-    
-    if not (is_in_temp or is_in_outputs):
-        logger.warning("File access denied - path outside allowed directories: " + abs_path)
-        return False
-    
-    return True
-
-def _get_file_content_safe(filepath: str, max_size_mb: int = 50) -> bytes:
-    """Safely read file content with size limits."""
-    if not _validate_file_access(filepath):
-        raise ValueError("File access denied: " + filepath)
-    
-    # Check file size
-    file_size = os.path.getsize(filepath)
-    max_size_bytes = max_size_mb * 1024 * 1024
-    
-    if file_size > max_size_bytes:
-        raise ValueError("File too large: " + str(file_size) + " bytes > " + str(max_size_bytes) + " bytes limit")
-    
-    try:
-        with open(filepath, 'rb') as f:
-            return f.read()
-    except Exception as e:
-        raise ValueError("Error reading file: " + str(e))
-
-def _list_directory_safe(directory: str, task_id: str = None) -> list:
-    """Safely list directory contents with security validation."""
-    if not _validate_file_access(directory, task_id):
-        raise ValueError("Directory access denied: " + directory)
-    
-    if not os.path.isdir(directory):
-        raise ValueError("Path is not a directory: " + directory)
-    
-    try:
-        files = []
-        for item in os.listdir(directory):
-            item_path = os.path.join(directory, item)
-            if os.path.isfile(item_path):
-                file_size = os.path.getsize(item_path)
-                mime_type, _ = mimetypes.guess_type(item_path)
-                files.append({
-                    "name": item,
-                    "path": item_path,
-                    "size": file_size,
-                    "mime_type": mime_type or "application/octet-stream",
-                    "is_audio": mime_type and mime_type.startswith("audio/") if mime_type else False
-                })
-        return files
-    except Exception as e:
-        raise ValueError("Error listing directory: " + str(e))
-
-# Temporary sync tool for testing (will be moved to generate_podcast_sync later)
-@mcp.tool()
-async def generate_podcast(request_data: PodcastRequest) -> dict:
+@mcp.resource("jobs://{task_id}/status")
+async def get_job_status_resource(task_id: str) -> dict:
     """
-    [TEMPORARY - Will be renamed to generate_podcast_sync_pydantic]
-    Generates a podcast episode synchronously.
-
-    This tool orchestrates the entire podcast generation workflow.
-    
-    Args:
-        request_data: A PodcastRequest object containing source URLs,
-                      PDF path, desired length, custom prompts, etc.
-
-    Returns:
-        Dict with success status and episode data or error details.
+    Get job status resource.
+    Returns detailed status information for a podcast generation task.
     """
-    logger.info("MCP Tool 'generate_podcast' called")
+    logger.info(f"Resource 'job status' accessed for task_id: {task_id}")
+    
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
+    
     try:
-        episode = await podcast_service.generate_podcast_from_source(request_data=request_data)
-        logger.info("MCP Tool 'generate_podcast' completed successfully. Episode title: " + episode.title)
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
         
         return {
-            "success": True,
-            "episode": {
-                "title": episode.title,
-                "summary": episode.summary,
-                "transcript": episode.transcript,
-                "audio_filepath": episode.audio_filepath,
-                "source_attributions": episode.source_attributions,
-                "warnings": episode.warnings
-            }
+            "task_id": task_id,
+            "status": status_info.status,
+            "progress_percentage": status_info.progress_percentage,
+            "current_step": status_info.status_description,  # Map status_description to current_step
+            "start_time": status_info.created_at.isoformat() if status_info.created_at else None,
+            "end_time": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
+            "error_message": status_info.error_message,
+            "artifact_availability": status_info.artifacts.model_dump() if status_info.artifacts else None,
+            "resource_type": "job_status"
         }
+        
     except Exception as e:
-        logger.error("MCP Tool 'generate_podcast' failed: " + str(e), exc_info=True)
-        raise ToolError("Podcast generation failed", str(e))
+        if "Task not found" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve job status: {str(e)}")
 
-# =============================================================================
-# Phase 3.1: Core Prompt Templates
-# =============================================================================
 
-@mcp.prompt()
-def podcast_generation_request(
-    topic: str = Field(description="The main topic or subject for the podcast episode"),
-    sources: str = Field(description="URLs or content sources (comma-separated if multiple)"),
-    persons: Optional[str] = Field(default="", description="Prominent people to research and feature (comma-separated)"),
-    style: Literal["engaging", "educational", "conversational", "formal"] = "engaging",
-    length: Literal["3-5 minutes", "5-7 minutes", "7-10 minutes", "10-15 minutes"] = "5-7 minutes",
-    language: Literal["en", "es", "fr", "de"] = "en",
-    custom_focus: Optional[str] = Field(default="", description="Additional focus or angle for the podcast")
-) -> str:
+@mcp.resource("jobs://{task_id}/logs")
+async def get_job_logs_resource(task_id: str) -> dict:
     """
-    Generates a structured prompt for podcast creation requests.
-    
-    This template helps format podcast generation requests with all necessary
-    parameters for the MySalonCast system.
+    Get job logs resource.
+    Returns structured log information for a podcast generation task.
     """
+    logger.info(f"Resource 'job logs' accessed for task_id: {task_id}")
     
-    prompt = f"Create a {length} podcast episode about '{topic}' in {language}.\n\n"
-    prompt += f"**Content Sources:**\n{sources}\n\n"
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
     
-    if persons:
-        prompt += f"**Featured Personas:**\nResearch and include perspectives from: {persons}\n\n"
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
     
-    prompt += f"**Style Requirements:**\n"
-    prompt += f"- Dialogue style: {style}\n"
-    prompt += f"- Episode length: {length}\n"
-    prompt += f"- Language: {language}\n\n"
-    
-    if custom_focus:
-        prompt += f"**Special Focus:**\n{custom_focus}\n\n"
-    
-    prompt += "**Output Requirements:**\n"
-    prompt += "- Generate engaging dialogue between well-researched personas\n"
-    prompt += "- Include proper source attribution\n"
-    prompt += "- Create natural conversation flow\n"
-    prompt += "- Ensure factual accuracy from provided sources"
-    
-    return prompt
+    try:
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
+        
+        # Get logs from the status info
+        logs = []
+        if hasattr(status_info, 'logs') and status_info.logs:
+            logs = status_info.logs
+        
+        return {
+            "task_id": task_id,
+            "logs": logs,
+            "log_count": len(logs),
+            "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
+            "current_step": status_info.status_description,
+            "resource_type": "job_logs"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve job logs: {str(e)}")
 
-@mcp.prompt()
-def persona_research_prompt(
-    person_name: str = Field(description="Name of the person to research"),
-    research_focus: Literal["voice_characteristics", "speaking_style", "expertise", "full_profile"] = "full_profile",
-    context_topic: Optional[str] = Field(default="", description="Specific topic or domain context for the research"),
-    detail_level: Literal["basic", "detailed", "comprehensive"] = "detailed",
-    time_period: Optional[str] = Field(default="", description="Specific time period or era to focus on (e.g., '1920s', 'early career')")
-) -> str:
+
+@mcp.resource("jobs://{task_id}/warnings")
+async def get_job_warnings_resource(task_id: str) -> dict:
     """
-    Generates a structured prompt for persona research requests.
-    
-    This template helps create focused research prompts for developing
-    realistic personas for podcast dialogue generation.
+    Get job warnings resource.
+    Returns warning and error information for a podcast generation task.
     """
+    logger.info(f"Resource 'job warnings' accessed for task_id: {task_id}")
     
-    prompt = f"Research {person_name} for podcast persona development.\n\n"
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
     
-    prompt += f"**Research Focus:** {research_focus}\n"
-    prompt += f"**Detail Level:** {detail_level}\n\n"
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
     
-    if context_topic:
-        prompt += f"**Context Topic:** {context_topic}\n\n"
+    try:
+        status_info = status_manager.get_status(task_id)
         
-    if time_period:
-        prompt += f"**Time Period Focus:** {time_period}\n\n"
-    
-    prompt += "**Required Research Areas:**\n"
-    
-    if research_focus in ["voice_characteristics", "full_profile"]:
-        prompt += "- Speech patterns and communication style\n"
-        prompt += "- Vocabulary preferences and linguistic habits\n"
-        prompt += "- Tone and emotional expression patterns\n"
-    
-    if research_focus in ["speaking_style", "full_profile"]:
-        prompt += "- Argumentation and reasoning style\n"
-        prompt += "- How they explain complex concepts\n" 
-        prompt += "- Characteristic phrases or expressions\n"
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
         
-    if research_focus in ["expertise", "full_profile"]:
-        prompt += "- Core areas of knowledge and expertise\n"
-        prompt += "- Key contributions and achievements\n"
-        prompt += "- Historical context and background\n"
+        # Extract warnings from episode data if available
+        warnings = []
+        if status_info.episode and hasattr(status_info.episode, 'warnings'):
+            warnings = status_info.episode.warnings or []
         
-    if research_focus == "full_profile":
-        prompt += "- Personality traits and characteristics\n"
-        prompt += "- Notable quotes and documented statements\n"
-        prompt += "- Relationships with other historical figures\n"
+        return {
+            "task_id": task_id,
+            "warnings": warnings,
+            "warning_count": len(warnings),
+            "has_errors": status_info.status == "failed",
+            "error_message": status_info.error_message,
+            "last_updated": status_info.last_updated.isoformat() if status_info.last_updated else None,
+            "resource_type": "job_warnings"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve job warnings: {str(e)}")
+
+
+@mcp.resource("podcast://{task_id}/transcript")
+async def get_podcast_transcript_resource(task_id: str) -> dict:
+    """
+    Get podcast transcript resource.
+    Returns transcript content for a completed podcast.
+    """
+    logger.info(f"Resource 'podcast transcript' accessed for task_id: {task_id}")
     
-    prompt += "\n**Output Format:**\n"
-    prompt += "Provide structured research that can be used to:\n"
-    prompt += "1. Generate authentic dialogue in their voice\n"
-    prompt += "2. Ensure historically accurate representation\n"
-    prompt += "3. Create engaging conversational interactions\n"
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
     
-    if context_topic:
-        prompt += f"4. Focus expertise on {context_topic} specifically"
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
     
-    return prompt
+    try:
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
+        
+        if not status_info.episode:
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
+        
+        return {
+            "task_id": task_id,
+            "transcript": status_info.episode.transcript or "",
+            "title": status_info.episode.title or "",
+            "summary": status_info.episode.summary or "",
+            "character_count": len(status_info.episode.transcript) if status_info.episode.transcript else 0,
+            "resource_type": "podcast_transcript"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e) or "not available" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve podcast transcript: {str(e)}")
+
+
+@mcp.resource("podcast://{task_id}/audio")
+async def get_podcast_audio_resource(task_id: str) -> dict:
+    """
+    Get podcast audio resource.
+    Returns audio file information for a completed podcast.
+    """
+    logger.info(f"Resource 'podcast audio' accessed for task_id: {task_id}")
+    
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
+    
+    try:
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
+        
+        if not status_info.episode:
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
+        
+        audio_filepath = status_info.episode.audio_filepath or ""
+        audio_exists = os.path.exists(audio_filepath) if audio_filepath else False
+        
+        return {
+            "task_id": task_id,
+            "audio_filepath": audio_filepath,
+            "audio_exists": audio_exists,
+            "file_size": os.path.getsize(audio_filepath) if audio_exists else 0,
+            "resource_type": "podcast_audio"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e) or "not available" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve podcast audio: {str(e)}")
+
+
+@mcp.resource("podcast://{task_id}/metadata")
+async def get_podcast_metadata_resource(task_id: str) -> dict:
+    """
+    Get podcast metadata resource.
+    Returns metadata for a completed podcast episode.
+    """
+    logger.info(f"Resource 'podcast metadata' accessed for task_id: {task_id}")
+    
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
+    
+    try:
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
+        
+        if not status_info.episode:
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
+        
+        return {
+            "task_id": task_id,
+            "title": status_info.episode.title or "",
+            "summary": status_info.episode.summary or "",
+            "duration": getattr(status_info.episode, 'duration', None),
+            "source_attributions": status_info.episode.source_attributions or [],
+            "creation_date": status_info.start_time.isoformat() if status_info.start_time else None,
+            "completion_date": status_info.end_time.isoformat() if status_info.end_time else None,
+            "resource_type": "podcast_metadata"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e) or "not available" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve podcast metadata: {str(e)}")
+
+
+@mcp.resource("podcast://{task_id}/outline")
+async def get_podcast_outline_resource(task_id: str) -> dict:
+    """
+    Get podcast outline resource.
+    Returns outline/structure information for a podcast episode.
+    """
+    logger.info(f"Resource 'podcast outline' accessed for task_id: {task_id}")
+    
+    # Basic input validation
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
+    
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
+    
+    try:
+        status_info = status_manager.get_status(task_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {task_id}")
+        
+        if not status_info.episode:
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
+        
+        # Try to get outline from episode data
+        outline_data = getattr(status_info.episode, 'outline', None)
+        
+        return {
+            "task_id": task_id,
+            "outline": outline_data,
+            "has_outline": outline_data is not None,
+            "resource_type": "podcast_outline"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e) or "not available" in str(e):
+            raise ToolError(f"Task not found: {task_id}")
+        raise ToolError(f"Failed to retrieve podcast outline: {str(e)}")
+
+
+@mcp.resource("research://{job_id}/{person_id}")
+async def get_persona_research_resource(job_id: str, person_id: str) -> dict:
+    """
+    Get persona research resource.
+    Returns research data for a specific person in a podcast generation job.
+    """
+    logger.info(f"Resource 'persona research' accessed for job_id: {job_id}, person_id: {person_id}")
+    
+    # Basic input validation
+    if not job_id or not job_id.strip():
+        raise ToolError("job_id is required")
+    
+    if not person_id or not person_id.strip():
+        raise ToolError("person_id is required")
+    
+    if len(job_id) < 10 or len(job_id) > 100:
+        raise ToolError("Invalid job_id format")
+    
+    try:
+        status_info = status_manager.get_status(job_id)
+        
+        if not status_info:
+            raise ToolError(f"Task not found: {job_id}")
+        
+        # For now, return a placeholder structure since persona research
+        # storage/retrieval is not yet fully implemented
+        return {
+            "job_id": job_id,
+            "person_id": person_id,
+            "name": person_id.replace('-', ' ').replace('_', ' ').title(),
+            "task_status": status_info.status,
+            "persona_research_data": {
+                "bio": f"Research data for {person_id} (placeholder)",
+                "expertise": [],
+                "speaking_style": "conversational"
+            },
+            "voice_characteristics": {
+                "tone": "professional",
+                "pace": "moderate"
+            },
+            "file_metadata": {
+                "created": status_info.start_time.isoformat() if status_info.start_time else None,
+                "last_updated": status_info.last_updated.isoformat() if status_info.last_updated else None
+            },
+            "resource_type": "persona_research"
+        }
+        
+    except Exception as e:
+        if "Task not found" in str(e):
+            raise ToolError(f"Task not found: {job_id}")
+        
+        # Check if it's a person not found error
+        if "person" in str(e).lower() and "not found" in str(e).lower():
+            # Get available person IDs from the task if possible
+            available_persons = ["albert-einstein", "marie-curie", "isaac-newton"]  # placeholder
+            raise ToolError(f"Person '{person_id}' not found. Available person IDs: {', '.join(available_persons)}")
+        
+        raise ToolError(f"Failed to retrieve persona research: {str(e)}")
+
 
 # =============================================================================
 if __name__ == "__main__":
