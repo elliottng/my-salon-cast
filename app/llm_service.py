@@ -9,6 +9,8 @@ import functools
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Union, Tuple
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, Future
+import atexit
 
 from dotenv import load_dotenv
 from pydantic import ValidationError
@@ -58,6 +60,22 @@ class LLMNotInitializedError(ValueError):
     pass
 
 class GeminiService:
+    # Shared thread pool executor for LLM operations (similar to TTS service pattern)
+    _llm_executor = None
+    
+    @classmethod
+    def _get_llm_executor(cls):
+        """Get or create the shared LLM thread pool executor."""
+        if cls._llm_executor is None or cls._llm_executor._shutdown:
+            cls._llm_executor = ThreadPoolExecutor(
+                max_workers=20, 
+                thread_name_prefix="llm_worker"
+            )
+            # Register shutdown handler
+            atexit.register(cls._llm_executor.shutdown)
+            logger.info("Created shared LLM thread pool executor with 20 workers")
+        return cls._llm_executor
+
     @staticmethod
     def _clean_keys_recursive(obj):
         # logger.debug(f"_clean_keys_recursive processing type: {type(obj)}")
@@ -131,22 +149,22 @@ class GeminiService:
             raise ValueError("Prompt cannot be empty.")
             
         try:
-            # Use asyncio.wait_for to add a timeout to the thread call
+            # Use asyncio.wrap_future to wrap the executor's future
             logger.info(f"Calling Gemini model generate_content with {timeout_seconds}s timeout")
             
-            # Create a task with asyncio.to_thread and apply a timeout
-            task = asyncio.create_task(asyncio.to_thread(self.model.generate_content, prompt))
+            # Create a task with the dedicated LLM executor
+            future: Future = self._get_llm_executor().submit(self.model.generate_content, prompt)
             
-            # Wait for the task with a timeout
+            # Wait for the task with a timeout using asyncio.wrap_future
             try:
-                response = await asyncio.wait_for(task, timeout=timeout_seconds)
+                response = await asyncio.wait_for(asyncio.wrap_future(future), timeout=timeout_seconds)
                 logger.info(f"API call completed successfully within {timeout_seconds}s timeout")
             except asyncio.TimeoutError:
                 logger.error(f"API call timed out after {timeout_seconds} seconds")
-                task.cancel()
+                future.cancel()
                 # Try to get the task result, but don't wait - just to see if there's an exception
                 try:
-                    task.result()
+                    future.result()
                 except Exception as task_ex:
                     logger.error(f"Task had exception: {task_ex}")
                 error_json = '{"error": "Gemini API timeout", "details": "API call timed out after ' + str(timeout_seconds) + ' seconds"}'
@@ -1346,7 +1364,7 @@ Additional User Instructions:
 async def main_test():
     """
     Example usage function for testing the GeminiService directly.
-    Ensure GEMINI_API_KEY is set in your .env file or environment.
+    Ensure GEMINI_API_KEY is set in your .env file in the project root.
     """
     print("Testing GeminiService...")
     try:

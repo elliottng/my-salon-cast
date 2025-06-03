@@ -14,7 +14,7 @@ def reset_task_runner():
     global _task_runner
     
     # Create a new TaskRunner with fresh executor
-    new_runner = TaskRunner(max_workers=3)
+    new_runner = TaskRunner(max_workers=4)
     
     # Update the global instance
     import app.task_runner

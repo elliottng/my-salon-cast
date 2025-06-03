@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class TaskRunner:
     """Manages background task execution for podcast generation."""
     
-    def __init__(self, max_workers: int = 3):
+    def __init__(self, max_workers: int = 4):
         """
         Initialize the task runner.
         
