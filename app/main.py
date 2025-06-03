@@ -13,28 +13,46 @@ from typing import List, Optional
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from datetime import datetime
+from app.config import setup_environment, get_config
 
+# Setup environment and get configuration
+config = setup_environment()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MySalonCast API")
 
-# Enable CORS for frontend development
+# Configure CORS with environment-specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to specific origins
+    allow_origins=config.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Mount static files directory for serving audio files
-# Create the outputs directory if it doesn't exist
-os.makedirs("./outputs/audio", exist_ok=True)
-app.mount("/audio", StaticFiles(directory="./outputs/audio"), name="audio")
+# Create the outputs directory if it doesn't exist based on environment
+if config.is_local_environment:
+    audio_dir = "./outputs/audio"
+    os.makedirs(audio_dir, exist_ok=True)
+    app.mount("/audio", StaticFiles(directory=audio_dir), name="audio")
+    logger.info(f"Mounted local audio directory: {audio_dir}")
+else:
+    # In cloud environment, audio files are served from Cloud Storage
+    logger.info("Cloud environment detected - audio files served from Cloud Storage")
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to MySalonCast API"}
+    return {
+        "message": "Welcome to MySalonCast API",
+        "environment": config.environment,
+        "version": "1.0.0",
+        "features": {
+            "secret_manager": config.is_cloud_environment,
+            "cloud_storage": config.is_cloud_environment,
+            "local_files": config.is_local_environment
+        }
+    }
 
 @app.post("/process/pdf/")
 async def process_pdf_endpoint(pdf_file: UploadFile = File(...)):

@@ -6,17 +6,27 @@ variable "project_id" {
 variable "region" {
   description = "The Google Cloud region"
   type        = string
-  default     = "us-central1"
+  default     = "us-west1"
 }
 
 variable "zone" {
   description = "The Google Cloud zone"
   type        = string
-  default     = "us-central1-a"
+  default     = "us-west1-a"
 }
 
 variable "gcs_bucket_tf_state" {
   description = "The GCS bucket for Terraform state"
   type        = string
   default     = "my-salon-cast-tf-state"
+}
+
+variable "environment" {
+  description = "Deployment environment (staging or production)"
+  type        = string
+  default     = "staging"
+  validation {
+    condition     = contains(["staging", "production"], var.environment)
+    error_message = "Environment must be either 'staging' or 'production'."
+  }
 }

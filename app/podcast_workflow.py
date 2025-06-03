@@ -26,6 +26,8 @@ from app.llm_service import GeminiService
 from app.tts_service import GoogleCloudTtsService
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
+from app.storage import CloudStorageManager
+from app.config import setup_environment
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,6 +35,14 @@ logger = logging.getLogger(__name__)
 
 class PodcastGeneratorService:
     def __init__(self):
+        # Initialize configuration
+        try:
+            self.config = setup_environment()
+            logger.info(f"Configuration initialized for environment: {self.config.environment}")
+        except Exception as e:
+            logger.error(f"Failed to initialize configuration: {e}")
+            self.config = None
+            
         # Initialize services
         try:
             self.llm_service = GeminiService()
@@ -47,6 +57,13 @@ class PodcastGeneratorService:
         except Exception as e:
             logger.error(f"Failed to initialize TTS Service: {e}")
             self.tts_service = None
+
+        try:
+            self.cloud_storage_manager = CloudStorageManager()
+            logger.info("Cloud Storage Manager initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Cloud Storage Manager: {e}")
+            self.cloud_storage_manager = None
 
     async def _stitch_audio_segments_async(self, audio_file_paths: List[str], output_dir: str) -> Optional[str]:
         """
@@ -1261,6 +1278,15 @@ class PodcastGeneratorService:
                                 "tts_turn_success",
                                 f"✓ Generated audio for turn {i+1}: {turn.speaker_id}"
                             )
+                            # Upload the individual audio segment to cloud storage
+                            if self.cloud_storage_manager:
+                                try:
+                                    logger.info(f"Uploading individual audio segment to cloud storage: {turn_audio_filepath}")
+                                    await self.cloud_storage_manager.upload_audio_segment_async(turn_audio_filepath)
+                                    logger.info(f"Individual audio segment uploaded to cloud storage successfully: {turn_audio_filepath}")
+                                except Exception as e:
+                                    logger.error(f"Error uploading individual audio segment to cloud storage: {e}")
+                                    warnings_list.append(f"Error uploading individual audio segment to cloud storage: {e}")
                         else:
                             logger.warning(f"STEP: TTS for turn {i} FAILED. Skipping audio for this turn.")
                             logger.warning(f"TTS generation failed for turn {i}. Skipping audio for this turn.")
@@ -1326,6 +1352,34 @@ class PodcastGeneratorService:
                         "audio_stitching_success",
                         f"✓ Successfully stitched final podcast: {os.path.basename(final_audio_filepath)}"
                     )
+                    
+                    # Upload the final stitched audio to cloud storage
+                    if self.cloud_storage_manager:
+                        try:
+                            logger.info(f"Uploading final stitched audio to cloud storage: {final_audio_filepath}")
+                            cloud_url = await self.cloud_storage_manager.upload_audio_file_async(
+                                final_audio_filepath, 
+                                f"episodes/{task_id}/final_podcast.mp3"
+                            )
+                            if cloud_url:
+                                # Update the final_audio_filepath to use the cloud URL
+                                final_audio_filepath = cloud_url
+                                logger.info(f"Final stitched audio uploaded to cloud storage successfully: {cloud_url}")
+                                status_manager.add_progress_log(
+                                    task_id,
+                                    "stitching_audio",
+                                    "cloud_upload_success",
+                                    f"✓ Final podcast uploaded to cloud storage: {os.path.basename(cloud_url)}"
+                                )
+                        except Exception as e:
+                            logger.error(f"Error uploading final stitched audio to cloud storage: {e}")
+                            warnings_list.append(f"Error uploading final stitched audio to cloud storage: {e}")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "stitching_audio",
+                                "cloud_upload_failed",
+                                f"✗ Failed to upload to cloud storage: {e}"
+                            )
                 else:
                     logger.error("STEP: Audio stitching FAILED or produced no output.")
                     logger.error("Audio stitching failed or no audio segments were available.")
