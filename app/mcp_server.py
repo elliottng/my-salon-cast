@@ -1031,63 +1031,99 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve podcast outline: {str(e)}")
 
 
-@mcp.resource("research://{job_id}/{person_id}")
-async def get_persona_research_resource(job_id: str, person_id: str) -> dict:
+@mcp.resource("research://{task_id}/{person_id}")
+async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
     """
-    Get persona research resource.
-    Returns research data for a specific person in a podcast generation job.
+    Get persona research resource for a specific person in a podcast generation task.
+    Returns research data loaded from PersonaResearch JSON file.
     """
-    logger.info(f"Resource 'persona research' accessed for job_id: {job_id}, person_id: {person_id}")
+    logger.info(f"Resource 'persona research' accessed for task_id: {task_id}, person_id: {person_id}")
     
     # Basic input validation
-    if not job_id or not job_id.strip():
-        raise ToolError("job_id is required")
+    if not task_id or not task_id.strip():
+        raise ToolError("task_id is required")
     
     if not person_id or not person_id.strip():
         raise ToolError("person_id is required")
     
-    if len(job_id) < 10 or len(job_id) > 100:
-        raise ToolError("Invalid job_id format")
+    if len(task_id) < 10 or len(task_id) > 100:
+        raise ToolError("Invalid task_id format")
     
     try:
-        status_info = status_manager.get_status(job_id)
+        status_info = status_manager.get_status(task_id)
         
         if not status_info:
-            raise ToolError(f"Task not found: {job_id}")
+            raise ToolError(f"Task not found: {task_id}")
         
-        # For now, return a placeholder structure since persona research
-        # storage/retrieval is not yet fully implemented
+        if not status_info.result_episode:
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
+        
+        episode = status_info.result_episode
+        
+        # Check if task has any persona research files
+        if not episode.llm_persona_research_paths:
+            raise ToolError(f"No persona research available for task: {task_id}")
+        
+        # Find the research file for the requested person_id
+        target_filename = f"persona_research_{person_id}.json"
+        research_file_path = None
+        
+        for file_path in episode.llm_persona_research_paths:
+            if os.path.basename(file_path) == target_filename:
+                research_file_path = file_path
+                break
+        
+        if not research_file_path:
+            # Extract available person_ids from this task's files for error message
+            available_persons = []
+            for path in episode.llm_persona_research_paths:
+                filename = os.path.basename(path)
+                if filename.startswith("persona_research_") and filename.endswith(".json"):
+                    available_person_id = filename[17:-5]  # Remove "persona_research_" and ".json"
+                    available_persons.append(available_person_id)
+            
+            if available_persons:
+                raise ToolError(f"Person '{person_id}' not found in task {task_id}. Available persons: {', '.join(available_persons)}")
+            else:
+                raise ToolError(f"No persona research files found for task: {task_id}")
+        
+        # Read and parse the PersonaResearch JSON file
+        research_data = None
+        file_exists = os.path.exists(research_file_path)
+        file_size = 0
+        
+        if file_exists:
+            try:
+                file_size = os.path.getsize(research_file_path)
+                with open(research_file_path, 'r', encoding='utf-8') as f:
+                    research_json = json.load(f)
+                    research_data = research_json
+                    logger.info(f"Successfully loaded persona research for {person_id} from {research_file_path}")
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                logger.error(f"Failed to parse persona research JSON for {person_id}: {e}")
+                research_data = None
+            except Exception as e:
+                logger.error(f"Error reading persona research file for {person_id}: {e}")
+                research_data = None
+        
         return {
-            "job_id": job_id,
+            "task_id": task_id,
             "person_id": person_id,
-            "name": person_id.replace('-', ' ').replace('_', ' ').title(),
-            "task_status": status_info.status,
-            "persona_research_data": {
-                "bio": f"Research data for {person_id} (placeholder)",
-                "expertise": [],
-                "speaking_style": "conversational"
-            },
-            "voice_characteristics": {
-                "tone": "professional",
-                "pace": "moderate"
-            },
+            "research_data": research_data,
+            "has_research": research_data is not None,
             "file_metadata": {
-                "created": status_info.created_at.isoformat() if status_info.created_at else None,
-                "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None
+                "research_file_path": research_file_path,
+                "file_exists": file_exists,
+                "file_size": file_size
             },
             "resource_type": "persona_research"
         }
         
     except Exception as e:
         if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {job_id}")
-        
-        # Check if it's a person not found error
-        if "person" in str(e).lower() and "not found" in str(e).lower():
-            # Get available person IDs from the task if possible
-            available_persons = ["albert-einstein", "marie-curie", "isaac-newton"]  # placeholder
-            raise ToolError(f"Person '{person_id}' not found. Available person IDs: {', '.join(available_persons)}")
-        
+            raise ToolError(f"Task not found: {task_id}")
+        elif "not available" in str(e) or "not found" in str(e):
+            raise  # Re-raise specific errors with original message
         raise ToolError(f"Failed to retrieve persona research: {str(e)}")
 
 
