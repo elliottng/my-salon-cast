@@ -75,15 +75,15 @@ class GeminiService:
     def __init__(self, api_key: Optional[str] = None, tts_service=None):
         """
         Initializes the Gemini Service.
-        API key is read from GOOGLE_API_KEY environment variable if not provided.
+        API key is read from GEMINI_API_KEY environment variable if not provided.
         """
         load_dotenv() # Load environment variables from env file
         
         if api_key is None:
-            api_key = os.getenv("GOOGLE_API_KEY")
+            api_key = os.getenv("GEMINI_API_KEY")
             
         if not api_key:
-            raise LLMNotInitializedError("API key for Gemini service is required. Set GOOGLE_API_KEY environment variable or pass it directly.")
+            raise LLMNotInitializedError("API key for Gemini service is required. Set GEMINI_API_KEY environment variable or pass it directly.")
         
         genai.configure(api_key=api_key)
         # Using gemini-1.5-pro-latest as per discussion.
@@ -1346,7 +1346,7 @@ Additional User Instructions:
 async def main_test():
     """
     Example usage function for testing the GeminiService directly.
-    Ensure GOOGLE_API_KEY is set in your .env file or environment.
+    Ensure GEMINI_API_KEY is set in your .env file or environment.
     """
     print("Testing GeminiService...")
     try:
@@ -1468,7 +1468,7 @@ async def main_test():
 if __name__ == "__main__":
     # This allows running this file directly for testing the GeminiService.
     # To run:
-    # 1. Ensure you have GOOGLE_API_KEY set in your .env file in the project root.
+    # 1. Ensure you have GEMINI_API_KEY set in your .env file in the project root.
     # 2. Navigate to the project root directory in your terminal.
     # 3. Run the script as a module: python -m app.llm_service
     asyncio.run(main_test())

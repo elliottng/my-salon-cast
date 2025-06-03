@@ -1239,15 +1239,15 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
 
 
 # =============================================================================
+# Create the HTTP app for uvicorn
+# =============================================================================
+app = mcp.http_app(transport="streamable-http")
+
+# =============================================================================
 if __name__ == "__main__":
     # Run the server using Starlette/Uvicorn
     import uvicorn
     logger.info("Starting MySalonCast MCP server...")
-    
-    # Create the HTTP app with streamable-http transport (recommended for FastMCP 2.0+)
-    # This provides efficient bidirectional communication over HTTP
-    # Clients should connect to the base URL (no /sse endpoint needed)
-    app = mcp.http_app(transport="streamable-http")
     
     # Run with uvicorn
     # IMPORTANT: The MCP server runs on port 8000
