@@ -17,6 +17,7 @@ from pathlib import Path
 import logging
 import glob
 import shutil
+import json
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -1002,13 +1003,23 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
-        # Try to get outline from episode data
-        outline_data = getattr(status_info.result_episode, 'outline', None)
+        # Try to get outline from the file path stored in the episode
+        outline_data = None
+        outline_file_path = status_info.result_episode.llm_podcast_outline_path
+        
+        if outline_file_path and os.path.exists(outline_file_path):
+            try:
+                with open(outline_file_path, 'r') as f:
+                    outline_data = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Failed to read outline file {outline_file_path}: {e}")
+                outline_data = None
         
         return {
             "task_id": task_id,
             "outline": outline_data,
             "has_outline": outline_data is not None,
+            "outline_file_path": outline_file_path,
             "resource_type": "podcast_outline"
         }
         
