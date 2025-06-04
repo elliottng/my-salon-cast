@@ -13,14 +13,13 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+COPY requirements_clean.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements_clean.txt
 
 # Copy application code
 COPY app/ ./app/
-COPY secrets/ ./secrets/
 
 # Create necessary directories
 RUN mkdir -p /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files

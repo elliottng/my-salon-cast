@@ -52,7 +52,6 @@ class ProductionConfig:
             # Production/staging configuration
             base_config.update({
                 "workers": 1,  # Single worker for Cloud Run
-                "keepalive": 2,
                 "timeout_keep_alive": 30,
                 "timeout_graceful_shutdown": 30,
             })
