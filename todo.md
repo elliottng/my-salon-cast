@@ -469,179 +469,149 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 # Phase 4: OAuth 2.0 Implementation
 
 ### Overview
-Claude.ai requires OAuth 2.0 authentication for remote MCP servers. The server must implement OAuth endpoints for discovery, client registration, authorization, and token exchange.
+OAuth 2.0 implementation focused on **2 specific clients**: Claude.ai and MySalonCast webapp. This simplified approach gets Claude.ai working quickly while supporting future expansion to additional LLMs (Gemini, ChatGPT, etc.) by adding client configurations incrementally.
 
-### Required OAuth Endpoints
+### Architecture Strategy
+- **Pre-configured clients** (no dynamic registration)
+- **Simple client storage** (config file or in-memory)
+- **Client-specific authorization flows** (auto-approve vs consent screen)
+- **Minimal viable security** (expandable later)
+- **Incremental expansion** (5 tasks per additional LLM)
 
-#### 1.1: OAuth Discovery Endpoint (P1, L)
+## Phase 1: Core OAuth Infrastructure (2-3 weeks)
+
+### 1.1: OAuth Discovery Endpoint (P1, S)
 - [ ] Implement `/.well-known/oauth-authorization-server`
-- [ ] Add endpoint to `app/mcp_server.py`
-- [ ] Return OAuth 2.0 Authorization Server Metadata
-- [ ] Include all required OAuth endpoints and capabilities
-- [ ] Use dynamic base URL detection for production deployment
+- [ ] Return proper OAuth metadata for 2-client setup
+- [ ] Include all required endpoint URLs
+- [ ] Use dynamic base URL detection for production
 
-#### 1.2: Client Registration Endpoint (P1, L)
-- [ ] Implement `/register` POST endpoint
-- [ ] Accept OAuth client registration requests
-- [ ] Generate unique `client_id` and `client_secret`
-- [ ] Store client credentials securely
-- [ ] Return client registration response per RFC 7591
-- [ ] Validate `redirect_uris` and other client metadata
-
-#### 1.3: Authorization Endpoint (P1, L)
-- [ ] Implement `/auth/authorize` GET endpoint
-- [ ] Validate `client_id` and `redirect_uri`
-- [ ] Generate authorization codes
-- [ ] Support PKCE (`code_challenge`/`code_verifier`)
-- [ ] Handle `state` parameter for CSRF protection
-- [ ] Redirect back to Claude.ai with authorization code
-
-#### 1.4: Token Exchange Endpoint (P1, L)
-- [ ] Implement `/auth/token` POST endpoint
-- [ ] Exchange authorization codes for access tokens
-- [ ] Validate client credentials
-- [ ] Support PKCE verification
-- [ ] Generate and return access tokens
-- [ ] Implement token expiration (default: 1 hour)
-
-### Data Storage & Security
-
-#### 2.1: Client Credential Storage (P1, M)
-- [ ] Design client storage system
-- [ ] Create data models for OAuth clients
-- [ ] Implement secure storage (database or in-memory for testing)
-- [ ] Add client validation functions
+### 1.2: Client Configuration System (P1, S)
+- [ ] Create 2-client configuration structure
+- [ ] Pre-configure Claude.ai client credentials
+- [ ] Pre-configure MySalonCast webapp client credentials
+- [ ] Add client validation by client_id
 - [ ] Support multiple redirect URIs per client
 
-#### 2.2: Authorization Code Management (P1, M)
-- [ ] Implement authorization code handling
-- [ ] Generate cryptographically secure codes
-- [ ] Store codes with expiration (default: 10 minutes)
-- [ ] Implement one-time use enforcement
-- [ ] Store PKCE challenge data with codes
+### 1.3: Authorization Endpoint (P1, M)
+- [ ] Implement `/auth/authorize` GET endpoint
+- [ ] Validate client_id and redirect_uri against config
+- [ ] Generate secure authorization codes (10min expiration)
+- [ ] Handle state parameter for CSRF protection
+- [ ] Create simple consent UI for webapp client
+- [ ] Implement auto-approval flow for Claude.ai client
 
-#### 2.3: Access Token Management (P1, M)
-- [ ] Create access token system
-- [ ] Generate secure access tokens
-- [ ] Implement token storage and validation
-- [ ] Add token expiration handling
-- [ ] Create token validation middleware for MCP endpoints
+### 1.4: Token Exchange Endpoint (P1, M)
+- [ ] Implement `/auth/token` POST endpoint
+- [ ] Validate client credentials against configuration
+- [ ] Exchange authorization codes for access tokens
+- [ ] Generate secure access tokens (1hr expiration)
+- [ ] Support PKCE verification (recommended for webapp)
+- [ ] Return proper OAuth 2.0 token response
 
-### MCP Protocol Integration
+### 1.5: Token Validation & MCP Protection (P1, M)
+- [ ] Create token validation middleware
+- [ ] Protect MCP endpoints with Bearer token auth
+- [ ] Return 401 for missing/invalid tokens
+- [ ] Maintain health endpoint accessibility
+- [ ] Add token storage and cleanup
 
-#### 3.1: Protect MCP Endpoints (P1, M)
-- [ ] Add OAuth protection to MCP tools
-- [ ] Create authentication middleware
-- [ ] Validate Bearer tokens on MCP requests
-- [ ] Return 401 for invalid/missing tokens
-- [ ] Maintain backwards compatibility for health endpoints
+## Phase 2: Client-Specific Features (1-2 weeks)
 
-#### 3.2: Scope-Based Authorization (P2, M)
-- [ ] Implement OAuth scopes
-- [ ] Define MCP-specific scopes (`mcp.read`, `mcp.write`)
-- [ ] Enforce scope restrictions on endpoints
-- [ ] Add scope validation to token generation
-- [ ] Document scope requirements for different operations
+### 2.1: Claude.ai Integration (P1, S)
+- [ ] Test OAuth discovery with Claude.ai
+- [ ] Verify auto-approval flow works
+- [ ] Test full Claude.ai → MCP workflow
+- [ ] Document Claude.ai setup process
+- [ ] Deploy and test in production
 
-### Configuration & Environment
+### 2.2: MySalonCast Webapp Integration (P2, M)
+- [ ] Design simple consent screen UI
+- [ ] Implement authorization approval/denial
+- [ ] Add CORS configuration for webapp domain
+- [ ] Test webapp OAuth flow end-to-end
+- [ ] Add basic scope validation (read/write)
 
-#### 4.1: Environment Configuration (P1, S)
-- [ ] Add OAuth configuration to environment
+### 2.3: Security & Configuration (P1, S)
 - [ ] Add OAuth settings to `app/config.py`
-- [ ] Configure token expiration times
-- [ ] Set up OAuth secret keys
-- [ ] Add development vs production OAuth modes
+- [ ] Configure client secrets in environment variables
+- [ ] Implement basic rate limiting on OAuth endpoints
+- [ ] Add request validation and error handling
+- [ ] Secure token generation with proper entropy
 
-#### 4.2: Security Configuration (P1, M)
-- [ ] Implement security best practices
-- [ ] Use secure random token generation
-- [ ] Implement rate limiting on OAuth endpoints
-- [ ] Add CORS headers for Claude.ai domains
-- [ ] Validate all OAuth parameters properly
+## Phase 3: Testing & Deployment (1 week)
 
-### Testing & Validation
+### 3.1: OAuth Flow Testing (P1, S)
+- [ ] Create automated tests for OAuth flows
+- [ ] Test Claude.ai client flow
+- [ ] Test MySalonCast webapp client flow
+- [ ] Test error conditions and edge cases
+- [ ] Validate security measures
 
-#### 5.1: OAuth Flow Testing (P1, M)
-- [ ] Create OAuth flow tests
-- [ ] Test client registration flow
-- [ ] Test authorization code flow
-- [ ] Test token exchange flow
-- [ ] Test PKCE implementation
-- [ ] Validate error handling for invalid requests
+### 3.2: Production Deployment (P1, S)
+- [ ] Update deployment configuration with OAuth secrets
+- [ ] Deploy OAuth endpoints to staging
+- [ ] Test both clients against staging
+- [ ] Deploy to production
+- [ ] Monitor OAuth endpoint health
 
-#### 5.2: Integration Testing (P1, L)
-- [ ] Test Claude.ai integration
-- [ ] Verify OAuth discovery works
-- [ ] Test full OAuth flow with Claude.ai
-- [ ] Validate MCP protocol works with OAuth tokens
-- [ ] Test token expiration and refresh scenarios
+### 3.3: Documentation (P2, S)
+- [ ] Document 2-client OAuth architecture
+- [ ] Create setup guides for both clients
+- [ ] Add troubleshooting documentation
+- [ ] Document expansion process for additional LLMs
 
-### Documentation & Deployment
+## Future Expansion Strategy
 
-#### 6.1: Documentation Updates (P2, S)
-- [ ] Update project documentation
-- [ ] Document OAuth configuration steps
-- [ ] Add Claude.ai setup instructions
-- [ ] Document OAuth endpoints and flows
-- [ ] Add troubleshooting guide for OAuth issues
+### Adding Additional LLMs (5 tasks per LLM)
+When adding Gemini, ChatGPT, or other LLMs:
+- [ ] Research new LLM's OAuth requirements
+- [ ] Add client configuration to config file
+- [ ] Test OAuth flow with new LLM
+- [ ] Update documentation
+- [ ] Deploy updated configuration
 
-#### 6.2: Deployment Updates (P1, S)
-- [ ] Update deployment configuration
-- [ ] Add OAuth secrets to `.env` file
-- [ ] Update Terraform if using Secret Manager
-- [ ] Configure OAuth URLs for production domain
-- [ ] Test OAuth in production environment
+### Example Client Configuration
+```python
+OAUTH_CLIENTS = {
+    "claude-ai": {
+        "client_secret": "env:CLAUDE_CLIENT_SECRET",
+        "redirect_uris": ["https://claude.ai/oauth/callback"],
+        "auto_approve": True,
+        "scopes": ["mcp.read", "mcp.write"]
+    },
+    "mysaloncast-webapp": {
+        "client_secret": "env:WEBAPP_CLIENT_SECRET",
+        "redirect_uris": ["https://mysaloncast.com/oauth/callback"],
+        "auto_approve": False,
+        "scopes": ["mcp.read", "mcp.write", "admin"]
+    }
+}
+```
 
-### Implementation Phases
+## Success Criteria
+- [ ] Claude.ai can complete full OAuth flow and access MCP tools
+- [ ] MySalonCast webapp can authenticate and access MCP endpoints
+- [ ] OAuth endpoints return proper error responses
+- [ ] System can easily expand to support additional LLM clients
+- [ ] All flows work in both staging and production environments
 
-**Phase 1: Minimal OAuth (Testing)**
-- [ ] Implement discovery endpoint with static responses
-- [ ] Create mock registration endpoint with fixed credentials
-- [ ] Add basic authorization endpoint (auto-approve)
-- [ ] Implement simple token exchange
-
-**Phase 2: Full OAuth (Production)**
-- [ ] Implement proper client credential storage
-- [ ] Add real authorization code generation and validation
-- [ ] Implement secure token management
-- [ ] Add comprehensive error handling
-
-**Phase 3: Security Hardening**
-- [ ] Add rate limiting and abuse protection
-- [ ] Implement proper session management
-- [ ] Add audit logging for OAuth operations
-- [ ] Security testing and vulnerability assessment
-
-### Priority Order
-- **HIGH**: Discovery endpoint (required for Claude.ai to detect OAuth)
-- **HIGH**: Client registration (required for initial setup)
-- **HIGH**: Authorization flow (required for user consent)
-- **HIGH**: Token exchange (required for API access)
-- **MEDIUM**: MCP endpoint protection
-- **MEDIUM**: Security hardening
-- **LOW**: Advanced features (refresh tokens, etc.)
-
-### Success Criteria
-- [ ] Claude.ai can discover OAuth endpoints
-- [ ] Claude.ai can complete client registration
-- [ ] Claude.ai can complete full OAuth authorization flow
-- [ ] MCP tools work with OAuth authentication
-- [ ] All OAuth endpoints return proper error responses
-- [ ] Security best practices are implemented
-
-### Files to Modify
+## Files to Create/Modify
 - `app/mcp_server.py` - Add OAuth endpoints
-- `app/config.py` - Add OAuth configuration
-- `app/oauth_models.py` - Create OAuth data models (new file)
-- `app/oauth_storage.py` - Implement OAuth data storage (new file)
-- `app/.env` - Add OAuth configuration variables
-- `requirements.txt` - Add OAuth-related dependencies if needed
+- `app/oauth_config.py` - Client configuration (new file)
+- `app/oauth_models.py` - OAuth data models (new file)
+- `app/config.py` - Add OAuth environment settings
+- `templates/oauth_consent.html` - Simple consent UI (new file)
+- `requirements.txt` - Add OAuth dependencies
 
-### Dependencies to Consider
+## Dependencies
 - `authlib` - OAuth 2.0 implementation library
-- `python-jose` - JWT token handling
-- `cryptography` - Secure token generation
-- `pydantic` - OAuth request/response models
+- `python-jose` - JWT token handling (if using JWT tokens)
+- `jinja2` - Template rendering for consent UI
+
+**Total Scope: ~40 tasks vs 170+ in comprehensive plan**
+**Timeline: 4-6 weeks vs 3-4 months**
+**Focus: Get Claude.ai working + scalable foundation**
 
 ## Phase 5: Deployment & Security
 
