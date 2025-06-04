@@ -1467,8 +1467,19 @@ async def oauth_discovery(request):
     Claude.ai uses this endpoint to discover OAuth capabilities and endpoints.
     """
     try:
-        # Get the base URL from the request
-        base_url = f"{request.url.scheme}://{request.url.netloc}"
+        # Get the base URL from the request - handle Cloud Run HTTPS forwarding
+        scheme = request.url.scheme
+        
+        # Check for X-Forwarded-Proto header (Cloud Run uses this)
+        forwarded_proto = request.headers.get("x-forwarded-proto")
+        if forwarded_proto:
+            scheme = forwarded_proto
+        
+        # Force HTTPS for production/staging environments
+        if request.url.netloc.endswith(".run.app"):
+            scheme = "https"
+        
+        base_url = f"{scheme}://{request.url.netloc}"
         
         # OAuth 2.0 Authorization Server Metadata
         metadata = {

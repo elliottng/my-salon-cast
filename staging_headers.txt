@@ -1,0 +1,9 @@
+HTTP/2 302 
+location: https://claude.ai/oauth/callback?code=vi_sy2iElrv6JApPKIPz_kg0OvZNTGWw42uT9aQZmqQ&state=test123
+x-cloud-trace-context: 7b43df98f5dafe0941ff9a71156b7598;o=1
+date: Wed, 04 Jun 2025 15:49:42 GMT
+content-type: text/html
+server: Google Frontend
+content-length: 0
+alt-svc: h3=":443"; ma=2592000,h3-29=":443"; ma=2592000
+

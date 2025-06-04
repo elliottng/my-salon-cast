@@ -45,6 +45,8 @@ steps:
             --set-env-vars="PROJECT_ID=${PROJECT_ID},ENVIRONMENT=${_ENVIRONMENT}" \
             --set-env-vars="GEMINI_API_KEY=${_GEMINI_API_KEY}" \
             --set-env-vars="GOOGLE_TTS_API_KEY=${_GOOGLE_TTS_API_KEY}" \
+            --set-env-vars="CLAUDE_CLIENT_SECRET=${_CLAUDE_CLIENT_SECRET}" \
+            --set-env-vars="WEBAPP_CLIENT_SECRET=${_WEBAPP_CLIENT_SECRET}" \
             --allow-unauthenticated \
             --port=8000 \
             --memory=2Gi \
@@ -68,19 +70,19 @@ steps:
       - |
         if [[ "${_ENVIRONMENT}" == "staging" || "${_ENVIRONMENT}" == "production" ]]; then
           echo "Running health check for ${_SERVICE_NAME}-${_ENVIRONMENT}"
-          SERVICE_URL=$(gcloud run services describe ${_SERVICE_NAME}-${_ENVIRONMENT} \
+          SERVICE_URL=$$(gcloud run services describe ${_SERVICE_NAME}-${_ENVIRONMENT} \
             --region=${_REGION} \
             --format='value(status.url)')
           
-          echo "Service URL: $SERVICE_URL"
+          echo "Service URL: $$SERVICE_URL"
           
           # Wait for service to be ready
           sleep 30
           
           # Health check with retry
           for i in {1..5}; do
-            echo "Health check attempt $i/5"
-            if curl -f -s "$SERVICE_URL/health"; then
+            echo "Health check attempt $$i/5"
+            if curl -f -s "$$SERVICE_URL/health"; then
               echo "✅ Health check passed!"
               break
             else
@@ -108,6 +110,8 @@ substitutions:
   # These will be provided during build trigger setup
   _GEMINI_API_KEY: ''
   _GOOGLE_TTS_API_KEY: ''
+  _CLAUDE_CLIENT_SECRET: ''
+  _WEBAPP_CLIENT_SECRET: ''
 
 # Image will be stored in Google Container Registry
 images:
