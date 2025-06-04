@@ -42,6 +42,40 @@ class TokenResponse(BaseModel):
     refresh_token: Optional[str] = None
 
 
+class ClientRegistrationRequest(BaseModel):
+    """OAuth 2.0 Dynamic Client Registration Request (RFC 7591)"""
+    client_name: str
+    redirect_uris: List[str]
+    logo_uri: Optional[str] = None
+    client_uri: Optional[str] = None
+    policy_uri: Optional[str] = None
+    tos_uri: Optional[str] = None
+    scope: Optional[str] = None
+    contacts: Optional[List[str]] = None
+    grant_types: Optional[List[str]] = Field(default=["authorization_code"])
+    response_types: Optional[List[str]] = Field(default=["code"])
+    token_endpoint_auth_method: Optional[str] = "client_secret_post"
+
+
+class ClientRegistrationResponse(BaseModel):
+    """OAuth 2.0 Dynamic Client Registration Response (RFC 7591)"""
+    client_id: str
+    client_secret: str
+    client_id_issued_at: int
+    client_secret_expires_at: int
+    redirect_uris: Optional[List[str]] = None
+    grant_types: Optional[List[str]] = None
+    response_types: Optional[List[str]] = None
+    client_name: Optional[str] = None
+    logo_uri: Optional[str] = None
+    client_uri: Optional[str] = None
+    policy_uri: Optional[str] = None
+    tos_uri: Optional[str] = None
+    scope: Optional[str] = None
+    contacts: Optional[List[str]] = None
+    token_endpoint_auth_method: Optional[str] = None
+
+
 class AuthorizationCode:
     """Authorization code storage"""
     def __init__(self, client_id: str, redirect_uri: str, scope: str, 
@@ -92,12 +126,41 @@ class AccessToken:
         return required_scope in token_scopes
 
 
+class RegisteredClient:
+    """Dynamically registered client storage"""
+    def __init__(self, client_id: str, client_secret: str, registration_request: ClientRegistrationRequest):
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.client_name = registration_request.client_name
+        self.redirect_uris = registration_request.redirect_uris
+        self.logo_uri = registration_request.logo_uri
+        self.client_uri = registration_request.client_uri
+        self.policy_uri = registration_request.policy_uri
+        self.tos_uri = registration_request.tos_uri
+        self.scope = registration_request.scope or "mcp.read mcp.write"
+        self.contacts = registration_request.contacts or []
+        self.grant_types = registration_request.grant_types or ["authorization_code"]
+        self.response_types = registration_request.response_types or ["code"]
+        self.token_endpoint_auth_method = registration_request.token_endpoint_auth_method or "client_secret_post"
+        self.created_at = datetime.now()
+        self.expires_at = datetime.now() + timedelta(days=30)  # 30-day expiry
+    
+    def is_expired(self) -> bool:
+        """Check if client registration is expired"""
+        return datetime.now() > self.expires_at
+    
+    def is_valid_redirect_uri(self, redirect_uri: str) -> bool:
+        """Check if redirect URI is valid for this client"""
+        return redirect_uri in self.redirect_uris
+
+
 class OAuthStorage:
-    """In-memory OAuth storage for authorization codes and access tokens"""
+    """In-memory OAuth storage for authorization codes, access tokens, and registered clients"""
     
     def __init__(self):
         self._auth_codes: Dict[str, AuthorizationCode] = {}
         self._access_tokens: Dict[str, AccessToken] = {}
+        self._registered_clients: Dict[str, RegisteredClient] = {}
         self._last_cleanup = time.time()
     
     def store_auth_code(self, auth_code: AuthorizationCode) -> str:
@@ -141,8 +204,37 @@ class OAuthStorage:
         
         return access_token
     
+    def register_client(self, registration_request: ClientRegistrationRequest) -> ClientRegistrationResponse:
+        """Register a new client and return the client registration response"""
+        client_id = secrets.token_urlsafe(32)
+        client_secret = secrets.token_urlsafe(32)
+        registered_client = RegisteredClient(client_id, client_secret, registration_request)
+        self._registered_clients[client_id] = registered_client
+        return ClientRegistrationResponse(
+            client_id=client_id,
+            client_secret=client_secret,
+            client_id_issued_at=int(datetime.now().timestamp()),
+            client_secret_expires_at=int((datetime.now() + timedelta(days=30)).timestamp()),
+            redirect_uris=registration_request.redirect_uris,
+            grant_types=registration_request.grant_types,
+            response_types=registration_request.response_types,
+            client_name=registration_request.client_name,
+            logo_uri=registration_request.logo_uri,
+            client_uri=registration_request.client_uri,
+            policy_uri=registration_request.policy_uri,
+            tos_uri=registration_request.tos_uri,
+            scope=registration_request.scope,
+            contacts=registration_request.contacts,
+            token_endpoint_auth_method=registration_request.token_endpoint_auth_method
+        )
+    
+    def get_registered_client(self, client_id: str) -> Optional[RegisteredClient]:
+        """Get registered client by client ID"""
+        self._cleanup_expired()
+        return self._registered_clients.get(client_id)
+    
     def _cleanup_expired(self):
-        """Cleanup expired codes and tokens (run periodically)"""
+        """Cleanup expired codes, tokens, and clients (run periodically)"""
         current_time = time.time()
         
         # Only cleanup every 5 minutes to avoid performance impact
@@ -165,6 +257,14 @@ class OAuthStorage:
         for token in expired_tokens:
             del self._access_tokens[token]
         
+        # Remove expired registered clients
+        expired_clients = [
+            client_id for client_id, registered_client in self._registered_clients.items()
+            if registered_client.is_expired()
+        ]
+        for client_id in expired_clients:
+            del self._registered_clients[client_id]
+        
         self._last_cleanup = current_time
     
     def get_stats(self) -> Dict:
@@ -173,6 +273,7 @@ class OAuthStorage:
         return {
             "active_auth_codes": len(self._auth_codes),
             "active_access_tokens": len(self._access_tokens),
+            "registered_clients": len(self._registered_clients),
             "last_cleanup": datetime.fromtimestamp(self._last_cleanup).isoformat()
         }
 

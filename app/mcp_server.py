@@ -12,7 +12,7 @@ from fastmcp.prompts.prompt import Message
 from pydantic import Field
 from typing import Literal, Optional, List
 from datetime import datetime
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse, Response
 from starlette.routing import Route
 import os
 import tempfile
@@ -23,6 +23,7 @@ import logging
 import glob
 import shutil
 import json
+import asyncio
 
 # Setup production environment and logging
 production_config = setup_production_environment()
@@ -302,7 +303,9 @@ async def get_task_status(ctx, task_id: str) -> dict:
             return {
                 "success": True,
                 "task_id": task_id,
-                "status": status_info.model_dump()
+                "status": status_info.status,
+                "progress_percentage": status_info.progress_percentage,
+                "result": status_info.result_episode.model_dump() if status_info.result_episode else None
             }
         else:
             raise ToolError(f"Task {task_id} not found")
@@ -1488,7 +1491,7 @@ async def oauth_discovery(request):
             "token_endpoint": f"{base_url}/auth/token",
             "registration_endpoint": f"{base_url}/auth/register",
             "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code"],
+            "grant_types_supported": ["authorization_code", "client_credentials"],
             "code_challenge_methods_supported": ["S256"],
             "scopes_supported": ["mcp.read", "mcp.write"],
             "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
@@ -1649,29 +1652,22 @@ async def oauth_token(request):
         token_request = dict(form_data)
         
         # Validate required parameters
-        if token_request.get("grant_type") != "authorization_code":
+        grant_type = token_request.get("grant_type")
+        if grant_type not in ["authorization_code", "client_credentials"]:
             return JSONResponse({
                 "error": "unsupported_grant_type",
-                "error_description": "Only authorization_code grant type supported"
-            }, status_code=400)
-        
-        code = token_request.get("code")
-        if not code:
-            return JSONResponse({
-                "error": "invalid_request",
-                "error_description": "Missing code parameter"
+                "error_description": "Only authorization_code and client_credentials grant types supported"
             }, status_code=400)
         
         client_id = token_request.get("client_id")
-        client_secret = token_request.get("client_secret")
-        redirect_uri = token_request.get("redirect_uri")
-        code_verifier = token_request.get("code_verifier")
-        
         if not client_id:
             return JSONResponse({
                 "error": "invalid_request",
                 "error_description": "Missing client_id parameter"
             }, status_code=400)
+        
+        client_secret = token_request.get("client_secret")
+        redirect_uri = token_request.get("redirect_uri")
         
         # Validate client credentials
         if not oauth_manager.validate_client(client_id, client_secret, redirect_uri=redirect_uri):
@@ -1679,6 +1675,36 @@ async def oauth_token(request):
                 "error": "invalid_client",
                 "error_description": "Invalid client credentials"
             }, status_code=401)
+        
+        # Handle client_credentials grant (server-to-server)
+        if grant_type == "client_credentials":
+            scope = token_request.get("scope", "mcp.read mcp.write")
+            
+            # Generate access token directly
+            token = AccessToken(
+                client_id=client_id,
+                scope=scope
+            )
+            
+            access_token = oauth_storage.store_access_token(token)
+            
+            return JSONResponse({
+                "access_token": access_token,
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "scope": scope,
+                "refresh_token": None
+            })
+        
+        # Handle authorization_code grant (user-facing)
+        code = token_request.get("code")
+        if not code:
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing code parameter"
+            }, status_code=400)
+        
+        code_verifier = token_request.get("code_verifier")
         
         # Get and consume authorization code
         auth_code = oauth_storage.consume_auth_code(code)
@@ -1865,6 +1891,125 @@ async def health_check(request):
         }, status_code=500)
 
 # =============================================================================
+# SSE Transport Endpoint for Claude.ai
+# =============================================================================
+
+async def sse_handler(request):
+    """Handle SSE transport for MCP protocol communication with Claude.ai."""
+    try:
+        # Extract Bearer token from Authorization header
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse({
+                "error": "unauthorized",
+                "error_description": "Bearer token required"
+            }, status_code=401)
+        
+        token = auth_header[7:]  # Remove "Bearer " prefix
+        
+        # Validate the access token
+        oauth_storage = get_oauth_storage()
+        if not oauth_storage.validate_access_token(token):
+            return JSONResponse({
+                "error": "invalid_token",
+                "error_description": "Invalid or expired access token"
+            }, status_code=401)
+        
+        # Log successful authentication
+        logger.info(f"SSE connection authenticated with valid Bearer token")
+        
+        # For GET requests, return SSE stream for server-to-client communication
+        if request.method == "GET":
+            async def event_generator():
+                # Send initial connection acknowledgment
+                yield f"event: connected\ndata: {json.dumps({'type': 'connection', 'status': 'established', 'protocol_version': '2024-11-05', 'server': 'MySalonCast MCP Server'})}\n\n"
+                
+                # Keep connection alive with periodic heartbeats
+                while True:
+                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
+                    yield f"event: heartbeat\ndata: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n"
+            
+            return StreamingResponse(
+                event_generator(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no"  # Disable buffering for nginx
+                }
+            )
+        
+        # For POST requests, handle JSON-RPC messages
+        elif request.method == "POST":
+            try:
+                body = await request.json()
+                
+                # Handle JSON-RPC request
+                if "method" in body:
+                    method = body.get("method")
+                    params = body.get("params", {})
+                    id = body.get("id")
+                    
+                    # Handle MCP protocol initialization
+                    if method == "initialize":
+                        response = {
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "protocolVersion": "2024-11-05",
+                                "capabilities": {
+                                    "resources": {"subscribe": True, "list": True},
+                                    "tools": {"list": True},
+                                    "prompts": {"list": False},
+                                    "logging": {"setLevel": True}
+                                },
+                                "serverInfo": {
+                                    "name": "MySalonCast MCP Server",
+                                    "version": "1.0.0"
+                                }
+                            }
+                        }
+                        return JSONResponse(response)
+                    
+                    # Log unhandled methods for debugging
+                    logger.warning(f"Unhandled SSE method: {method}")
+                    
+                    # Return method not found error
+                    return JSONResponse({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32601,
+                            "message": "Method not found",
+                            "data": {"method": method}
+                        }
+                    })
+                
+                # Handle JSON-RPC response or notification
+                else:
+                    # Accept responses/notifications
+                    return Response(status_code=202)
+                    
+            except json.JSONDecodeError:
+                return JSONResponse({
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32700,
+                        "message": "Parse error"
+                    }
+                }, status_code=400)
+        
+        else:
+            return Response(status_code=405)  # Method not allowed
+            
+    except Exception as e:
+        logger.error(f"Error in SSE handler: {e}")
+        return JSONResponse({
+            "error": "server_error",
+            "error_description": "Internal server error"
+        }, status_code=500)
+
+# =============================================================================
 # MCP ROOT ENDPOINT
 # =============================================================================
 
@@ -1938,12 +2083,13 @@ async def mcp_root(request):
 mcp_root_route = Route("/", mcp_root, methods=["GET"])
 oauth_discovery_route = Route("/.well-known/oauth-authorization-server", oauth_discovery, methods=["GET"])
 oauth_authorize_route = Route("/auth/authorize", oauth_authorize, methods=["GET"])
-oauth_token_route = Route("/auth/token", oauth_token, methods=["POST"])
+oauth_token_route = Route("/auth/token", oauth_token, methods=["POST"]) 
 oauth_introspect_route = Route("/auth/introspect", oauth_introspect, methods=["POST"])
 oauth_register_route = Route("/auth/register", oauth_register, methods=["POST"])
 health_route = Route("/health", health_check, methods=["GET"])
+sse_route = Route("/sse", sse_handler, methods=["GET", "POST"])
 
-app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, oauth_register_route, health_route])
+app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, oauth_register_route, health_route, sse_route])
 
 # =============================================================================
 if __name__ == "__main__":

@@ -44,11 +44,14 @@ if __name__ == "__main__":
             final_path = os.path.join("./outputs/audio", podcast_id, "final.mp3")
             status = "✓" if os.path.exists(final_path) else "×"
             print(f"{i}. {podcast_id} {status}")
-        print("\nTo listen to a podcast, visit: http://localhost:8080/listen/<podcast_id>")
-        print(f"For example: http://localhost:8080/listen/{podcast_dirs[0]}")
+        
+        port = int(os.getenv("PORT", 8000))
+        print(f"\nTo listen to a podcast, visit: http://localhost:{port}/listen/<podcast_id>")
+        print(f"For example: http://localhost:{port}/listen/{podcast_dirs[0]}")
     else:
         print("\nNo podcasts found in the outputs/audio directory.")
 
     # Start the server
     print("\nStarting MySalonCast server...")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
