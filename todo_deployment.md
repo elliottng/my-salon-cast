@@ -86,7 +86,7 @@
 - Comprehensive error handling and logging
 - Budget-conscious design (public URLs, efficient uploads)
 
-## Phase 2.3: Cloud Storage Integration for Text Files ✅ **COMPLETED & TESTED**
+#### **A2.3: Cloud Storage Integration for Text Files COMPLETED & TESTED**
 
 **Status**: ✅ **IMPLEMENTATION COMPLETE & FULLY VALIDATED**  
 **Testing**: ✅ **LOCAL TESTING PASSED - READY FOR CLOUD DEPLOYMENT**
@@ -138,24 +138,21 @@
 - [ ] Configure service startup for Cloud Run
 - [ ] Add production monitoring endpoints
 
-## Phase 4: Secret Management & Security (30 minutes)
+#### **A3-4: Environment Variable Configuration** ✅ **COMPLETED**
+- [x] Simplify `app/config.py` to use only environment variables (remove Secret Manager)
+- [x] Update Cloud Run service configuration with required environment variables:
+  - `GEMINI_API_KEY` - For podcast generation
+  - `GOOGLE_TTS_API_KEY` - For text-to-speech services
+  - `PROJECT_ID` - For GCP project identification
+  - `ENVIRONMENT` - For environment detection (staging/production)
+- [x] Add environment variable validation and error handling
+- [x] Update documentation for API key setup
+- [x] Remove Secret Manager dependencies from requirements.txt
+- [x] Update Terraform configuration to use environment variables instead of Secret Manager
 
-#### **H4-1: Store API Keys in Secret Manager**
-```bash
-# You'll run these commands:
-echo "your-gemini-key" | gcloud secrets create gemini-api-key --data-file=-
-echo "your-tts-key" | gcloud secrets create google-tts-api-key --data-file=-
-```
+## Phase 4: Infrastructure Deployment (30 minutes)
 
-#### **A4-1: Secret Manager Integration**
-- [ ] Update application to fetch secrets from Secret Manager
-- [ ] Add service account permissions for secret access
-- [ ] Update environment configuration to use secrets
-- [ ] Add fallback handling for local development
-
-## Phase 5: Infrastructure Deployment (30 minutes)
-
-#### **H5-1: Deploy Infrastructure**
+#### **H4-1: Deploy Infrastructure**
 ```bash
 # You'll run these commands in Windsurf terminal:
 cd terraform/
@@ -163,83 +160,82 @@ terraform init
 terraform plan
 terraform apply  # Type 'yes' when prompted
 ```
-#### **H5-2: Verify Infrastructure**
+#### **H4-2: Verify Infrastructure**
 - [ ] Check Cloud Storage buckets are created
-- [ ] Verify Secret Manager secrets are accessible
+- [ ] Verify service account permissions for Cloud Storage access
 
-#### **A5-1: Database Initialization**
+#### **A4-1: Database Initialization**
 - [ ] Create initial SQLite database file
 - [ ] Add database initialization to deployment pipeline
 - [ ] Set up separate staging/production SQLite files on Cloud Storage
 
-## Phase 6: Application Deployment (45 minutes)
-
-#### **H6-1: Initial Application Deployment**
+## Phase 5: Application Deployment (45 minutes)
+#### **H5-1: Initial Application Deployment**
 ```bash
 # You'll run these commands:
 gcloud builds submit --config=cloudbuild.yaml
 ```
-#### **H6-2: Database Setup**
+#### **H5-2: Database Setup**
 ```bash
 # No database setup needed for SQLite
 ```
-#### **A6-1: Deployment Pipeline Setup**
+#### **A5-1: Deployment Pipeline Setup**
 - [ ] Configure Cloud Build triggers for automatic deployment
 - [ ] Set up branch-based deployment (main → production, dev → staging)
 - [ ] Add deployment verification steps
 - [ ] Configure rollback procedures
 
-#### **A6-2: Service Configuration**
+#### **A5-2: Service Configuration**
 - [ ] Configure Cloud Run services with appropriate resources
-- [ ] Set up environment variables from Secret Manager
+- [ ] Set up environment variables
 - [ ] Configure scaling parameters for budget optimization
 - [ ] Add custom domains if requested
 
 ---
 
-## Phase 7: Testing & Verification (45 minutes)
+## Phase 6: Testing & Verification (45 minutes)
 
-#### **H7-1: End-to-End Testing**
+#### **H6-1: End-to-End Testing**
 - [ ] Test MCP server connectivity from Claude Desktop or MCP client
 - [ ] Verify async podcast generation workflow
 - [ ] Test file storage and retrieval
 - [ ] Confirm staging and production environments work
 
-#### **H7-2: Performance Validation**
+#### **H6-2: Performance Validation**
 - [ ] Generate a test podcast to verify full pipeline
 - [ ] Check audio file upload to Cloud Storage
 - [ ] Verify SQLite database persistence
 - [ ] Test concurrent generation limits
 
-#### **A7-1: Monitoring Setup**
+#### **A6-1: Monitoring Setup**
 - [ ] Deploy basic capacity monitoring endpoints
 - [ ] Configure Cloud Logging structured logging
 - [ ] Set up basic alerting for critical errors
 - [ ] Create simple monitoring dashboard
 
-## Phase 8: Documentation & Handoff (30 minutes)
+## Phase 7: Documentation & Handoff (30 minutes)
 
-#### **A8-1: Deployment Documentation**
+#### **A7-1: Deployment Documentation**
 - [ ] Create deployment status summary
 - [ ] Document all URLs and endpoints
 - [ ] Create troubleshooting guide
 - [ ] Document scaling and upgrade procedures
 
-#### **A8-2: Operational Procedures**
+#### **A7-2: Operational Procedures**
 - [ ] Create monitoring and maintenance procedures
 - [ ] Document backup and recovery processes
 - [ ] Create cost monitoring guidelines
 - [ ] Document upgrade thresholds and procedures
 
-## Phase 9: Production Readiness (15 minutes)
+## Phase 8: Production Readiness (15 minutes)
 
-#### **H9-1: Final Verification**
+#### **H8-1: Final Verification**
 - [ ] Test production MCP server with real Claude Desktop integration
 - [ ] Verify staging → production promotion workflow
 - [ ] Confirm monitoring and alerting work
 - [ ] Document final URLs and access information
 
-#### **A9-1: Production Checklist**
+#### **A8-1: Production Checklist**
 - [ ] Verify all security configurations
 - [ ] Confirm backup procedures are active
 - [ ] Validate monitoring coverage
@@ -265,7 +261,7 @@ gcloud builds submit --config=cloudbuild.yaml
 ### **Performance Targets**
 - [ ] Podcast generation completes within X minutes
 - [ ] System supports max 4 concurrent generations
-- [ ] Monthly costs under $25 (staging + production with Secret Manager)
+- [ ] Monthly costs under $25 (staging + production)
 - [ ] 99%+ uptime for MCP servers
 
 ---

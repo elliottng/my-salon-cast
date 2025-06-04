@@ -29,16 +29,6 @@ output "production_database_bucket" {
 }
 
 output "service_account_email" {
-  description = "Email of the service account used by MCP server"
+  description = "Email of the service account used by the MCP server"
   value       = google_service_account.mcp_server.email
-}
-
-output "gemini_secret_id" {
-  description = "Secret Manager secret ID for Gemini API key"
-  value       = google_secret_manager_secret.gemini_api_key.secret_id
-}
-
-output "tts_secret_id" {
-  description = "Secret Manager secret ID for Google TTS API key"
-  value       = google_secret_manager_secret.google_tts_api_key.secret_id
 }

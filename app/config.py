@@ -3,32 +3,29 @@
 import os
 import logging
 from typing import Optional, Dict, Any
-from functools import lru_cache
-
-# Import Google Cloud Secret Manager client (optional for local development)
-try:
-    from google.cloud import secretmanager
-    SECRET_MANAGER_AVAILABLE = True
-except ImportError:
-    SECRET_MANAGER_AVAILABLE = False
-    logging.warning("Google Cloud Secret Manager not available. Using environment variables.")
 
 class Config:
-    """Configuration class with environment detection and secret management."""
+    """Configuration class with environment detection and environment variable management."""
     
     def __init__(self):
         self.environment = os.getenv("ENVIRONMENT", "local")
         self.project_id = os.getenv("PROJECT_ID")
         self.region = os.getenv("REGION", "us-west1")
         
-        # Initialize Secret Manager client if available and in cloud environment
-        self.secret_client = None
-        if SECRET_MANAGER_AVAILABLE and self.project_id and self.environment in ["staging", "production"]:
-            try:
-                self.secret_client = secretmanager.SecretManagerServiceClient()
-                logging.info("Secret Manager client initialized successfully")
-            except Exception as e:
-                logging.warning(f"Failed to initialize Secret Manager client: {e}")
+        # Log configuration warnings for missing required environment variables
+        missing_vars = []
+        if not self.gemini_api_key:
+            missing_vars.append("GEMINI_API_KEY")
+        if not self.google_tts_api_key:
+            missing_vars.append("GOOGLE_TTS_API_KEY")
+        
+        if missing_vars:
+            logging.warning("Configuration warnings:")
+            for var in missing_vars:
+                if var == "GEMINI_API_KEY":
+                    logging.warning(f"  - {var} not configured (podcast generation disabled)")
+                elif var == "GOOGLE_TTS_API_KEY":
+                    logging.warning(f"  - {var} not configured (TTS features disabled)")
     
     @property
     def is_cloud_environment(self) -> bool:
@@ -40,54 +37,15 @@ class Config:
         """Check if running in local development environment."""
         return self.environment == "local"
     
-    def get_secret(self, secret_id: str, fallback_env_var: Optional[str] = None) -> Optional[str]:
-        """
-        Get a secret from Secret Manager or fallback to environment variable.
-        
-        Args:
-            secret_id: The Secret Manager secret ID
-            fallback_env_var: Environment variable to use as fallback
-            
-        Returns:
-            The secret value or None if not found
-        """
-        # Try Secret Manager first in cloud environments
-        if self.secret_client and self.project_id:
-            try:
-                secret_name = f"projects/{self.project_id}/secrets/{secret_id}/versions/latest"
-                response = self.secret_client.access_secret_version(request={"name": secret_name})
-                secret_value = response.payload.data.decode("UTF-8")
-                logging.debug(f"Retrieved secret {secret_id} from Secret Manager")
-                return secret_value
-            except Exception as e:
-                logging.warning(f"Failed to retrieve secret {secret_id} from Secret Manager: {e}")
-        
-        # Fallback to environment variable
-        if fallback_env_var:
-            env_value = os.getenv(fallback_env_var)
-            if env_value:
-                logging.debug(f"Using environment variable {fallback_env_var} for {secret_id}")
-                return env_value
-        
-        # Try direct environment variable with secret_id name (converted to env var format)
-        env_var_name = secret_id.upper().replace("-", "_")
-        env_value = os.getenv(env_var_name)
-        if env_value:
-            logging.debug(f"Using environment variable {env_var_name}")
-            return env_value
-        
-        logging.warning(f"Secret {secret_id} not found in Secret Manager or environment variables")
-        return None
-    
     @property
     def gemini_api_key(self) -> Optional[str]:
-        """Get Gemini API key from secrets or environment."""
-        return self.get_secret("gemini-api-key", "GEMINI_API_KEY")
+        """Get Gemini API key from environment variables."""
+        return os.getenv("GEMINI_API_KEY")
     
     @property
     def google_tts_api_key(self) -> Optional[str]:
-        """Get Google TTS API key from secrets or environment."""
-        return self.get_secret("google-tts-api-key", "GOOGLE_TTS_API_KEY")
+        """Get Google TTS API key from environment variables."""
+        return os.getenv("GOOGLE_TTS_API_KEY")
     
     @property
     def audio_bucket(self) -> Optional[str]:
@@ -208,9 +166,8 @@ class Config:
         }
 
 
-@lru_cache()
 def get_config() -> Config:
-    """Get the application configuration (cached)."""
+    """Get the application configuration."""
     return Config()
 
 

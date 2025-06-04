@@ -16,7 +16,6 @@ google-api-core==2.24.2
 google-auth==2.40.2
 google-cloud-storage==2.10.0
 google-cloud-texttospeech==2.11.0
-google-cloud-secret-manager==2.16.4
 google-generativeai==0.3.0
 googleapis-common-protos==1.70.0
 grpcio==1.71.0

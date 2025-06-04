@@ -17,7 +17,6 @@ resource "google_project_service" "apis" {
   for_each = toset([
     "run.googleapis.com",
     "cloudbuild.googleapis.com",
-    "secretmanager.googleapis.com",
     "storage-api.googleapis.com",
     "storage-component.googleapis.com"
   ])
@@ -104,23 +103,6 @@ resource "google_storage_bucket" "production_database" {
   }
 }
 
-# Secret Manager secrets for API keys
-resource "google_secret_manager_secret" "gemini_api_key" {
-  secret_id = "gemini-api-key"
-  
-  replication {
-    auto {}
-  }
-}
-
-resource "google_secret_manager_secret" "google_tts_api_key" {
-  secret_id = "google-tts-api-key"
-  
-  replication {
-    auto {}
-  }
-}
-
 # Service account for Cloud Run services
 resource "google_service_account" "mcp_server" {
   account_id   = "mcp-server"
@@ -132,12 +114,6 @@ resource "google_service_account" "mcp_server" {
 resource "google_project_iam_member" "mcp_server_storage" {
   project = var.project_id
   role    = "roles/storage.objectAdmin"
-  member  = "serviceAccount:${google_service_account.mcp_server.email}"
-}
-
-resource "google_project_iam_member" "mcp_server_secrets" {
-  project = var.project_id
-  role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.mcp_server.email}"
 }
 
@@ -190,23 +166,13 @@ resource "google_cloud_run_v2_service" "mcp_server_staging" {
       }
 
       env {
-        name = "GEMINI_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.gemini_api_key.secret_id
-            version = "latest"
-          }
-        }
+        name  = "GEMINI_API_KEY"
+        value = var.gemini_api_key
       }
 
       env {
-        name = "GOOGLE_TTS_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.google_tts_api_key.secret_id
-            version = "latest"
-          }
-        }
+        name  = "GOOGLE_TTS_API_KEY"
+        value = var.google_tts_api_key
       }
 
       ports {
@@ -267,23 +233,13 @@ resource "google_cloud_run_v2_service" "mcp_server_production" {
       }
 
       env {
-        name = "GEMINI_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.gemini_api_key.secret_id
-            version = "latest"
-          }
-        }
+        name  = "GEMINI_API_KEY"
+        value = var.gemini_api_key
       }
 
       env {
-        name = "GOOGLE_TTS_API_KEY"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.google_tts_api_key.secret_id
-            version = "latest"
-          }
-        }
+        name  = "GOOGLE_TTS_API_KEY"
+        value = var.google_tts_api_key
       }
 
       ports {

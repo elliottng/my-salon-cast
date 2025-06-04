@@ -30,3 +30,15 @@ variable "environment" {
     error_message = "Environment must be either 'staging' or 'production'."
   }
 }
+
+variable "gemini_api_key" {
+  description = "Gemini API key for podcast generation"
+  type        = string
+  sensitive   = true
+}
+
+variable "google_tts_api_key" {
+  description = "Google Text-to-Speech API key"
+  type        = string
+  sensitive   = true
+}
