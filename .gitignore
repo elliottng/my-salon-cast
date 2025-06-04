@@ -54,3 +54,4 @@ outputs/
 security-design.md
 docs/security/
 *security*.md
+deployment-env.yaml

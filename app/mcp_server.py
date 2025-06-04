@@ -1442,7 +1442,7 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
 # =============================================================================
 # Create the HTTP app for uvicorn
 # =============================================================================
-app = mcp.http_app(transport="streamable-http")
+app = mcp.http_app(transport="sse")
 
 # Add health check endpoint for Cloud Run using Starlette routing
 from starlette.responses import JSONResponse

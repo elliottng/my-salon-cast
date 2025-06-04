@@ -73,8 +73,7 @@ class ProductionConfig:
         
         conditional_vars = {
             # Only required in cloud environments
-            "GEMINI_API_KEY": "Gemini API key for podcast generation",
-            "GOOGLE_TTS_API_KEY": "Google Text-to-Speech API key"
+            "GEMINI_API_KEY": "Gemini API key for podcast generation"
         }
         
         missing = []

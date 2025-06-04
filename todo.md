@@ -65,9 +65,9 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Ensure `PodcastEpisode` includes file paths to all serialized intermediate LLM outputs.
 - [ ] Improve PDF content extraction to correctly handle file paths (currently expects `UploadFile`).
 
-# Task 1.8: Model Context Protocol Server and API Implementation
+# Phase 2: Model Context Protocol Server and API Implementation
 
-## Task 1.8.1: FastAPI v.1 Extension (P1, L)
+## 1.1: FastAPI v.1 Extension (P1, L)
 - [ ] Design the `app/main.py` FastAPI v.1 endpoints
 - [ ] Implement the `app/main.py` FastAPI v.1 endpoints
 - [ ] Extend existing `app/main.py` with FastAPI v.1 endpoints:
@@ -79,32 +79,32 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Add rate limiting (IP-based, 5 requests/day for anonymous users)
 - [ ] Integrate with existing `PodcastGeneratorService`
 
-## Task 1.8.2: Data Model Migration (P1, L)
+## 1.2: Data Model Migration (P1, L)
 
-### Phase 1: Extend PersonaResearch model in `app/podcast_models.py`
+### 1.2.1: Extend PersonaResearch model in `app/podcast_models.py`
 - [x] Add `invented_name: str` field
 - [x] Add `gender: str` field
 - [x] Add `tts_voice_id: str` field
 - [x] Add `source_context: str` field
 - [x] Add `creation_date: datetime` field
 
-### Phase 2: Update `app/llm_service.py`
+### 1.2.2: Update `app/llm_service.py`
 - [x] Modify `research_persona_async()` to assign invented names during creation
 - [x] Implement deterministic gender assignment logic
 - [x] Add Google TTS voice selection logic
 - [x] Update PersonaResearch creation to populate new fields
 
-### Phase 3: Migrate `app/podcast_workflow.py`
+### 1.2.3: Migrate `app/podcast_workflow.py`
 - [x] Remove temporary `persona_details_map` logic (~lines 180-220)
 - [x] Update dialogue generation to use PersonaResearch model fields
 - [x] Remove hardcoded name/gender assignment lists
 - [x] Update TTS integration to use `PersonaResearch.tts_voice_id`
 
-### Phase 4: Update dependent services
+### 1.2.4: Update dependent services
 - [x] Modify `app/tts_service.py` to use PersonaResearch voice assignments
 - [x] Update `app/audio_utils.py` DialogueTurn creation logic
 
-### Phase 5: Create PodcastStatus model
+### 1.2.5: Create PodcastStatus model
 - [x] Create PodcastStatus model for comprehensive status tracking (COMPLETED)
   - [x] Define PodcastProgressStatus Literal type with all status states
   - [x] Create PodcastStatus Pydantic model with all fields
@@ -121,7 +121,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Add generate_podcast_async() for async mode
   - [x] Create and update status in both modes
 
-### Phase 5.1: Add Status Updates Throughout Workflow (P1, M) 
+## 1.3: Add Status Updates Throughout Workflow (P1, M) 
 - [x] Add status update after source extraction completes
   - [x] Update to "analyzing_sources" with progress ~15%
   - [x] Set artifact: source_content_extracted = True
@@ -145,7 +145,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Set artifact: final_podcast_audio_available = True
 - [x] Update to "completed" with episode result at 100%
 
-### Phase 5.2: Create Status Check REST Endpoint (P1, S) 
+### 1.3.1: Create Status Check REST Endpoint (P1, S) 
 - [x] Add GET `/status/{task_id}` endpoint to main.py
   - [x] Return PodcastStatus model directly
   - [x] Handle 404 if task_id not found
@@ -163,9 +163,9 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] test_status_simple.py for direct service testing
   - [x] test_status_endpoints.py for async HTTP testing
 
-### Phase 5.3: Add Status Persistence - Two-Stage Approach (P2, M)
+### 1.3.2: Add Status Persistence - Two-Stage Approach (P2, M)
 
-#### Stage 1: Local Development with SQLite 
+#### 1.3.2.1: Stage 1: Local Development with SQLite 
 - [x] Install SQLModel dependency (SQLAlchemy + Pydantic)
 - [x] Create database models (PodcastStatusDB) using SQLModel
 - [x] Setup SQLite database connection with environment variable fallback
@@ -186,10 +186,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - All REST API endpoints working with database persistence
 - Tested with `test_database_persistence.py` and `test_status_rest_api.py`
 
-#### Stage 2: Production Deployment with Cloud SQL
+#### 1.3.2.2: Production Deployment with SQLite
 
 
-### Phase 5.4: Implement True Async Processing (P2, L)
+## 1.4: Implement True Async Processing (P2, L)
 - [x] Add background task processing with asyncio
 - [x] Update _generate_podcast_internal to spawn background task when async_mode=True
 - [x] Implement proper task cancellation support
@@ -205,28 +205,28 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - Added webhook notifications for task completion/failure/cancellation
 - Fixed TaskRunner lifetime counter to correctly track total_submitted tasks even after completion
 
-## Task 1.8.3: Direct FastMCP Implementation (P1, L)
+## 1.5: Direct FastMCP Implementation (P1, L)
 
-### Phase 1.1: Install and Configure FastMCP 2.0 (P1, S) - COMPLETED
+### 1.5.1: Install and Configure FastMCP 2.0 (P1, S) - COMPLETED
 - [x] Install FastMCP 2.0: `pip install fastmcp`
 - [x] Verify installation with `fastmcp version`
 - [x] Update requirements.txt to include fastmcp
 - [x] Create basic MCP server structure
 
-### Phase 1.2: Create Base MCP Server Module (P1, M) - COMPLETED
+### 1.5.2: Create Base MCP Server Module (P1, M) - COMPLETED
 - [x] Create `app/mcp_server.py` as the main MCP interface
 - [x] Initialize FastMCP server with appropriate name and instructions
 - [x] Set up proper logging and error handling
 - [x] Create basic server lifecycle management
 
-### Phase 1.3: Fix FastMCP Implementation - Core Setup (P1, S)
+### 1.5.3: Fix FastMCP Implementation - Core Setup (P1, S)
 - [x] Fix FastMCP initialization to use single string parameter: `mcp = FastMCP("MySalonCast Podcast Generator")`
 - [x] Remove incorrect `@mcp_server.on_event()` decorators (startup/shutdown)
 - [x] Rename `mcp_server` to `mcp` throughout the file
 - [x] Update `if __name__ == "__main__"` to use `mcp.app` instead of `mcp_server.app`
 - [x] Add proper error handling patterns that return dicts instead of raising exceptions
 
-### Phase 1.4: Async Tool Implementation (P1, L) - COMPLETED
+## 1.6: Async Tool Implementation (P1, L) - COMPLETED
 - [x] Create `@mcp.tool()` for `generate_podcast_async`
   - [x] Individual parameters: source_urls, source_pdf_path, prominent_persons, etc.
   - [x] Convert parameters to PodcastRequest internally
@@ -243,7 +243,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Return status, progress, and result when complete
   - [x] Handle invalid task_id gracefully
 
-### Phase 1.5: Resource Implementation (P1, M) - COMPLETED
+## 1.7: Resource Implementation (P1, M) - COMPLETED
 - [x] Create `@mcp.resource("podcast://{task_id}/transcript")` for transcript access
 - [x] Create `@mcp.resource("podcast://{task_id}/audio")` for audio file access
 - [x] Create `@mcp.resource("podcast://{task_id}/metadata")` for episode metadata
@@ -251,7 +251,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Implement proper file path resolution from PodcastEpisode data
 - [x] Handle file not found and invalid task_id cases
 
-### Phase 1.6: End-to-End Testing of Async Tools (P1, M)
+## 1.8: End-to-End Testing of Async Tools (P1, M)
 - [x] Test `generate_podcast_async` with various input combinations
 - [ ] Test `generate_podcast_async_pydantic` with PodcastRequest models
 - [x] Test `get_task_status` throughout generation lifecycle
@@ -260,7 +260,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Create MCP client test scripts
 - [x] Document any issues or improvements needed
 
-### Phase 1.7: Sync Tool Implementation (P1, M) POSTPONED TO V1.1
+## 1.9: Sync Tool Implementation (P1, M) POSTPONED TO V1.1
 - [ ] Create `@mcp.tool()` for `generate_podcast_sync`
   - [ ] Individual parameters matching async version
   - [ ] Call `await podcast_service.generate_podcast_from_source()`
@@ -270,50 +270,50 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [ ] Same blocking behavior as individual params version
 - [ ] Test sync tools with same scenarios as async
 
-### Phase 1.8: Optional Enhancements (P2, S) -POSTPONED TO V1.1
+## 1.10: Optional Enhancements (P2, S) -POSTPONED TO V1.1
 - [ ] Add `@mcp.prompt()` templates for common podcast generation requests
 - [ ] Add progress callbacks to Context for real-time updates
 - [ ] Create resource for listing all available tasks
 - [ ] Add tool for cancelling in-progress tasks
 - [ ] Consider adding webhook configuration via MCP
 
-### Phase 2.1: Static Resources (P1, M)
+## 1.11: Static Resources (P1, M)
 - [x] Expose configuration as `@mcp.resource("config://app")`
 - [x] Expose API documentation as `@mcp.resource("docs://api")`
 - [x] Expose example requests as `@mcp.resource("examples://requests")`
 - [x] Create resource for supported file formats
 
-### Phase 2.2: Dynamic Resources - Podcast Data (P1, L)
+## 1.12: Dynamic Resources - Podcast Data (P1, L)
 - [x] Create `@mcp.resource("podcast://{podcast_id}/transcript")` for transcripts
 - [x] Create `@mcp.resource("podcast://{podcast_id}/audio")` for audio files
 - [x] Create `@mcp.resource("podcast://{podcast_id}/outline")` for outlines
 
-### Phase 2.3: Dynamic Resources - Job Status (P2, M)
+## 1.13: Dynamic Resources - Job Status (P2, M)
 - [x] Create `@mcp.resource("jobs://{job_id}/status")` for generation progress status
 - [x] Create `@mcp.resource("jobs://{job_id}/logs")` for processing logs
 - [x] Create `@mcp.resource("jobs://{job_id}/warnings")` for warnings/errors
 - [x] Implement proper error handling for missing resources
 
-### Phase 2.4: Dynamic Resources - LLM Outputs (P2, M)
+## 1.14: Dynamic Resources - LLM Outputs (P2, M)
 - [x] Create `@mcp.resource("research://{job_id}/{person_id}")` for persona research
 
-### Phase 3.1: Core Prompt Templates (P2, M)
+## 1.15: Core Prompt Templates (P2, M)
 - [x] Create `@mcp.prompt()` for podcast generation requests
 - [x] Create `@mcp.prompt()` for persona research prompts
 - [x] Include proper parameter validation and descriptions
 
-### Phase 4.1: Service Integration (P1, L)
+## 1.16: Service Integration (P1, L)
 - [x] Integrate with existing `PodcastGeneratorService`
 **Completion Notes:** done in earlier phases
 
-### Phase 4.2: Validate Model Compatibility (P1, S)
+## 1.17: Validate Model Compatibility (P1, S)
 - [x] Ensure MCP models work with existing Pydantic models
 - [x] If needed, create adapters for `PodcastRequest` → MCP tool parameters
 - [x] Maintain compatibility with `PodcastEpisode` output format
 - [x] If needed, handle type conversions between MCP and internal models
 **Completion Notes:** done in earlier phases
 
-### Phase 4.3: File Management (P1, M)
+## 1.18: File Management (P1, M)
 - [x] Add direct audio file content access via MCP resources (`files://{task_id}/audio/content`)
 - [x] Implement configurable cleanup policy for temporary directories
 - [x] Add file access security validation (path safety, ownership checks)
@@ -330,7 +330,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Security validation: `_validate_file_access()` and `_validate_task_ownership()`
 - [x] Cleanup configuration system with 6 policy types and selective file removal
 
-### Phase 5.1: MCP Context Integration (P1, M)
+## 1.19: MCP Context Integration (P1, M)
 - [x] Add Context parameter to tools for logging
 - [x] **Implement enhanced progress reporting for podcast generation stages**
   - [x] Added detailed progress logging to source analysis phase
@@ -349,7 +349,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Add resource access for reading intermediate files
 - [ ] Include request ID tracking for job correlation
 
-### Phase 5.2: Error Handling and Validation (P1, M)
+## 1.20: Error Handling and Validation (P1, M)
 - [x] Import and use FastMCP's ToolError exceptions instead of returning error dictionaries
 - [x] Add basic input validation for critical parameters (task_id, source_urls, file paths)
 - [x] Implement comprehensive error handling with ToolError/ResourceError
@@ -366,12 +366,12 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Created and ran comprehensive test suite with 8 test cases
 - [x] All validation scenarios working correctly with informative error messages
 
-### Phase 5.3: Authentication and Security (P2, M)
+## 1.21: Authentication and Security (P2, M)
 - [ ] Consider adding basic authentication if needed
 - [ ] Implement rate limiting for resource-intensive operations
 - [x] Secure file access and temporary directory management
 
-### Phase 6.1: MCP-Specific Testing (P1, M)
+## 1.22: MCP-Specific Testing (P1, M)
 - [x] Create test suite for MCP tools using FastMCP Client
 - [x] Test resource access patterns
 - [x] Test prompt generation functionality
@@ -401,7 +401,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Implemented research://{task_id}/{person_id} with 8/8 tests passing (5e1eeafa)
 - [x] Fixed SourceAnalysis field mismatch (key_topics/main_arguments) (fae4b362)
 
-### Phase 6.1b: TTS Health Monitoring and Production Readiness (P1, M) [NEW SECTION]
+## 1.22: TTS Health Monitoring and Production Readiness (P1, M) [NEW SECTION]
 - [x] Implement comprehensive TTS health monitoring system
 - [x] Add TTS metrics collection with thread pool monitoring
 - [x] Create MCP health monitoring tools for production deployment
@@ -418,7 +418,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Comprehensive health monitoring validation with 5 critical checks passing
 - [x] Production-ready health features for Cloud Run deployment
 
-### Phase 6.1c: MCP Context and Parameter Flow Fixes (P1, S) [NEW SECTION]
+## 1.23: MCP Context and Parameter Flow Fixes (P1, S) [NEW SECTION]
 - [x] Fix MCP Context parameter usage according to FastMCP specification
 - [x] Resolve parameter mapping issues between MCP tools and internal models
 - [x] Fix async test compatibility and response parsing
@@ -431,7 +431,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Renamed GOOGLE_API_KEY to GEMINI_API_KEY for clarity (1be243b4)
 - [x] All 6 MCP async tests now pass with 100% success rate
 
-### Phase 6.2: Server Configuration (P1, S)
+## 1.24: Server Configuration (P1, S)
 - [x] Configure server for appropriate transport (stdio, HTTP)
 - [x] Set up proper logging levels
 - [ ] Configure duplicate handling policies
@@ -442,7 +442,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] MCP server runs on port 8000 with `/mcp` endpoint
 - [x] Proper logging configuration throughout MCP tools and resources
 
-### Phase 6.3: Documentation and Examples (P2, S)
+## 1.25: Documentation and Examples (P2, S)
 - [x] Create usage examples for MCP clients
 - [x] Document available tools, resources, and prompts
 
@@ -466,36 +466,32 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - **Testing**: 100% test coverage with integration, unit, and validation tests
 - **Documentation**: Complete API docs and usage examples
 
-## Next Phase: Production Deployment
+# Phase 3: Production Deployment
 
-### Task 7.1: Staging and Deployment Plan (P1, L)
-- [ ] Integrate MCP server into staging and deployment plan
-- [ ] Create Docker configuration for MCP server
-- [ ] Configure Cloud Run deployment with health checks
-- [ ] Set up environment variable management
-- [ ] Create deployment scripts and CI/CD pipeline
+### 1.1: Staging and Deployment Plan (P1, L)
+see todo_deployment.md
 
-### Task 7.2: Claude Desktop Integration (P1, M)
-- [ ] Create MCP server entry point script for standalone execution
-- [ ] Write Claude Desktop MCP configuration:
-  - [ ] JSON configuration file
-  - [ ] Environment variable setup
-  - [ ] Installation and setup documentation
-- [ ] Test end-to-end workflows:
-  - [ ] Basic podcast generation through Claude
-  - [ ] Status monitoring and polling
-  - [ ] Persona profile access and discussion
-  - [ ] Outline review and interaction
-  - [ ] File download and access patterns
-- [ ] Create user interaction templates and examples
+### 1.2: Claude Desktop Integration (P1, M)
+- [x] Create MCP server entry point script for standalone execution
+- [x] Write Claude Desktop MCP configuration:
+  - [x] JSON configuration file
+  - [x] Environment variable setup
+  - [x] Installation and setup documentation
+- [x] Test end-to-end workflows:
+  - [x] Basic podcast generation through Claude
+  - [x] Status monitoring and polling
+  - [x] Persona profile access and discussion
+  - [x] Outline review and interaction
+  - [x] File download and access patterns
+- [x] Create user interaction templates and examples
 
-### Task 7.3: Performance Optimization (P2, M)
+### 1.3: Performance Optimization (P2, M)
 - [ ] MCP server response time optimization
 - [ ] Status polling efficiency improvements
 - [ ] Resource access performance testing
 - [ ] Connection pooling and caching strategies
 
-### Task 7.4: Advanced Features (P2, L)
+### 1.4: Advanced Features (P2, L)
 - [ ] Rate limiting for resource-intensive operations
 - [ ] Advanced authentication if needed
 - [ ] Webhook/callback support for completion notifications
@@ -544,25 +540,6 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ## Phase 4: Deployment & Security
 
-### Task 4.1: Dockerize Application (P2, M)
-- [ ] Create Dockerfiles for MCP server and main application
-- [ ] Configure serving and container orchestration
-- [ ] Optimize container size and startup time
-
-### Task 4.2: Terraform Configurations (P1, L)
-- [ ] Define Google Cloud resources (Cloud Run, Secret Manager, etc.)
-- [ ] Configure IAM roles and permissions
-- [ ] Set up environment variables (sourcing sensitive values from Google Secret Manager)
-- [ ] Configure network and security policies
-- [ ] **Integrate Google Secret Manager for API keys and other sensitive data**
-  - [ ] Provision Secret Manager via Terraform
-  - [ ] Store API keys in Secret Manager
-  - [ ] Update application to fetch secrets from Secret Manager in deployed environments
-
-### Task 4.2.1: Initialize Terraform (P1, M)
-- [ ] Run terraform init
-- [ ] Run terraform plan
-- [ ] Run terraform apply
 
 ### Task 4.3: Rate Limiting (P2, S)
 - [ ] Implement IP-based rate limiting
@@ -601,3 +578,20 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [ ] Configure performance metrics collection
 - [ ] Implement health check endpoints
 - [ ] Add observability for production debugging
+
+## 1.2: User Experience & Documentation (P1, S) 
+- [x] Claude Desktop integration testing and validation 
+  - [x] Basic podcast generation through Claude
+  - [x] Status monitoring and polling
+  - [x] Persona profile access and discussion
+  - [x] Outline review and interaction
+  - [x] File download and access patterns
+- [x] Create user interaction templates and examples 
+- [x] **NEW**: Claude.ai website integration documentation 
+  - [x] Remote MCP server connection instructions
+  - [x] Pro/Max user setup guide
+  - [x] Enterprise/Team organization setup
+  - [x] Example conversations and workflows
+  - [x] Security and privacy considerations
+
+{{ ... }}
