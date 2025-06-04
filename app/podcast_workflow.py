@@ -1436,6 +1436,80 @@ class PodcastGeneratorService:
             )
             logger.info(f"STEP_COMPLETED_TRY_BLOCK: PodcastEpisode object created. Title: {podcast_episode.title}, Audio: {podcast_episode.audio_filepath}, Warnings: {len(podcast_episode.warnings)}")
             
+            # Upload text files to cloud storage if available
+            if self.cloud_storage_manager:
+                try:
+                    logger.info("Uploading text files to cloud storage...")
+                    
+                    # Upload podcast outline
+                    if llm_podcast_outline_filepath and os.path.exists(llm_podcast_outline_filepath):
+                        try:
+                            # Read the outline data
+                            with open(llm_podcast_outline_filepath, 'r') as f:
+                                outline_data = json.load(f)
+                            
+                            # Upload to cloud storage
+                            outline_cloud_url = await self.cloud_storage_manager.upload_outline_async(
+                                outline_data, task_id
+                            )
+                            if outline_cloud_url:
+                                # Update episode with cloud URL
+                                podcast_episode.llm_podcast_outline_path = outline_cloud_url
+                                logger.info(f"Podcast outline uploaded to cloud storage: {outline_cloud_url}")
+                                status_manager.add_progress_log(
+                                    task_id,
+                                    "postprocessing_final_episode",
+                                    "outline_cloud_upload_success",
+                                    f"✓ Outline uploaded to cloud storage"
+                                )
+                        except Exception as e:
+                            logger.error(f"Error uploading podcast outline to cloud storage: {e}")
+                            warnings_list.append(f"Error uploading podcast outline to cloud storage: {e}")
+                    
+                    # Upload persona research files
+                    if llm_persona_research_filepaths:
+                        updated_research_paths = []
+                        for research_path in llm_persona_research_filepaths:
+                            if os.path.exists(research_path):
+                                try:
+                                    # Read the research data
+                                    with open(research_path, 'r') as f:
+                                        research_data = json.load(f)
+                                    
+                                    # Extract person_id from the research data or filename
+                                    person_id = research_data.get('person_id') or os.path.basename(research_path).replace('persona_research_', '').replace('.json', '')
+                                    
+                                    # Upload to cloud storage
+                                    research_cloud_url = await self.cloud_storage_manager.upload_persona_research_async(
+                                        research_data, task_id, person_id
+                                    )
+                                    if research_cloud_url:
+                                        updated_research_paths.append(research_cloud_url)
+                                        logger.info(f"Persona research for {person_id} uploaded to cloud storage: {research_cloud_url}")
+                                    else:
+                                        updated_research_paths.append(research_path)  # Keep local path as fallback
+                                except Exception as e:
+                                    logger.error(f"Error uploading persona research {research_path} to cloud storage: {e}")
+                                    warnings_list.append(f"Error uploading persona research to cloud storage: {e}")
+                                    updated_research_paths.append(research_path)  # Keep local path as fallback
+                            else:
+                                updated_research_paths.append(research_path)  # Keep path even if file doesn't exist
+                        
+                        # Update episode with cloud URLs
+                        if updated_research_paths:
+                            podcast_episode.llm_persona_research_paths = updated_research_paths
+                            
+                        status_manager.add_progress_log(
+                            task_id,
+                            "postprocessing_final_episode",
+                            "research_cloud_upload_success",
+                            f"✓ {len([p for p in updated_research_paths if p.startswith(('http', 'gs:'))])} persona research files uploaded to cloud storage"
+                        )
+                
+                except Exception as e:
+                    logger.error(f"Error during text file cloud uploads: {e}")
+                    warnings_list.append(f"Error during text file cloud uploads: {e}")
+            
             status_manager.add_progress_log(
                 task_id,
                 "postprocessing_final_episode",

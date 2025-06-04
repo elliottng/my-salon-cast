@@ -86,6 +86,63 @@
 - Comprehensive error handling and logging
 - Budget-conscious design (public URLs, efficient uploads)
 
+## Phase 2.3: Text File Cloud Storage Integration (4-6 hours)
+
+**🎯 OBJECTIVE:**
+Extend cloud storage integration to handle text files (transcripts, outlines, persona research) for cloud deployment compatibility.
+
+**📋 PROBLEM SOLVED:**
+Current text file handling saves to temporary local files during generation, then accesses via MCP resources. This breaks in Cloud Run where container restarts cause temp files to disappear.
+
+#### **A2-3: Text File Cloud Storage Integration**
+- [x] **Extend CloudStorageManager** - Add text file upload methods
+  - `upload_text_file_async()` - Generic text content upload to GCS
+  - `upload_outline_async()` - Podcast outline JSON upload
+  - `upload_persona_research_async()` - Individual persona research upload
+  - Environment-aware behavior (local files in dev, GCS URLs in cloud)
+  - Proper content-type handling for JSON/text files
+
+- [x] **Update Podcast Workflow** - Integrate text file uploads
+  - Upload outline JSON to GCS after generation
+  - Upload persona research files to GCS after completion
+  - Replace local file paths with GCS URLs in PodcastEpisode model
+  - Maintain local fallback for development environment
+  - Add progress logging for text file uploads
+
+- [x] **Modify MCP Resources** - Handle cloud URLs vs local file paths
+  - Update `podcast://{task_id}/outline` resource to download from GCS URLs
+  - Update `research://{task_id}/{person_id}` resource for cloud access
+  - Add caching mechanism for frequently accessed text files
+  - Implement graceful fallback when files are unavailable
+  - Maintain backward compatibility with local file paths
+
+- [x] **Update PodcastEpisode Model** - Store cloud URLs for text files
+  - Modify `llm_podcast_outline_path` to store GCS URLs when available
+  - Modify `llm_persona_research_paths` to store GCS URLs for each research file
+  - Add migration logic for existing local file path entries
+  - Maintain field compatibility for local development
+
+**🧪 TESTING PLAN:**
+- [x] Test text file upload in cloud vs local environments
+- [x] Verify MCP resources work with both local paths and GCS URLs
+- [x] Test container restart scenarios (files persist via GCS)
+- [x] Validate local development workflow remains unchanged
+- [x] Performance testing for text file access latency
+
+**📊 IMPLEMENTATION COMPLETED:**
+- ✅ **4 new CloudStorageManager methods** for text file handling
+- ✅ **Text file upload integration** in podcast workflow
+- ✅ **Enhanced MCP resources** with cloud URL support and caching
+- ✅ **PodcastEpisode model enhancements** with helper methods
+- ✅ **Environment-aware behavior** (local fallback preserved)
+- ✅ **Comprehensive error handling** with detailed logging
+
+**📊 EXPECTED BENEFITS:**
+- ✅ Cloud deployment compatibility for text file access
+- ✅ Architectural consistency with audio file storage pattern  
+- ✅ Natural backup/archival solution for generated content
+- ✅ Stateless application design for horizontal scaling
+
 ## Phase 3: MCP Server Deployment Configuration (1 hour)
 
 #### **A3-1: MCP Server Containerization**

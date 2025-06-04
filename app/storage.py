@@ -2,6 +2,7 @@
 
 import os
 import logging
+import time
 from typing import Optional, List, BinaryIO
 from pathlib import Path
 from app.config import get_config
@@ -263,6 +264,47 @@ class StorageManager:
 class CloudStorageManager(StorageManager):
     """Extended storage manager with async methods for podcast workflow integration."""
     
+    def __init__(self):
+        super().__init__()
+        # Simple in-memory cache for text files
+        self._text_cache = {}
+        self._cache_max_size = 50  # Maximum number of cached items
+        self._cache_ttl = 300  # Cache TTL in seconds (5 minutes)
+    
+    def _get_cache_key(self, url: str) -> str:
+        """Generate cache key for URL."""
+        import hashlib
+        return hashlib.md5(url.encode()).hexdigest()
+    
+    def _is_cache_valid(self, cache_entry: dict) -> bool:
+        """Check if cache entry is still valid."""
+        import time
+        return time.time() - cache_entry['timestamp'] < self._cache_ttl
+    
+    def _clean_cache(self):
+        """Remove expired entries and enforce size limit."""
+        import time
+        current_time = time.time()
+        
+        # Remove expired entries
+        expired_keys = [
+            key for key, entry in self._text_cache.items()
+            if current_time - entry['timestamp'] > self._cache_ttl
+        ]
+        for key in expired_keys:
+            del self._text_cache[key]
+        
+        # Enforce size limit (remove oldest entries)
+        if len(self._text_cache) > self._cache_max_size:
+            sorted_items = sorted(
+                self._text_cache.items(),
+                key=lambda x: x[1]['timestamp']
+            )
+            # Remove oldest entries to get back to max size
+            excess_count = len(self._text_cache) - self._cache_max_size
+            for key, _ in sorted_items[:excess_count]:
+                del self._text_cache[key]
+    
     async def upload_audio_file_async(self, local_path: str, cloud_path: str) -> Optional[str]:
         """
         Upload an audio file to cloud storage asynchronously.
@@ -380,6 +422,196 @@ class CloudStorageManager(StorageManager):
         except Exception as e:
             logging.error(f"Failed to upload podcast episode assets: {e}")
             return False
+
+    async def upload_text_file_async(self, content: str, cloud_path: str, content_type: str = "text/plain") -> Optional[str]:
+        """
+        Upload text content to cloud storage asynchronously.
+        
+        Args:
+            content: Text content to upload
+            cloud_path: Target cloud storage path (e.g., "text/task_id/outline.json")
+            content_type: MIME content type (default: "text/plain")
+            
+        Returns:
+            Cloud storage URL if successful, None otherwise
+        """
+        if not content or not content.strip():
+            logging.error("Empty content provided for text file upload")
+            return None
+            
+        if self.is_cloud_storage_available:
+            try:
+                bucket = self.client.bucket(self.config.audio_bucket)  # Reuse audio bucket for simplicity
+                blob = bucket.blob(cloud_path)
+                
+                # Upload text content with appropriate content type
+                blob.upload_from_string(content, content_type=content_type)
+                
+                # Make blob publicly readable for cloud environments
+                if not self.config.is_local_environment:
+                    blob.make_public()
+                    public_url = blob.public_url
+                    logging.info(f"Uploaded text file to Cloud Storage: {cloud_path}")
+                    return public_url
+                else:
+                    # For local development, return the GS URL for consistency
+                    gs_url = f"gs://{self.config.audio_bucket}/{cloud_path}"
+                    logging.info(f"Uploaded text file to Cloud Storage (local dev): {cloud_path}")
+                    return gs_url
+                    
+            except Exception as e:
+                logging.error(f"Failed to upload text file to Cloud Storage: {e}")
+                return None
+        else:
+            # In local development without cloud storage, we need to save locally
+            # Create a temporary local file for compatibility
+            import tempfile
+            import hashlib
+            
+            # Create a deterministic local path based on cloud_path
+            safe_filename = cloud_path.replace("/", "_").replace("\\", "_")
+            local_dir = os.path.join(tempfile.gettempdir(), "mysaloncast_text_files")
+            os.makedirs(local_dir, exist_ok=True)
+            local_path = os.path.join(local_dir, safe_filename)
+            
+            try:
+                with open(local_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                logging.info(f"Cloud storage not available, saved text file locally: {local_path}")
+                return local_path
+            except Exception as e:
+                logging.error(f"Failed to save text file locally: {e}")
+                return None
+
+    async def upload_outline_async(self, outline_data: dict, task_id: str) -> Optional[str]:
+        """
+        Upload podcast outline JSON to cloud storage.
+        
+        Args:
+            outline_data: Outline data dictionary
+            task_id: Task identifier for organizing files
+            
+        Returns:
+            Cloud storage URL if successful, None otherwise
+        """
+        if not outline_data:
+            logging.error("Empty outline data provided")
+            return None
+            
+        try:
+            import json
+            outline_json = json.dumps(outline_data, indent=2, ensure_ascii=False)
+            cloud_path = f"text/{task_id}/podcast_outline.json"
+            
+            return await self.upload_text_file_async(
+                outline_json, 
+                cloud_path, 
+                content_type="application/json"
+            )
+            
+        except Exception as e:
+            logging.error(f"Failed to serialize outline data: {e}")
+            return None
+
+    async def upload_persona_research_async(self, research_data: dict, task_id: str, person_id: str) -> Optional[str]:
+        """
+        Upload persona research JSON to cloud storage.
+        
+        Args:
+            research_data: Persona research data dictionary
+            task_id: Task identifier for organizing files
+            person_id: Person identifier for the research
+            
+        Returns:
+            Cloud storage URL if successful, None otherwise
+        """
+        if not research_data:
+            logging.error("Empty persona research data provided")
+            return None
+            
+        try:
+            import json
+            research_json = json.dumps(research_data, indent=2, ensure_ascii=False)
+            cloud_path = f"text/{task_id}/persona_research_{person_id}.json"
+            
+            return await self.upload_text_file_async(
+                research_json, 
+                cloud_path, 
+                content_type="application/json"
+            )
+            
+        except Exception as e:
+            logging.error(f"Failed to serialize persona research data: {e}")
+            return None
+
+    async def download_text_file_async(self, cloud_url: str) -> Optional[str]:
+        """
+        Download text content from cloud storage or local file.
+        
+        Args:
+            cloud_url: Cloud storage URL or local file path
+            
+        Returns:
+            Text content if successful, None otherwise
+        """
+        cache_key = self._get_cache_key(cloud_url)
+        if cache_key in self._text_cache:
+            cache_entry = self._text_cache[cache_key]
+            if self._is_cache_valid(cache_entry):
+                return cache_entry['content']
+        
+        try:
+            # Handle local file paths
+            if not cloud_url.startswith(('http://', 'https://', 'gs://')):
+                if os.path.exists(cloud_url):
+                    with open(cloud_url, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    self._text_cache[cache_key] = {'content': content, 'timestamp': int(time.time())}
+                    self._clean_cache()
+                    return content
+                else:
+                    logging.warning(f"Local text file not found: {cloud_url}")
+                    return None
+            
+            # Handle GCS URLs
+            if self.is_cloud_storage_available and cloud_url.startswith('gs://'):
+                # Extract bucket and blob path from gs:// URL
+                gs_path = cloud_url.replace('gs://', '')
+                bucket_name, blob_path = gs_path.split('/', 1)
+                
+                bucket = self.client.bucket(bucket_name)
+                blob = bucket.blob(blob_path)
+                
+                if blob.exists():
+                    content = blob.download_as_text(encoding='utf-8')
+                    self._text_cache[cache_key] = {'content': content, 'timestamp': int(time.time())}
+                    self._clean_cache()
+                    logging.info(f"Downloaded text file from Cloud Storage: {blob_path}")
+                    return content
+                else:
+                    logging.warning(f"Text file not found in Cloud Storage: {blob_path}")
+                    return None
+            
+            # Handle HTTP/HTTPS URLs (public URLs)
+            if cloud_url.startswith(('http://', 'https://')):
+                import urllib.request
+                try:
+                    with urllib.request.urlopen(cloud_url) as response:
+                        content = response.read().decode('utf-8')
+                        self._text_cache[cache_key] = {'content': content, 'timestamp': int(time.time())}
+                        self._clean_cache()
+                        logging.info(f"Downloaded text file from public URL: {cloud_url}")
+                        return content
+                except Exception as e:
+                    logging.error(f"Failed to download from public URL {cloud_url}: {e}")
+                    return None
+            
+            logging.error(f"Unsupported URL format: {cloud_url}")
+            return None
+            
+        except Exception as e:
+            logging.error(f"Failed to download text file from {cloud_url}: {e}")
+            return None
 
 
 # Global storage manager instance

@@ -1274,16 +1274,27 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
-        # Try to get outline from the file path stored in the episode
+        # Try to get outline from the file path or cloud URL stored in the episode
         outline_data = None
         outline_file_path = status_info.result_episode.llm_podcast_outline_path
         
-        if outline_file_path and os.path.exists(outline_file_path):
+        if outline_file_path:
             try:
-                with open(outline_file_path, 'r') as f:
-                    outline_data = json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Failed to read outline file {outline_file_path}: {e}")
+                # Handle both local file paths and cloud URLs
+                from app.storage import CloudStorageManager
+                cloud_storage = CloudStorageManager()
+                
+                # Try to download text content (handles local files, GCS URLs, and HTTP URLs)
+                outline_content = await cloud_storage.download_text_file_async(outline_file_path)
+                
+                if outline_content:
+                    outline_data = json.loads(outline_content)
+                    logger.info(f"Successfully loaded outline from: {outline_file_path}")
+                else:
+                    logger.warning(f"Failed to download outline from: {outline_file_path}")
+                    
+            except (json.JSONDecodeError, Exception) as e:
+                logger.warning(f"Failed to read outline from {outline_file_path}: {e}")
                 outline_data = None
         
         return {
@@ -1340,42 +1351,71 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
         research_file_path = None
         
         for file_path in episode.llm_persona_research_paths:
-            if os.path.basename(file_path) == target_filename:
-                research_file_path = file_path
-                break
+            # Handle both local paths and cloud URLs - check filename pattern
+            if file_path.startswith(('http://', 'https://', 'gs://')):
+                # For cloud URLs, extract filename from the path
+                if target_filename in file_path:
+                    research_file_path = file_path
+                    break
+            else:
+                # For local paths, check basename as before
+                if os.path.basename(file_path) == target_filename:
+                    research_file_path = file_path
+                    break
         
         if not research_file_path:
             # Extract available person_ids from this task's files for error message
             available_persons = []
             for path in episode.llm_persona_research_paths:
-                filename = os.path.basename(path)
-                if filename.startswith("persona_research_") and filename.endswith(".json"):
-                    available_person_id = filename[17:-5]  # Remove "persona_research_" and ".json"
-                    available_persons.append(available_person_id)
+                if path.startswith(('http://', 'https://', 'gs://')):
+                    # Extract person_id from cloud URL
+                    if "persona_research_" in path and ".json" in path:
+                        start_idx = path.find("persona_research_") + 17
+                        end_idx = path.find(".json", start_idx)
+                        if end_idx > start_idx:
+                            available_person_id = path[start_idx:end_idx]
+                            available_persons.append(available_person_id)
+                else:
+                    # Extract person_id from local filename
+                    filename = os.path.basename(path)
+                    if filename.startswith("persona_research_") and filename.endswith(".json"):
+                        available_person_id = filename[17:-5]  # Remove "persona_research_" and ".json"
+                        available_persons.append(available_person_id)
             
             if available_persons:
                 raise ToolError(f"Person '{person_id}' not found in task {task_id}. Available persons: {', '.join(available_persons)}")
             else:
                 raise ToolError(f"No persona research files found for task: {task_id}")
         
-        # Read and parse the PersonaResearch JSON file
+        # Read and parse the PersonaResearch JSON file or download from cloud
         research_data = None
-        file_exists = os.path.exists(research_file_path)
+        file_exists = False
         file_size = 0
         
-        if file_exists:
-            try:
-                file_size = os.path.getsize(research_file_path)
-                with open(research_file_path, 'r', encoding='utf-8') as f:
-                    research_json = json.load(f)
-                    research_data = research_json
+        try:
+            # Handle both local file paths and cloud URLs
+            from app.storage import CloudStorageManager
+            cloud_storage = CloudStorageManager()
+            
+            # Try to download/read text content (handles local files, GCS URLs, and HTTP URLs)
+            research_content = await cloud_storage.download_text_file_async(research_file_path)
+            
+            if research_content:
+                file_exists = True
+                file_size = len(research_content.encode('utf-8'))
+                
+                try:
+                    research_data = json.loads(research_content)
                     logger.info(f"Successfully loaded persona research for {person_id} from {research_file_path}")
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                logger.error(f"Failed to parse persona research JSON for {person_id}: {e}")
-                research_data = None
-            except Exception as e:
-                logger.error(f"Error reading persona research file for {person_id}: {e}")
-                research_data = None
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse persona research JSON for {person_id}: {e}")
+                    research_data = None
+            else:
+                logger.warning(f"Failed to download persona research from: {research_file_path}")
+                
+        except Exception as e:
+            logger.error(f"Error reading persona research file for {person_id}: {e}")
+            research_data = None
         
         return {
             "task_id": task_id,

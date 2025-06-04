@@ -159,10 +159,38 @@ class PodcastEpisode(BaseModel):
     source_attributions: List[str]
     warnings: List[str]
     llm_source_analysis_paths: Optional[List[str]] = None
+    # Path or Cloud URL to persona research JSON files (supports both local paths and GCS URLs)
     llm_persona_research_paths: Optional[List[str]] = None
+    # Path or Cloud URL to podcast outline JSON file (supports both local paths and GCS URLs)
     llm_podcast_outline_path: Optional[str] = None
     llm_dialogue_turns_path: Optional[str] = None
     dialogue_turn_audio_paths: Optional[List[str]] = None  # Individual audio segment paths
+    
+    def is_cloud_path(self, path: str) -> bool:
+        """Check if a path is a cloud URL (GCS, HTTP, or HTTPS)."""
+        return path.startswith(('gs://', 'http://', 'https://'))
+    
+    def has_cloud_outline(self) -> bool:
+        """Check if podcast outline is stored in cloud storage."""
+        return self.llm_podcast_outline_path and self.is_cloud_path(self.llm_podcast_outline_path)
+    
+    def has_cloud_persona_research(self) -> bool:
+        """Check if any persona research files are stored in cloud storage."""
+        if not self.llm_persona_research_paths:
+            return False
+        return any(self.is_cloud_path(path) for path in self.llm_persona_research_paths)
+    
+    def get_cloud_research_count(self) -> int:
+        """Get count of persona research files stored in cloud storage."""
+        if not self.llm_persona_research_paths:
+            return 0
+        return sum(1 for path in self.llm_persona_research_paths if self.is_cloud_path(path))
+    
+    def get_local_research_count(self) -> int:
+        """Get count of persona research files stored locally."""
+        if not self.llm_persona_research_paths:
+            return 0
+        return sum(1 for path in self.llm_persona_research_paths if not self.is_cloud_path(path))
 
 
 # --- Asynchronous Task Management Models ---
