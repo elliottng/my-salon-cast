@@ -466,104 +466,209 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - **Testing**: 100% test coverage with integration, unit, and validation tests
 - **Documentation**: Complete API docs and usage examples
 
-# Phase 3: Production Deployment
+# Phase 4: OAuth 2.0 Implementation
 
-### 1.1: Staging and Deployment Plan (P1, L)
-see todo_deployment.md
+### Overview
+Claude.ai requires OAuth 2.0 authentication for remote MCP servers. The server must implement OAuth endpoints for discovery, client registration, authorization, and token exchange.
 
-### 1.2: Claude Desktop Integration (P1, M)
-- [x] Create MCP server entry point script for standalone execution
-- [x] Write Claude Desktop MCP configuration:
-  - [x] JSON configuration file
-  - [x] Environment variable setup
-  - [x] Installation and setup documentation
-- [x] Test end-to-end workflows:
-  - [x] Basic podcast generation through Claude
-  - [x] Status monitoring and polling
-  - [x] Persona profile access and discussion
-  - [x] Outline review and interaction
-  - [x] File download and access patterns
-- [x] Create user interaction templates and examples
+### Required OAuth Endpoints
 
-### 1.3: Performance Optimization (P2, M)
-- [ ] MCP server response time optimization
-- [ ] Status polling efficiency improvements
-- [ ] Resource access performance testing
-- [ ] Connection pooling and caching strategies
+#### 1.1: OAuth Discovery Endpoint (P1, L)
+- [ ] Implement `/.well-known/oauth-authorization-server`
+- [ ] Add endpoint to `app/mcp_server.py`
+- [ ] Return OAuth 2.0 Authorization Server Metadata
+- [ ] Include all required OAuth endpoints and capabilities
+- [ ] Use dynamic base URL detection for production deployment
 
-### 1.4: Advanced Features (P2, L)
-- [ ] Rate limiting for resource-intensive operations
-- [ ] Advanced authentication if needed
-- [ ] Webhook/callback support for completion notifications
-- [ ] Task cancellation support via MCP
-- [ ] Batch operations and bulk processing
+#### 1.2: Client Registration Endpoint (P1, L)
+- [ ] Implement `/register` POST endpoint
+- [ ] Accept OAuth client registration requests
+- [ ] Generate unique `client_id` and `client_secret`
+- [ ] Store client credentials securely
+- [ ] Return client registration response per RFC 7591
+- [ ] Validate `redirect_uris` and other client metadata
 
-## Legacy Sections (Pre-MCP Implementation)
+#### 1.3: Authorization Endpoint (P1, L)
+- [ ] Implement `/auth/authorize` GET endpoint
+- [ ] Validate `client_id` and `redirect_uri`
+- [ ] Generate authorization codes
+- [ ] Support PKCE (`code_challenge`/`code_verifier`)
+- [ ] Handle `state` parameter for CSRF protection
+- [ ] Redirect back to Claude.ai with authorization code
 
-### Task 1.9: Temporary File Management (P2, M) 
-- [x] Implement temporary file storage
-- [x] Set up cleanup mechanism
-**Note: Completed via Phase 4.3 Configurable Cleanup Policy System**
+#### 1.4: Token Exchange Endpoint (P1, L)
+- [ ] Implement `/auth/token` POST endpoint
+- [ ] Exchange authorization codes for access tokens
+- [ ] Validate client credentials
+- [ ] Support PKCE verification
+- [ ] Generate and return access tokens
+- [ ] Implement token expiration (default: 1 hour)
 
-### Task 1.10: Error Handling & Logging (P1, M) 
-- [x] Implement error handling based on PRD
-- [x] Return appropriate HTTP status codes
-- [x] Set up logging
-**Note: Completed via Phase 5.2 MCP Error Handling and comprehensive logging**
+### Data Storage & Security
 
-## Phase 3: LLM Prompt Iteration 
+#### 2.1: Client Credential Storage (P1, M)
+- [ ] Design client storage system
+- [ ] Create data models for OAuth clients
+- [ ] Implement secure storage (database or in-memory for testing)
+- [ ] Add client validation functions
+- [ ] Support multiple redirect URIs per client
 
-### Task 3.1: Source Analysis Prompt Iteration (P2, M) 
-- [x] Refine prompt for extracting key themes, facts, and insights from source texts (corresponds to `analyze_source_text_async`).
-- [x] Test with diverse source materials (PDFs, YouTube, URLs).
-- [x] Evaluate quality of analysis against PRD requirements (Section 4.2.2).
-- [x] Iterate on prompt based on test results for clarity, comprehensiveness, and accuracy.
+#### 2.2: Authorization Code Management (P1, M)
+- [ ] Implement authorization code handling
+- [ ] Generate cryptographically secure codes
+- [ ] Store codes with expiration (default: 10 minutes)
+- [ ] Implement one-time use enforcement
+- [ ] Store PKCE challenge data with codes
 
-### Task 3.2: Persona Research Prompt Iteration (P2, M) 
-- [x] Refine prompt for generating persona viewpoints, arguments, and speaking styles (corresponds to `research_persona_async`).
-- [x] Test with various persona types and complexities.
-- [x] Evaluate research quality against PRD requirements (Section 4.2.3).
-- [x] Iterate on prompt based on test results for depth, relevance, and nuance.
-**Note: Completed through extensive testing and validation in MCP integration**
+#### 2.3: Access Token Management (P1, M)
+- [ ] Create access token system
+- [ ] Generate secure access tokens
+- [ ] Implement token storage and validation
+- [ ] Add token expiration handling
+- [ ] Create token validation middleware for MCP endpoints
 
-### Task 3.3: Podcast Outline Generation Prompt Iteration (P1, L) 
-- [x] Refine 'Podcast Outline Generation' prompt from PRD 4.2.4 (corresponds to `generate_podcast_outline_async`).
-- [x] Test with varying numbers of prominent persons, desired podcast lengths, and custom user outline prompts.
-- [x] Evaluate outline structure, content prioritization, adherence to user inputs, and logical flow.
-- [x] Iterate on prompt for improved topic coverage, speaker balance, and overall coherence.
+### MCP Protocol Integration
 
-### Task 3.4: Dialogue Writing Prompt Iteration (P1, XL) 
-- [x] Refine 'Dialogue Writing' prompt from PRD 4.2.5.1 (corresponds to `generate_dialogue_async`).
-- [x] Test with different outlines, persona research, prominent person details (including follower names/genders), and desired lengths.
-- [x] Evaluate dialogue naturalness, speaker attribution, character consistency, engagement, and adherence to length.
-- [x] Iterate on prompt for improved conversational flow, realism, and fulfillment of all dialogue requirements (e.g., disclaimers if prompted).
+#### 3.1: Protect MCP Endpoints (P1, M)
+- [ ] Add OAuth protection to MCP tools
+- [ ] Create authentication middleware
+- [ ] Validate Bearer tokens on MCP requests
+- [ ] Return 401 for invalid/missing tokens
+- [ ] Maintain backwards compatibility for health endpoints
 
-## Phase 4: Deployment & Security
+#### 3.2: Scope-Based Authorization (P2, M)
+- [ ] Implement OAuth scopes
+- [ ] Define MCP-specific scopes (`mcp.read`, `mcp.write`)
+- [ ] Enforce scope restrictions on endpoints
+- [ ] Add scope validation to token generation
+- [ ] Document scope requirements for different operations
+
+### Configuration & Environment
+
+#### 4.1: Environment Configuration (P1, S)
+- [ ] Add OAuth configuration to environment
+- [ ] Add OAuth settings to `app/config.py`
+- [ ] Configure token expiration times
+- [ ] Set up OAuth secret keys
+- [ ] Add development vs production OAuth modes
+
+#### 4.2: Security Configuration (P1, M)
+- [ ] Implement security best practices
+- [ ] Use secure random token generation
+- [ ] Implement rate limiting on OAuth endpoints
+- [ ] Add CORS headers for Claude.ai domains
+- [ ] Validate all OAuth parameters properly
+
+### Testing & Validation
+
+#### 5.1: OAuth Flow Testing (P1, M)
+- [ ] Create OAuth flow tests
+- [ ] Test client registration flow
+- [ ] Test authorization code flow
+- [ ] Test token exchange flow
+- [ ] Test PKCE implementation
+- [ ] Validate error handling for invalid requests
+
+#### 5.2: Integration Testing (P1, L)
+- [ ] Test Claude.ai integration
+- [ ] Verify OAuth discovery works
+- [ ] Test full OAuth flow with Claude.ai
+- [ ] Validate MCP protocol works with OAuth tokens
+- [ ] Test token expiration and refresh scenarios
+
+### Documentation & Deployment
+
+#### 6.1: Documentation Updates (P2, S)
+- [ ] Update project documentation
+- [ ] Document OAuth configuration steps
+- [ ] Add Claude.ai setup instructions
+- [ ] Document OAuth endpoints and flows
+- [ ] Add troubleshooting guide for OAuth issues
+
+#### 6.2: Deployment Updates (P1, S)
+- [ ] Update deployment configuration
+- [ ] Add OAuth secrets to `.env` file
+- [ ] Update Terraform if using Secret Manager
+- [ ] Configure OAuth URLs for production domain
+- [ ] Test OAuth in production environment
+
+### Implementation Phases
+
+**Phase 1: Minimal OAuth (Testing)**
+- [ ] Implement discovery endpoint with static responses
+- [ ] Create mock registration endpoint with fixed credentials
+- [ ] Add basic authorization endpoint (auto-approve)
+- [ ] Implement simple token exchange
+
+**Phase 2: Full OAuth (Production)**
+- [ ] Implement proper client credential storage
+- [ ] Add real authorization code generation and validation
+- [ ] Implement secure token management
+- [ ] Add comprehensive error handling
+
+**Phase 3: Security Hardening**
+- [ ] Add rate limiting and abuse protection
+- [ ] Implement proper session management
+- [ ] Add audit logging for OAuth operations
+- [ ] Security testing and vulnerability assessment
+
+### Priority Order
+- **HIGH**: Discovery endpoint (required for Claude.ai to detect OAuth)
+- **HIGH**: Client registration (required for initial setup)
+- **HIGH**: Authorization flow (required for user consent)
+- **HIGH**: Token exchange (required for API access)
+- **MEDIUM**: MCP endpoint protection
+- **MEDIUM**: Security hardening
+- **LOW**: Advanced features (refresh tokens, etc.)
+
+### Success Criteria
+- [ ] Claude.ai can discover OAuth endpoints
+- [ ] Claude.ai can complete client registration
+- [ ] Claude.ai can complete full OAuth authorization flow
+- [ ] MCP tools work with OAuth authentication
+- [ ] All OAuth endpoints return proper error responses
+- [ ] Security best practices are implemented
+
+### Files to Modify
+- `app/mcp_server.py` - Add OAuth endpoints
+- `app/config.py` - Add OAuth configuration
+- `app/oauth_models.py` - Create OAuth data models (new file)
+- `app/oauth_storage.py` - Implement OAuth data storage (new file)
+- `app/.env` - Add OAuth configuration variables
+- `requirements.txt` - Add OAuth-related dependencies if needed
+
+### Dependencies to Consider
+- `authlib` - OAuth 2.0 implementation library
+- `python-jose` - JWT token handling
+- `cryptography` - Secure token generation
+- `pydantic` - OAuth request/response models
+
+## Phase 5: Deployment & Security
 
 
-### Task 4.3: Rate Limiting (P2, S)
+### 1.1: Rate Limiting (P2, S)
 - [ ] Implement IP-based rate limiting
 - [ ] Add request throttling for expensive operations
 
-### Task 4.4: HTTPS Configuration (P1, S)
+### 1.2: HTTPS Configuration (P1, S)
 - [ ] Ensure HTTPS for all endpoints
 - [ ] Manage SSL certificates
 - [ ] Configure secure headers
 
-### Task 4.5: Final Testing (P1, M)
+### 1.3: Final Testing (P1, M)
 - [ ] Test all V1 features in production environment
 - [ ] Test security measures and vulnerability scanning
 - [ ] Load testing and performance validation
 
-## Phase 5: Documentation & Polish
+## Phase 6: Documentation & Polish
 
-### Task 5.1: User Guide/FAQ (P3, S)
+### 1.1: User Guide/FAQ (P3, S)
 - [ ] Create user documentation for MCP integration
 - [ ] Explain V1 limitations and features
 - [ ] Document rate limits and file sizes
 - [ ] Create troubleshooting guide
 
-### Task 5.2: Code Cleanup (P3, M) 
+### 1.2: Code Cleanup (P3, M) 
 - [x] Refactor test code for improved maintainability
   - [x] Refactor `test_podcast_workflow.py` to use fixtures and parameterized tests
   - [x] Refactor `test_content_extractor.py` to use class-based organization and utility methods
@@ -573,13 +678,98 @@ see todo_deployment.md
 - [x] Add comprehensive comments
 - [x] Document LLM interactions
 
-### Task 5.3: Performance Monitoring (P2, M)
+### 1.3: Performance Monitoring (P2, M)
 - [ ] Set up application monitoring and alerting
 - [ ] Configure performance metrics collection
 - [ ] Implement health check endpoints
 - [ ] Add observability for production debugging
 
-## 1.2: User Experience & Documentation (P1, S) 
+## 1.4: User Experience & Documentation (P1, S) 
+- [x] Claude Desktop integration testing and validation 
+  - [x] Basic podcast generation through Claude
+  - [x] Status monitoring and polling
+  - [x] Persona profile access and discussion
+  - [x] Outline review and interaction
+  - [x] File download and access patterns
+- [x] Create user interaction templates and examples 
+- [x] **NEW**: Claude.ai website integration documentation 
+  - [x] Remote MCP server connection instructions
+  - [x] Pro/Max user setup guide
+  - [x] Enterprise/Team organization setup
+  - [x] Example conversations and workflows
+  - [x] Security and privacy considerations
+
+{{ ... }}
+
+## Phase 7: LLM Prompt Iteration 
+
+### 1.1: Source Analysis Prompt Iteration (P2, M) 
+- [x] Refine prompt for extracting key themes, facts, and insights from source texts (corresponds to `analyze_source_text_async`).
+- [x] Test with diverse source materials (PDFs, YouTube, URLs).
+- [x] Evaluate quality of analysis against PRD requirements (Section 4.2.2).
+- [x] Iterate on prompt based on test results for clarity, comprehensiveness, and accuracy.
+
+### 1.2: Persona Research Prompt Iteration (P2, M) 
+- [x] Refine prompt for generating persona viewpoints, arguments, and speaking styles (corresponds to `research_persona_async`).
+- [x] Test with various persona types and complexities.
+- [x] Evaluate research quality against PRD requirements (Section 4.2.3).
+- [x] Iterate on prompt based on test results for depth, relevance, and nuance.
+**Note: Completed through extensive testing and validation in MCP integration**
+
+### 1.3: Podcast Outline Generation Prompt Iteration (P1, L) 
+- [x] Refine 'Podcast Outline Generation' prompt from PRD 4.2.4 (corresponds to `generate_podcast_outline_async`).
+- [x] Test with varying numbers of prominent persons, desired podcast lengths, and custom user outline prompts.
+- [x] Evaluate outline structure, content prioritization, adherence to user inputs, and logical flow.
+- [x] Iterate on prompt for improved topic coverage, speaker balance, and overall coherence.
+
+### 1.4: Dialogue Writing Prompt Iteration (P1, XL) 
+- [x] Refine 'Dialogue Writing' prompt from PRD 4.2.5.1 (corresponds to `generate_dialogue_async`).
+- [x] Test with different outlines, persona research, prominent person details (including follower names/genders), and desired lengths.
+- [x] Evaluate dialogue naturalness, speaker attribution, character consistency, engagement, and adherence to length.
+- [x] Iterate on prompt for improved conversational flow, realism, and fulfillment of all dialogue requirements (e.g., disclaimers if prompted).
+
+## Phase 8: Deployment & Security
+
+
+### 1.1: Rate Limiting (P2, S)
+- [ ] Implement IP-based rate limiting
+- [ ] Add request throttling for expensive operations
+
+### 1.2: HTTPS Configuration (P1, S)
+- [ ] Ensure HTTPS for all endpoints
+- [ ] Manage SSL certificates
+- [ ] Configure secure headers
+
+### 1.3: Final Testing (P1, M)
+- [ ] Test all V1 features in production environment
+- [ ] Test security measures and vulnerability scanning
+- [ ] Load testing and performance validation
+
+## Phase 9: Documentation & Polish
+
+### 1.1: User Guide/FAQ (P3, S)
+- [ ] Create user documentation for MCP integration
+- [ ] Explain V1 limitations and features
+- [ ] Document rate limits and file sizes
+- [ ] Create troubleshooting guide
+
+### 1.2: Code Cleanup (P3, M) 
+- [x] Refactor test code for improved maintainability
+  - [x] Refactor `test_podcast_workflow.py` to use fixtures and parameterized tests
+  - [x] Refactor `test_content_extractor.py` to use class-based organization and utility methods
+- [x] Refactor remaining application code
+  - [x] Fix import paths for consistent execution across environments
+  - [x] Add utility script for import path fixing
+- [x] Add comprehensive comments
+- [x] Document LLM interactions
+
+### 1.3: Performance Monitoring (P2, M)
+- [ ] Set up application monitoring and alerting
+- [ ] Configure performance metrics collection
+- [ ] Implement health check endpoints
+- [ ] Add observability for production debugging
+
+## 1.4: User Experience & Documentation (P1, S) 
 - [x] Claude Desktop integration testing and validation 
   - [x] Basic podcast generation through Claude
   - [x] Status monitoring and polling
