@@ -14,18 +14,19 @@ class Config:
         
         # Log configuration warnings for missing required environment variables
         missing_vars = []
+        
         if not self.gemini_api_key:
             missing_vars.append("GEMINI_API_KEY")
-        if not self.google_tts_api_key:
-            missing_vars.append("GOOGLE_TTS_API_KEY")
+        
+        # Check for deprecated environment variables
+        if os.getenv("GOOGLE_TTS_API_KEY"):
+            logging.warning("GOOGLE_TTS_API_KEY is deprecated and no longer used. TTS functionality is handled differently.")
         
         if missing_vars:
             logging.warning("Configuration warnings:")
             for var in missing_vars:
                 if var == "GEMINI_API_KEY":
                     logging.warning(f"  - {var} not configured (podcast generation disabled)")
-                elif var == "GOOGLE_TTS_API_KEY":
-                    logging.warning(f"  - {var} not configured (TTS features disabled)")
     
     @property
     def is_cloud_environment(self) -> bool:
@@ -41,11 +42,6 @@ class Config:
     def gemini_api_key(self) -> Optional[str]:
         """Get Gemini API key from environment variables."""
         return os.getenv("GEMINI_API_KEY")
-    
-    @property
-    def google_tts_api_key(self) -> Optional[str]:
-        """Get Google TTS API key from environment variables."""
-        return os.getenv("GOOGLE_TTS_API_KEY")
     
     @property
     def audio_bucket(self) -> Optional[str]:
@@ -143,9 +139,6 @@ class Config:
         if not self.gemini_api_key:
             issues.append("GEMINI_API_KEY not configured")
         
-        if not self.google_tts_api_key:
-            warnings.append("GOOGLE_TTS_API_KEY not configured (TTS features disabled)")
-        
         # Check cloud storage configuration for cloud environments
         if self.is_cloud_environment:
             if not self.project_id:
@@ -156,6 +149,10 @@ class Config:
             
             if not self.database_bucket:
                 warnings.append("DATABASE_BUCKET not configured")
+        
+        # Warn about deprecated environment variables
+        if os.getenv("GOOGLE_TTS_API_KEY"):
+            warnings.append("GOOGLE_TTS_API_KEY is deprecated and no longer used")
         
         return {
             "valid": len(issues) == 0,

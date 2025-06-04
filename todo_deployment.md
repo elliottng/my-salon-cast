@@ -146,7 +146,6 @@
 - [x] Simplify `app/config.py` to use only environment variables (remove Secret Manager)
 - [x] Update Cloud Run service configuration with required environment variables:
   - `GEMINI_API_KEY` - For podcast generation
-  - `GOOGLE_TTS_API_KEY` - For text-to-speech services
   - `PROJECT_ID` - For GCP project identification
   - `ENVIRONMENT` - For environment detection (staging/production)
 - [x] Add environment variable validation and error handling

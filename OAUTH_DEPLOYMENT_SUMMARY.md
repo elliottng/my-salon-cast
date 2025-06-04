@@ -86,7 +86,7 @@ Testing against: https://mcp-server-staging-ttvealhkuq-uw.a.run.app
 ```bash
 # Deploy OAuth to production with secrets
 gcloud builds submit --config cloudbuild.yaml \
-  --substitutions _ENVIRONMENT=production,_SERVICE_NAME=mcp-server,_REGION=us-west1,_REGISTRY=gcr.io,_SERVICE_ACCOUNT=mcp-server@my-salon-cast.iam.gserviceaccount.com,_GEMINI_API_KEY=your-prod-key,_GOOGLE_TTS_API_KEY=your-prod-tts-key,_CLAUDE_CLIENT_SECRET=RSWkmKkW3ZWf_upCqF9Tj8-9YDcK1NFxcegU5qJDyN4,_WEBAPP_CLIENT_SECRET=kLXm_Y2y_eLdTf0u7KLHpCBMThBKjRidHMK9l-3gjqQ
+  --substitutions _ENVIRONMENT=production,_SERVICE_NAME=mcp-server,_REGION=us-west1,_REGISTRY=gcr.io,_SERVICE_ACCOUNT=mcp-server@my-salon-cast.iam.gserviceaccount.com,_GEMINI_API_KEY=your-prod-key,_CLAUDE_CLIENT_SECRET=RSWkmKkW3ZWf_upCqF9Tj8-9YDcK1NFxcegU5qJDyN4,_WEBAPP_CLIENT_SECRET=kLXm_Y2y_eLdTf0u7KLHpCBMThBKjRidHMK9l-3gjqQ
 ```
 
 ### 3. MySalonCast Webapp Integration
@@ -120,7 +120,7 @@ curl http://localhost:8000/health
 ```bash
 # Redeploy with latest changes
 gcloud builds submit --config cloudbuild.yaml \
-  --substitutions _ENVIRONMENT=staging,_SERVICE_NAME=mcp-server,_REGION=us-west1,_REGISTRY=gcr.io,_SERVICE_ACCOUNT=mcp-server@my-salon-cast.iam.gserviceaccount.com,_GEMINI_API_KEY=dummy-key-staging,_GOOGLE_TTS_API_KEY=dummy-tts-key-staging,_CLAUDE_CLIENT_SECRET=RSWkmKkW3ZWf_upCqF9Tj8-9YDcK1NFxcegU5qJDyN4,_WEBAPP_CLIENT_SECRET=kLXm_Y2y_eLdTf0u7KLHpCBMThBKjRidHMK9l-3gjqQ
+  --substitutions _ENVIRONMENT=staging,_SERVICE_NAME=mcp-server,_REGION=us-west1,_REGISTRY=gcr.io,_SERVICE_ACCOUNT=mcp-server@my-salon-cast.iam.gserviceaccount.com,_GEMINI_API_KEY=dummy-key-staging,_CLAUDE_CLIENT_SECRET=RSWkmKkW3ZWf_upCqF9Tj8-9YDcK1NFxcegU5qJDyN4,_WEBAPP_CLIENT_SECRET=kLXm_Y2y_eLdTf0u7KLHpCBMThBKjRidHMK9l-3gjqQ
 ```
 
 ---

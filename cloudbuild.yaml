@@ -44,7 +44,6 @@ steps:
             --platform=managed \
             --set-env-vars="PROJECT_ID=${PROJECT_ID},ENVIRONMENT=${_ENVIRONMENT}" \
             --set-env-vars="GEMINI_API_KEY=${_GEMINI_API_KEY}" \
-            --set-env-vars="GOOGLE_TTS_API_KEY=${_GOOGLE_TTS_API_KEY}" \
             --set-env-vars="CLAUDE_CLIENT_SECRET=${_CLAUDE_CLIENT_SECRET}" \
             --set-env-vars="WEBAPP_CLIENT_SECRET=${_WEBAPP_CLIENT_SECRET}" \
             --allow-unauthenticated \
@@ -106,10 +105,9 @@ substitutions:
   _ENVIRONMENT: 'staging'
   _REGION: 'us-west1'
   _REGISTRY: 'gcr.io'
-  _SERVICE_ACCOUNT: 'mcp-server@${PROJECT_ID}.iam.gserviceaccount.com'
+  _SERVICE_ACCOUNT: 'mcp-server@my-salon-cast.iam.gserviceaccount.com'
   # These will be provided during build trigger setup
   _GEMINI_API_KEY: ''
-  _GOOGLE_TTS_API_KEY: ''
   _CLAUDE_CLIENT_SECRET: ''
   _WEBAPP_CLIENT_SECRET: ''
 

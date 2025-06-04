@@ -1813,17 +1813,83 @@ async def health_check(request):
         }, status_code=500)
 
 # =============================================================================
+# MCP ROOT ENDPOINT
+# =============================================================================
+
+async def mcp_root(request):
+    """Root endpoint providing MCP server information and manifest."""
+    try:
+        # Determine base URL with HTTPS enforcement for cloud deployments
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+        
+        # Force HTTPS for Cloud Run deployments
+        if (request.headers.get("x-forwarded-proto") == "https" or 
+            ".run.app" in request.url.netloc):
+            base_url = f"https://{request.url.netloc}"
+        
+        manifest = {
+            "name": "MySalonCast MCP Server",
+            "description": "AI-powered podcast generation platform with comprehensive content creation tools",
+            "version": "1.0.0",
+            "protocol_version": "2024-11-05",
+            "capabilities": {
+                "resources": True,
+                "tools": True,
+                "prompts": False,
+                "logging": True
+            },
+            "endpoints": {
+                "mcp": {
+                    "sse": f"{base_url}/sse",
+                    "websocket": None
+                },
+                "oauth": {
+                    "discovery": f"{base_url}/.well-known/oauth-authorization-server",
+                    "authorization": f"{base_url}/auth/authorize", 
+                    "token": f"{base_url}/auth/token",
+                    "introspection": f"{base_url}/auth/introspect"
+                },
+                "health": f"{base_url}/health"
+            },
+            "features": {
+                "podcast_generation": "Generate high-quality podcasts from various content sources",
+                "content_analysis": "Analyze and extract insights from text, URLs, and documents", 
+                "persona_research": "Research and create detailed persona profiles",
+                "voice_synthesis": "Multi-voice TTS with Google Cloud Text-to-Speech",
+                "cloud_storage": "Secure cloud storage for podcast assets",
+                "workflow_management": "End-to-end podcast creation workflow"
+            },
+            "authentication": {
+                "type": "oauth2",
+                "required": True,
+                "scopes": ["mcp.read", "mcp.write"]
+            }
+        }
+        
+        return JSONResponse(manifest)
+        
+    except Exception as e:
+        logger.error(f"Error in MCP root endpoint: {e}")
+        return JSONResponse({
+            "error": "internal_server_error",
+            "message": "Failed to generate MCP manifest",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }, status_code=500)
+
+# =============================================================================
 # REGISTER ROUTES
 # =============================================================================
 
 # Add OAuth and health routes to the app
+mcp_root_route = Route("/", mcp_root, methods=["GET"])
 oauth_discovery_route = Route("/.well-known/oauth-authorization-server", oauth_discovery, methods=["GET"])
 oauth_authorize_route = Route("/auth/authorize", oauth_authorize, methods=["GET"])
 oauth_token_route = Route("/auth/token", oauth_token, methods=["POST"])
 oauth_introspect_route = Route("/auth/introspect", oauth_introspect, methods=["POST"])
 health_route = Route("/health", health_check, methods=["GET"])
 
-app.router.routes.extend([oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, health_route])
+app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, health_route])
 
 # =============================================================================
 if __name__ == "__main__":
