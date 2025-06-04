@@ -1891,125 +1891,6 @@ async def health_check(request):
         }, status_code=500)
 
 # =============================================================================
-# SSE Transport Endpoint for Claude.ai
-# =============================================================================
-
-async def sse_handler(request):
-    """Handle SSE transport for MCP protocol communication with Claude.ai."""
-    try:
-        # Extract Bearer token from Authorization header
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return JSONResponse({
-                "error": "unauthorized",
-                "error_description": "Bearer token required"
-            }, status_code=401)
-        
-        token = auth_header[7:]  # Remove "Bearer " prefix
-        
-        # Validate the access token
-        oauth_storage = get_oauth_storage()
-        if not oauth_storage.validate_access_token(token):
-            return JSONResponse({
-                "error": "invalid_token",
-                "error_description": "Invalid or expired access token"
-            }, status_code=401)
-        
-        # Log successful authentication
-        logger.info(f"SSE connection authenticated with valid Bearer token")
-        
-        # For GET requests, return SSE stream for server-to-client communication
-        if request.method == "GET":
-            async def event_generator():
-                # Send initial connection acknowledgment
-                yield f"event: connected\ndata: {json.dumps({'type': 'connection', 'status': 'established', 'protocol_version': '2024-11-05', 'server': 'MySalonCast MCP Server'})}\n\n"
-                
-                # Keep connection alive with periodic heartbeats
-                while True:
-                    await asyncio.sleep(30)  # Send heartbeat every 30 seconds
-                    yield f"event: heartbeat\ndata: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.now().isoformat()})}\n\n"
-            
-            return StreamingResponse(
-                event_generator(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no"  # Disable buffering for nginx
-                }
-            )
-        
-        # For POST requests, handle JSON-RPC messages
-        elif request.method == "POST":
-            try:
-                body = await request.json()
-                
-                # Handle JSON-RPC request
-                if "method" in body:
-                    method = body.get("method")
-                    params = body.get("params", {})
-                    id = body.get("id")
-                    
-                    # Handle MCP protocol initialization
-                    if method == "initialize":
-                        response = {
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "result": {
-                                "protocolVersion": "2024-11-05",
-                                "capabilities": {
-                                    "resources": {"subscribe": True, "list": True},
-                                    "tools": {"list": True},
-                                    "prompts": {"list": False},
-                                    "logging": {"setLevel": True}
-                                },
-                                "serverInfo": {
-                                    "name": "MySalonCast MCP Server",
-                                    "version": "1.0.0"
-                                }
-                            }
-                        }
-                        return JSONResponse(response)
-                    
-                    # Log unhandled methods for debugging
-                    logger.warning(f"Unhandled SSE method: {method}")
-                    
-                    # Return method not found error
-                    return JSONResponse({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": {
-                            "code": -32601,
-                            "message": "Method not found",
-                            "data": {"method": method}
-                        }
-                    })
-                
-                # Handle JSON-RPC response or notification
-                else:
-                    # Accept responses/notifications
-                    return Response(status_code=202)
-                    
-            except json.JSONDecodeError:
-                return JSONResponse({
-                    "jsonrpc": "2.0",
-                    "error": {
-                        "code": -32700,
-                        "message": "Parse error"
-                    }
-                }, status_code=400)
-        
-        else:
-            return Response(status_code=405)  # Method not allowed
-            
-    except Exception as e:
-        logger.error(f"Error in SSE handler: {e}")
-        return JSONResponse({
-            "error": "server_error",
-            "error_description": "Internal server error"
-        }, status_code=500)
-
-# =============================================================================
 # MCP ROOT ENDPOINT
 # =============================================================================
 
@@ -2087,9 +1968,8 @@ oauth_token_route = Route("/auth/token", oauth_token, methods=["POST"])
 oauth_introspect_route = Route("/auth/introspect", oauth_introspect, methods=["POST"])
 oauth_register_route = Route("/auth/register", oauth_register, methods=["POST"])
 health_route = Route("/health", health_check, methods=["GET"])
-sse_route = Route("/sse", sse_handler, methods=["GET", "POST"])
 
-app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, oauth_register_route, health_route, sse_route])
+app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, oauth_register_route, health_route])
 
 # =============================================================================
 if __name__ == "__main__":
