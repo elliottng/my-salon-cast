@@ -12,6 +12,8 @@ from fastmcp.prompts.prompt import Message
 from pydantic import Field
 from typing import Literal, Optional, List
 from datetime import datetime
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 import os
 import tempfile
 import base64
@@ -35,6 +37,15 @@ logger.info("Services initialized for MCP.")
 
 # Initialize the FastMCP server with correct API
 mcp = FastMCP("MySalonCast Podcast Generator")
+
+# =============================================================================
+# CREATE THE HTTP APP FOR UVICORN
+# =============================================================================
+app = mcp.http_app(transport="sse")
+
+# Add OAuth middleware to protect MCP endpoints
+from app.oauth_middleware import OAuthMiddleware
+app.add_middleware(OAuthMiddleware)
 
 # =============================================================================
 # MCP PROMPTS
@@ -688,6 +699,10 @@ async def get_cleanup_status_resource(task_id: str) -> dict:
         "created_at": status_info.created_at.isoformat() if status_info.created_at else "",
         "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else ""
     }
+
+# =============================================================================
+# MCP TOOLS  
+# =============================================================================
 
 # Phase 4.3c: Cleanup Configuration Management Tool
 
@@ -1440,13 +1455,326 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
 
 
 # =============================================================================
-# Create the HTTP app for uvicorn
+# OAUTH 2.0 ENDPOINTS
 # =============================================================================
-app = mcp.http_app(transport="sse")
 
-# Add health check endpoint for Cloud Run using Starlette routing
-from starlette.responses import JSONResponse
-from starlette.routing import Route
+# OAuth Discovery Endpoint for Claude.ai integration
+async def oauth_discovery(request):
+    """
+    OAuth 2.0 Authorization Server Metadata endpoint.
+    
+    RFC 8414 compliant discovery endpoint that returns metadata about the OAuth server.
+    Claude.ai uses this endpoint to discover OAuth capabilities and endpoints.
+    """
+    try:
+        # Get the base URL from the request
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+        
+        # OAuth 2.0 Authorization Server Metadata
+        metadata = {
+            "issuer": base_url,
+            "authorization_endpoint": f"{base_url}/auth/authorize",
+            "token_endpoint": f"{base_url}/auth/token",
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code"],
+            "code_challenge_methods_supported": ["S256"],
+            "scopes_supported": ["mcp.read", "mcp.write"],
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"],
+            "introspection_endpoint": f"{base_url}/auth/introspect",
+            "revocation_endpoint": f"{base_url}/auth/revoke",
+            # Additional metadata for Claude.ai compatibility
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "claims_supported": ["iss", "sub", "aud", "exp", "iat", "scope"],
+            "request_uri_parameter_supported": False,
+            "require_request_uri_registration": False
+        }
+        
+        logger.info(f"OAuth discovery endpoint accessed from: {request.client.host}")
+        return JSONResponse(metadata, headers={
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=3600"  # Cache for 1 hour
+        })
+        
+    except Exception as e:
+        logger.error(f"OAuth discovery endpoint failed: {e}")
+        return JSONResponse({
+            "error": "server_error",
+            "error_description": "Internal server error"
+        }, status_code=500)
+
+# OAuth Authorization Endpoint
+async def oauth_authorize(request):
+    """
+    OAuth 2.0 Authorization Endpoint
+    
+    Handles authorization requests from OAuth clients (Claude.ai, MySalonCast webapp).
+    Supports auto-approval for Claude.ai and consent screen for webapp.
+    """
+    try:
+        from app.oauth_config import get_oauth_manager
+        from app.oauth_models import get_oauth_storage, AuthorizationRequest, AuthorizationCode
+        from urllib.parse import parse_qs, urlencode, urlparse
+        
+        oauth_manager = get_oauth_manager()
+        oauth_storage = get_oauth_storage()
+        
+        # Parse query parameters
+        query_params = dict(request.query_params)
+        
+        # Validate required parameters
+        if not query_params.get("client_id"):
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing client_id parameter"
+            }, status_code=400)
+        
+        if not query_params.get("redirect_uri"):
+            return JSONResponse({
+                "error": "invalid_request", 
+                "error_description": "Missing redirect_uri parameter"
+            }, status_code=400)
+        
+        # Validate client
+        client_id = query_params["client_id"]
+        redirect_uri = query_params["redirect_uri"]
+        
+        if not oauth_manager.validate_client(client_id):
+            return JSONResponse({
+                "error": "invalid_client",
+                "error_description": "Unknown client_id"
+            }, status_code=400)
+        
+        if not oauth_manager.validate_redirect_uri(client_id, redirect_uri):
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Invalid redirect_uri for client"
+            }, status_code=400)
+        
+        # Get optional parameters
+        scope = query_params.get("scope", "mcp.read mcp.write")
+        state = query_params.get("state")
+        code_challenge = query_params.get("code_challenge")
+        code_challenge_method = query_params.get("code_challenge_method", "S256")
+        
+        # Validate PKCE if provided
+        if code_challenge and code_challenge_method != "S256":
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Only S256 code_challenge_method supported"
+            }, status_code=400)
+        
+        # Check if client should be auto-approved (Claude.ai)
+        if oauth_manager.should_auto_approve(client_id):
+            # Auto-approve: generate authorization code and redirect
+            auth_code = AuthorizationCode(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                scope=scope,
+                code_challenge=code_challenge,
+                state=state
+            )
+            
+            code = oauth_storage.store_auth_code(auth_code)
+            
+            # Build redirect URL with authorization code
+            redirect_params = {"code": code}
+            if state:
+                redirect_params["state"] = state
+            
+            redirect_url = f"{redirect_uri}?{urlencode(redirect_params)}"
+            
+            logger.info(f"Auto-approved OAuth authorization for client: {client_id}")
+            
+            # Return redirect response
+            from starlette.responses import RedirectResponse
+            return RedirectResponse(url=redirect_url, status_code=302)
+        
+        else:
+            # Show consent screen for webapp clients
+            # For now, return a simple JSON response indicating consent needed
+            # TODO: Implement HTML consent screen in future
+            return JSONResponse({
+                "message": "consent_required",
+                "client_id": client_id,
+                "scope": scope,
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "consent_url": f"/auth/consent?{urlencode(query_params)}"
+            }, status_code=200)
+    
+    except Exception as e:
+        logger.error(f"OAuth authorization endpoint failed: {e}")
+        return JSONResponse({
+            "error": "server_error",
+            "error_description": "Internal server error"
+        }, status_code=500)
+
+# OAuth Token Exchange Endpoint
+async def oauth_token(request):
+    """
+    OAuth 2.0 Token Endpoint
+    
+    Exchanges authorization codes for access tokens.
+    Validates client credentials and PKCE if provided.
+    """
+    try:
+        from app.oauth_config import get_oauth_manager
+        from app.oauth_models import get_oauth_storage, TokenRequest, TokenResponse, AccessToken, verify_code_challenge
+        
+        oauth_manager = get_oauth_manager()
+        oauth_storage = get_oauth_storage()
+        
+        # Parse form data
+        form_data = await request.form()
+        token_request = dict(form_data)
+        
+        # Validate required parameters
+        if token_request.get("grant_type") != "authorization_code":
+            return JSONResponse({
+                "error": "unsupported_grant_type",
+                "error_description": "Only authorization_code grant type supported"
+            }, status_code=400)
+        
+        code = token_request.get("code")
+        if not code:
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing code parameter"
+            }, status_code=400)
+        
+        client_id = token_request.get("client_id")
+        client_secret = token_request.get("client_secret")
+        redirect_uri = token_request.get("redirect_uri")
+        code_verifier = token_request.get("code_verifier")
+        
+        if not client_id:
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing client_id parameter"
+            }, status_code=400)
+        
+        # Validate client credentials
+        if not oauth_manager.validate_client(client_id, client_secret):
+            return JSONResponse({
+                "error": "invalid_client",
+                "error_description": "Invalid client credentials"
+            }, status_code=401)
+        
+        # Get and consume authorization code
+        auth_code = oauth_storage.consume_auth_code(code)
+        if not auth_code:
+            return JSONResponse({
+                "error": "invalid_grant",
+                "error_description": "Invalid or expired authorization code"
+            }, status_code=400)
+        
+        # Validate authorization code parameters
+        if auth_code.client_id != client_id:
+            return JSONResponse({
+                "error": "invalid_grant",
+                "error_description": "Authorization code issued to different client"
+            }, status_code=400)
+        
+        if redirect_uri and auth_code.redirect_uri != redirect_uri:
+            return JSONResponse({
+                "error": "invalid_grant",
+                "error_description": "Redirect URI mismatch"
+            }, status_code=400)
+        
+        # Validate PKCE if used
+        if auth_code.code_challenge:
+            if not code_verifier:
+                return JSONResponse({
+                    "error": "invalid_request",
+                    "error_description": "Missing code_verifier for PKCE"
+                }, status_code=400)
+            
+            if not verify_code_challenge(code_verifier, auth_code.code_challenge):
+                return JSONResponse({
+                    "error": "invalid_grant",
+                    "error_description": "Invalid code_verifier"
+                }, status_code=400)
+        
+        # Generate access token
+        access_token = AccessToken(
+            client_id=client_id,
+            scope=auth_code.scope
+        )
+        
+        token_value = oauth_storage.store_access_token(access_token)
+        
+        # Return token response
+        response = TokenResponse(
+            access_token=token_value,
+            token_type="Bearer",
+            expires_in=3600,  # 1 hour
+            scope=auth_code.scope
+        )
+        
+        logger.info(f"Issued access token for client: {client_id}")
+        
+        return JSONResponse(response.dict())
+    
+    except Exception as e:
+        logger.error(f"OAuth token endpoint failed: {e}")
+        return JSONResponse({
+            "error": "server_error",
+            "error_description": "Internal server error"
+        }, status_code=500)
+
+# OAuth Token Introspection Endpoint
+async def oauth_introspect(request):
+    """
+    OAuth 2.0 Token Introspection Endpoint (RFC 7662)
+    
+    Allows clients to check if a token is valid and get token metadata.
+    """
+    try:
+        from app.oauth_models import get_oauth_storage
+        
+        oauth_storage = get_oauth_storage()
+        
+        # Parse form data
+        form_data = await request.form()
+        token = form_data.get("token")
+        
+        if not token:
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing token parameter"
+            }, status_code=400)
+        
+        # Validate token
+        access_token = oauth_storage.validate_token(token)
+        
+        if not access_token:
+            # Token is invalid/expired
+            return JSONResponse({
+                "active": False
+            })
+        
+        # Token is valid - return metadata
+        response = {
+            "active": True,
+            "client_id": access_token.client_id,
+            "scope": access_token.scope,
+            "exp": int(access_token.expires_at.timestamp()),
+            "iat": int(access_token.created_at.timestamp())
+        }
+        
+        return JSONResponse(response)
+    
+    except Exception as e:
+        logger.error(f"OAuth introspection endpoint failed: {e}")
+        return JSONResponse({
+            "error": "server_error",
+            "error_description": "Internal server error"
+        }, status_code=500)
+
+# =============================================================================
+# HEALTH AND MONITORING ENDPOINTS
+# =============================================================================
 
 async def health_check(request):
     """Health check endpoint for Cloud Run and container orchestration."""
@@ -1473,9 +1801,18 @@ async def health_check(request):
             "error": str(e)
         }, status_code=500)
 
-# Add the health route to the existing app
+# =============================================================================
+# REGISTER ROUTES
+# =============================================================================
+
+# Add OAuth and health routes to the app
+oauth_discovery_route = Route("/.well-known/oauth-authorization-server", oauth_discovery, methods=["GET"])
+oauth_authorize_route = Route("/auth/authorize", oauth_authorize, methods=["GET"])
+oauth_token_route = Route("/auth/token", oauth_token, methods=["POST"])
+oauth_introspect_route = Route("/auth/introspect", oauth_introspect, methods=["POST"])
 health_route = Route("/health", health_check, methods=["GET"])
-app.router.routes.append(health_route)
+
+app.router.routes.extend([oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, health_route])
 
 # =============================================================================
 if __name__ == "__main__":

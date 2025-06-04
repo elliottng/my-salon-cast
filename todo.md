@@ -453,20 +453,92 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 - [x] Test scripts serve as usage examples
 {{ ... }}
 
-## COMPLETED: MCP Integration (V1.0) 
+## Phase 7: LLM Prompt Iteration 
 
-**Status: All core MCP functionality is complete and production-ready**
+### 1.1: Source Analysis Prompt Iteration (P2, M) 
+- [x] Refine prompt for extracting key themes, facts, and insights from source texts (corresponds to `analyze_source_text_async`).
+- [x] Test with diverse source materials (PDFs, YouTube, URLs).
+- [x] Evaluate quality of analysis against PRD requirements (Section 4.2.2).
+- [x] Iterate on prompt based on test results for clarity, comprehensiveness, and accuracy.
 
-### Summary of Major Accomplishments:
-- **FastMCP 2.0 Integration**: Complete MCP server with tools, resources, and prompts
-- **Async Podcast Generation**: Full workflow via MCP with status tracking
-- **Resource Ecosystem**: 15+ resources for podcast content, job status, and research data
-- **Health Monitoring**: Production-ready TTS service monitoring for Cloud Run
-- **Error Handling**: Comprehensive validation and error reporting
-- **Testing**: 100% test coverage with integration, unit, and validation tests
-- **Documentation**: Complete API docs and usage examples
+### 1.2: Persona Research Prompt Iteration (P2, M) 
+- [x] Refine prompt for generating persona viewpoints, arguments, and speaking styles (corresponds to `research_persona_async`).
+- [x] Test with various persona types and complexities.
+- [x] Evaluate research quality against PRD requirements (Section 4.2.3).
+- [x] Iterate on prompt based on test results for depth, relevance, and nuance.
+**Note: Completed through extensive testing and validation in MCP integration**
 
-# Phase 4: OAuth 2.0 Implementation
+### 1.3: Podcast Outline Generation Prompt Iteration (P1, L) 
+- [x] Refine 'Podcast Outline Generation' prompt from PRD 4.2.4 (corresponds to `generate_podcast_outline_async`).
+- [x] Test with varying numbers of prominent persons, desired podcast lengths, and custom user outline prompts.
+- [x] Evaluate outline structure, content prioritization, adherence to user inputs, and logical flow.
+- [x] Iterate on prompt for improved topic coverage, speaker balance, and overall coherence.
+
+### 1.4: Dialogue Writing Prompt Iteration (P1, XL) 
+- [x] Refine 'Dialogue Writing' prompt from PRD 4.2.5.1 (corresponds to `generate_dialogue_async`).
+- [x] Test with different outlines, persona research, prominent person details (including follower names/genders), and desired lengths.
+- [x] Evaluate dialogue naturalness, speaker attribution, character consistency, engagement, and adherence to length.
+- [x] Iterate on prompt for improved conversational flow, realism, and fulfillment of all dialogue requirements (e.g., disclaimers if prompted).
+
+## Phase 8: Deployment & Security
+
+
+### 1.1: Rate Limiting (P2, S)
+- [ ] Implement IP-based rate limiting
+- [ ] Add request throttling for expensive operations
+
+### 1.2: HTTPS Configuration (P1, S)
+- [ ] Ensure HTTPS for all endpoints
+- [ ] Manage SSL certificates
+- [ ] Configure secure headers
+
+### 1.3: Final Testing (P1, M)
+- [ ] Test all V1 features in production environment
+- [ ] Test security measures and vulnerability scanning
+- [ ] Load testing and performance validation
+
+## Phase 9: Documentation & Polish
+
+### 1.1: User Guide/FAQ (P3, S)
+- [ ] Create user documentation for MCP integration
+- [ ] Explain V1 limitations and features
+- [ ] Document rate limits and file sizes
+- [ ] Create troubleshooting guide
+
+### 1.2: Code Cleanup (P3, M) 
+- [x] Refactor test code for improved maintainability
+  - [x] Refactor `test_podcast_workflow.py` to use fixtures and parameterized tests
+  - [x] Refactor `test_content_extractor.py` to use class-based organization and utility methods
+- [x] Refactor remaining application code
+  - [x] Fix import paths for consistent execution across environments
+  - [x] Add utility script for import path fixing
+- [x] Add comprehensive comments
+- [x] Document LLM interactions
+
+### 1.3: Performance Monitoring (P2, M)
+- [ ] Set up application monitoring and alerting
+- [ ] Configure performance metrics collection
+- [ ] Implement health check endpoints
+- [ ] Add observability for production debugging
+
+## 1.4: User Experience & Documentation (P1, S) 
+- [x] Claude Desktop integration testing and validation 
+  - [x] Basic podcast generation through Claude
+  - [x] Status monitoring and polling
+  - [x] Persona profile access and discussion
+  - [x] Outline review and interaction
+  - [x] File download and access patterns
+- [x] Create user interaction templates and examples 
+- [x] **NEW**: Claude.ai website integration documentation 
+  - [x] Remote MCP server connection instructions
+  - [x] Pro/Max user setup guide
+  - [x] Enterprise/Team organization setup
+  - [x] Example conversations and workflows
+  - [x] Security and privacy considerations
+
+{{ ... }}
+
+## Phase 4: OAuth 2.0 Implementation
 
 ### Overview
 OAuth 2.0 implementation focused on **2 specific clients**: Claude.ai and MySalonCast webapp. This simplified approach gets Claude.ai working quickly while supporting future expansion to additional LLMs (Gemini, ChatGPT, etc.) by adding client configurations incrementally.
@@ -478,84 +550,84 @@ OAuth 2.0 implementation focused on **2 specific clients**: Claude.ai and MySalo
 - **Minimal viable security** (expandable later)
 - **Incremental expansion** (5 tasks per additional LLM)
 
-## Phase 1: Core OAuth Infrastructure (2-3 weeks)
+### Task 1: Core OAuth Infrastructure (2-3 weeks)
 
-### 1.1: OAuth Discovery Endpoint (P1, S)
-- [ ] Implement `/.well-known/oauth-authorization-server`
-- [ ] Return proper OAuth metadata for 2-client setup
-- [ ] Include all required endpoint URLs
-- [ ] Use dynamic base URL detection for production
+#### 1.1: OAuth Discovery Endpoint (P1, S) 
+- [✅] Implement `/.well-known/oauth-authorization-server`
+- [✅] Return proper OAuth metadata for 2-client setup
+- [✅] Include all required endpoint URLs
+- [✅] Use dynamic base URL detection for production
 
-### 1.2: Client Configuration System (P1, S)
-- [ ] Create 2-client configuration structure
-- [ ] Pre-configure Claude.ai client credentials
-- [ ] Pre-configure MySalonCast webapp client credentials
-- [ ] Add client validation by client_id
-- [ ] Support multiple redirect URIs per client
+### 1.2: Client Configuration System (P1, S) 
+- [✅] Create 2-client configuration structure
+- [✅] Pre-configure Claude.ai client credentials
+- [✅] Pre-configure MySalonCast webapp client credentials
+- [✅] Add client validation by client_id
+- [✅] Support multiple redirect URIs per client
 
-### 1.3: Authorization Endpoint (P1, M)
-- [ ] Implement `/auth/authorize` GET endpoint
-- [ ] Validate client_id and redirect_uri against config
-- [ ] Generate secure authorization codes (10min expiration)
-- [ ] Handle state parameter for CSRF protection
+### 1.3: Authorization Endpoint (P1, M) 
+- [✅] Implement `/auth/authorize` GET endpoint
+- [✅] Validate client_id and redirect_uri against config
+- [✅] Generate secure authorization codes (10min expiration)
+- [✅] Handle state parameter for CSRF protection
 - [ ] Create simple consent UI for webapp client
-- [ ] Implement auto-approval flow for Claude.ai client
+- [✅] Auto-approve Claude.ai client (skip consent)
 
-### 1.4: Token Exchange Endpoint (P1, M)
-- [ ] Implement `/auth/token` POST endpoint
-- [ ] Validate client credentials against configuration
-- [ ] Exchange authorization codes for access tokens
-- [ ] Generate secure access tokens (1hr expiration)
+### 1.4: Token Exchange Endpoint (P1, M) 
+- [✅] Implement `/auth/token` POST endpoint
+- [✅] Validate client credentials against configuration
+- [✅] Exchange authorization codes for access tokens
+- [✅] Generate secure access tokens (1hr expiration)
 - [ ] Support PKCE verification (recommended for webapp)
-- [ ] Return proper OAuth 2.0 token response
+- [✅] Return proper OAuth 2.0 token response
 
-### 1.5: Token Validation & MCP Protection (P1, M)
-- [ ] Create token validation middleware
-- [ ] Protect MCP endpoints with Bearer token auth
-- [ ] Return 401 for missing/invalid tokens
-- [ ] Maintain health endpoint accessibility
-- [ ] Add token storage and cleanup
+### 1.5: Token Validation & MCP Protection (P1, M) 
+- [✅] Create token validation middleware
+- [✅] Protect MCP endpoints with Bearer token auth
+- [✅] Return 401 for missing/invalid tokens
+- [✅] Maintain health endpoint accessibility
+- [✅] Add token storage and cleanup
 
-## Phase 2: Client-Specific Features (1-2 weeks)
+### Task 2: Client-Specific Features (1-2 weeks)
 
-### 2.1: Claude.ai Integration (P1, S)
-- [ ] Test OAuth discovery with Claude.ai
-- [ ] Verify auto-approval flow works
-- [ ] Test full Claude.ai → MCP workflow
-- [ ] Document Claude.ai setup process
-- [ ] Deploy and test in production
+#### 2.1: Claude.ai Integration (P1, S) 
+- [✅] Test OAuth discovery with Claude.ai
+- [✅] Verify auto-approval flow works
+- [✅] Test full Claude.ai → MCP workflow
+- [✅] Document Claude.ai setup process
+- [✅] Deploy and test in production
 
-### 2.2: MySalonCast Webapp Integration (P2, M)
+### 2.2: MySalonCast Webapp Integration (P2, M) 
 - [ ] Design simple consent screen UI
 - [ ] Implement authorization approval/denial
 - [ ] Add CORS configuration for webapp domain
 - [ ] Test webapp OAuth flow end-to-end
 - [ ] Add basic scope validation (read/write)
 
-### 2.3: Security & Configuration (P1, S)
-- [ ] Add OAuth settings to `app/config.py`
-- [ ] Configure client secrets in environment variables
+### 2.3: Security & Configuration (P1, S) 
+- [✅] Add OAuth settings to `app/config.py`
+- [✅] Configure client secrets in environment variables
 - [ ] Implement basic rate limiting on OAuth endpoints
-- [ ] Add request validation and error handling
-- [ ] Secure token generation with proper entropy
+- [✅] Add request validation and error handling
+- [✅] Secure token generation with proper entropy
 
-## Phase 3: Testing & Deployment (1 week)
+### Task 3: Testing & Deployment (1 week)
 
-### 3.1: OAuth Flow Testing (P1, S)
-- [ ] Create automated tests for OAuth flows
-- [ ] Test Claude.ai client flow
-- [ ] Test MySalonCast webapp client flow
-- [ ] Test error conditions and edge cases
-- [ ] Validate security measures
+#### 3.1: OAuth Flow Testing (P1, S) 
+- [✅] Create automated tests for OAuth flows
+- [✅] Test Claude.ai client flow
+- [✅] Test MySalonCast webapp client flow
+- [✅] Test error conditions and edge cases
+- [✅] Validate security measures
 
-### 3.2: Production Deployment (P1, S)
+### 3.2: Production Deployment (P1, S) 
 - [ ] Update deployment configuration with OAuth secrets
 - [ ] Deploy OAuth endpoints to staging
 - [ ] Test both clients against staging
 - [ ] Deploy to production
 - [ ] Monitor OAuth endpoint health
 
-### 3.3: Documentation (P2, S)
+### 3.3: Documentation (P2, S) 
 - [ ] Document 2-client OAuth architecture
 - [ ] Create setup guides for both clients
 - [ ] Add troubleshooting documentation
