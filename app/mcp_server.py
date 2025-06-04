@@ -7,6 +7,7 @@ from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.cleanup_config import cleanup_manager, get_cleanup_manager, CleanupPolicy
 from app.tts_service import GoogleCloudTtsService
+from app.production_config import setup_production_environment, get_server_config, get_health_status
 from fastmcp.prompts.prompt import Message
 from pydantic import Field
 from typing import Literal, Optional, List
@@ -21,8 +22,8 @@ import glob
 import shutil
 import json
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Setup production environment and logging
+production_config = setup_production_environment()
 logger = logging.getLogger(__name__)
 
 # Initialize services required by MCP tools
@@ -1443,14 +1444,50 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
 # =============================================================================
 app = mcp.http_app(transport="streamable-http")
 
+# Add health check endpoint for Cloud Run using Starlette routing
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+async def health_check(request):
+    """Health check endpoint for Cloud Run and container orchestration."""
+    try:
+        # Use production configuration health status
+        health_status = get_health_status()
+        
+        # Enhanced service checks
+        if podcast_service and status_manager and task_runner:
+            health_status["checks"]["services"] = "ok"
+        else:
+            health_status["status"] = "degraded"
+            health_status["checks"]["services"] = "error"
+        
+        # Return appropriate status code
+        status_code = 200 if health_status["status"] == "healthy" else 503
+        return JSONResponse(health_status, status_code=status_code)
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse({
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e)
+        }, status_code=500)
+
+# Add the health route to the existing app
+health_route = Route("/health", health_check, methods=["GET"])
+app.router.routes.append(health_route)
+
 # =============================================================================
 if __name__ == "__main__":
     # Run the server using Starlette/Uvicorn
     import uvicorn
     logger.info("Starting MySalonCast MCP server...")
     
-    # Run with uvicorn
-    # IMPORTANT: The MCP server runs on port 8000
-    # All client code should connect to this port using http://localhost:8000
+    # Get production configuration
+    server_config = get_server_config()
+    
+    # Run with uvicorn using production configuration
+    # IMPORTANT: The MCP server runs on the configured port
+    # All client code should connect to this port
     # The MySalonCastMCPClient class in tests/mcp/client.py implements the correct approach
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, **server_config)
