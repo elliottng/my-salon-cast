@@ -1486,6 +1486,7 @@ async def oauth_discovery(request):
             "issuer": base_url,
             "authorization_endpoint": f"{base_url}/auth/authorize",
             "token_endpoint": f"{base_url}/auth/token",
+            "registration_endpoint": f"{base_url}/auth/register",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code"],
             "code_challenge_methods_supported": ["S256"],
@@ -1550,11 +1551,18 @@ async def oauth_authorize(request):
         client_id = query_params["client_id"]
         redirect_uri = query_params["redirect_uri"]
         
-        if not oauth_manager.validate_client(client_id):
-            return JSONResponse({
-                "error": "invalid_client",
-                "error_description": "Unknown client_id"
-            }, status_code=400)
+        if not oauth_manager.validate_client(client_id, redirect_uri=redirect_uri):
+            # Check if this appears to be a Claude.ai client that needs re-registration
+            if "claude.ai" in redirect_uri.lower():
+                return JSONResponse({
+                    "error": "invalid_client",
+                    "error_description": "Client registration expired or not found. Please re-register at /auth/register"
+                }, status_code=400)
+            else:
+                return JSONResponse({
+                    "error": "invalid_client",
+                    "error_description": "Unknown client_id"
+                }, status_code=400)
         
         if not oauth_manager.validate_redirect_uri(client_id, redirect_uri):
             return JSONResponse({
@@ -1576,7 +1584,7 @@ async def oauth_authorize(request):
             }, status_code=400)
         
         # Check if client should be auto-approved (Claude.ai)
-        if oauth_manager.should_auto_approve(client_id):
+        if oauth_manager.should_auto_approve(client_id, redirect_uri=redirect_uri):
             # Auto-approve: generate authorization code and redirect
             auth_code = AuthorizationCode(
                 client_id=client_id,
@@ -1666,7 +1674,7 @@ async def oauth_token(request):
             }, status_code=400)
         
         # Validate client credentials
-        if not oauth_manager.validate_client(client_id, client_secret):
+        if not oauth_manager.validate_client(client_id, client_secret, redirect_uri=redirect_uri):
             return JSONResponse({
                 "error": "invalid_client",
                 "error_description": "Invalid client credentials"
@@ -1783,6 +1791,50 @@ async def oauth_introspect(request):
             "error_description": "Internal server error"
         }, status_code=500)
 
+# OAuth Dynamic Client Registration Endpoint
+async def oauth_register(request):
+    """
+    OAuth 2.0 Dynamic Client Registration Endpoint (RFC 7591)
+    
+    Allows clients to register themselves with the authorization server.
+    """
+    try:
+        from app.oauth_models import get_oauth_storage, ClientRegistrationRequest, ClientRegistrationResponse
+        
+        oauth_storage = get_oauth_storage()
+        
+        # Parse JSON request body
+        request_body = await request.json()
+        registration_request = ClientRegistrationRequest.parse_obj(request_body)
+        
+        # Validate client metadata
+        if not registration_request.client_name:
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing client_name parameter"
+            }, status_code=400)
+        
+        if not registration_request.redirect_uris:
+            return JSONResponse({
+                "error": "invalid_request",
+                "error_description": "Missing redirect_uris parameter"
+            }, status_code=400)
+        
+        # Register client and generate client ID and secret
+        response = oauth_storage.register_client(registration_request)
+        
+        # Return client registration response
+        logger.info(f"Registered new client: {response.client_id}")
+        
+        return JSONResponse(response.dict())
+    
+    except Exception as e:
+        logger.error(f"OAuth client registration endpoint failed: {e}")
+        return JSONResponse({
+            "error": "server_error",
+            "error_description": "Internal server error"
+        }, status_code=500)
+
 # =============================================================================
 # HEALTH AND MONITORING ENDPOINTS
 # =============================================================================
@@ -1847,7 +1899,8 @@ async def mcp_root(request):
                     "discovery": f"{base_url}/.well-known/oauth-authorization-server",
                     "authorization": f"{base_url}/auth/authorize", 
                     "token": f"{base_url}/auth/token",
-                    "introspection": f"{base_url}/auth/introspect"
+                    "introspection": f"{base_url}/auth/introspect",
+                    "registration": f"{base_url}/auth/register"
                 },
                 "health": f"{base_url}/health"
             },
@@ -1887,9 +1940,10 @@ oauth_discovery_route = Route("/.well-known/oauth-authorization-server", oauth_d
 oauth_authorize_route = Route("/auth/authorize", oauth_authorize, methods=["GET"])
 oauth_token_route = Route("/auth/token", oauth_token, methods=["POST"])
 oauth_introspect_route = Route("/auth/introspect", oauth_introspect, methods=["POST"])
+oauth_register_route = Route("/auth/register", oauth_register, methods=["POST"])
 health_route = Route("/health", health_check, methods=["GET"])
 
-app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, health_route])
+app.router.routes.extend([mcp_root_route, oauth_discovery_route, oauth_authorize_route, oauth_token_route, oauth_introspect_route, oauth_register_route, health_route])
 
 # =============================================================================
 if __name__ == "__main__":
