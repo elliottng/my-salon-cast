@@ -88,10 +88,9 @@ async def step1_prompt_guided_setup(ctx: IntegrationTestContext) -> bool:
         
         # Generate prompt guidance
         ctx.prompt_result = create_podcast_from_url(
-            url=TEST_URLS[0],  # Primary URL for the prompt
+            urls=TEST_URLS,
             personas=personas_str,
-            length="medium",
-            language="en"
+            length="10 minutes"
         )
         
         print(f"\n🎯 Generated Prompt Guidance:")
