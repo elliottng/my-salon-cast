@@ -917,6 +917,12 @@ class PodcastGeneratorService:
             logger.info("STEP: Starting Podcast Outline Generation...")
             podcast_outline_obj: Optional[PodcastOutline] = None
             if extracted_text:
+                # Check if we have source analysis data
+                has_source_analysis = bool(source_analyses_content)
+                if not has_source_analysis:
+                    logger.warning("Source analysis failed, but continuing with outline generation using extracted text only")
+                    warnings_list.append("Outline generated without source analysis due to LLM processing errors")
+                
                 status_manager.add_progress_log(
                     task_id,
                     "generating_outline",
@@ -937,10 +943,31 @@ class PodcastGeneratorService:
                         f"Requesting outline for {desired_length_str or '5-7 minutes'} podcast with {num_persons} persons"
                     )
 
+                    # If source analysis is missing, create a minimal fallback analysis from extracted text
+                    fallback_source_analyses = source_analyses_content
+                    if not has_source_analysis and extracted_text:
+                        logger.info("Creating fallback source analysis for outline generation")
+                        # Create a simple analysis structure that the outline generation can use
+                        fallback_analysis = {
+                            "summary_points": ["Content extracted from provided sources"],
+                            "key_themes": ["General discussion topics"],
+                            "main_arguments": ["Analysis of provided content"],
+                            "factual_claims": [],
+                            "source_reliability": "moderate"
+                        }
+                        fallback_source_analyses = [json.dumps(fallback_analysis)]
+                        
+                        status_manager.add_progress_log(
+                            task_id,
+                            "generating_outline",
+                            "fallback_analysis_created",
+                            "⚠ Created fallback analysis for outline generation"
+                        )
+
                     # TEMPORARY: Still passing persona_details_map while service methods require it
                     # This will be removed once all methods are updated to use PersonaResearch exclusively
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
-                        source_analyses=source_analyses_content, 
+                        source_analyses=fallback_source_analyses, 
                         persona_research_docs=persona_research_docs_content,
                         desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,

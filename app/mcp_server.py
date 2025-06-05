@@ -1356,8 +1356,9 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
                     research_file_path = file_path
                     break
             else:
-                # For local paths, check basename as before
-                if os.path.basename(file_path) == target_filename:
+                # For local paths, check if target pattern is contained in the filename
+                # This handles the new naming pattern: text_{task_id}_persona_research_{person_id}.json
+                if target_filename in os.path.basename(file_path):
                     research_file_path = file_path
                     break
         

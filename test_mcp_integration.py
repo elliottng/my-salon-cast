@@ -338,23 +338,21 @@ async def step6_get_podcast_outline(ctx: IntegrationTestContext) -> bool:
         print(f"📝 Fetching podcast outline for task: {ctx.task_id}")
         
         # Get podcast outline via MCP resource
-        mock_ctx = MockMCPContext()
-        outline_result = await get_podcast_outline_resource(ctx=mock_ctx, task_id=ctx.task_id)
+        outline_result = await get_podcast_outline_resource(task_id=ctx.task_id)
         ctx.outline_data = outline_result
         
         print(f"\n📋 Outline Resource Result:")
         print(f"   ✅ Has outline: {outline_result.get('has_outline', False)}")
-        print(f"   📄 File: {outline_result.get('file_metadata', {}).get('outline_file_path', 'N/A')}")
-        print(f"   📊 File size: {outline_result.get('file_metadata', {}).get('file_size', 'N/A')} bytes")
+        print(f"   📄 File: {outline_result.get('outline_file_path', 'N/A')}")
+        print(f"   📊 File size: {len(str(outline_result.get('outline', {})))} bytes")
         
         # Print the actual outline data
-        outline_data = outline_result.get('outline_data')
+        outline_data = outline_result.get('outline')
         if outline_data and isinstance(outline_data, dict):
             print(f"\n🎙️  PODCAST OUTLINE")
             print("=" * 60)
-            print(f"📺 Title: {outline_data.get('title', 'N/A')}")
-            print(f"📝 Description: {outline_data.get('description', 'N/A')}")
-            print(f"⏱️  Duration: {outline_data.get('duration_minutes', 'N/A')} minutes")
+            print(f"📺 Title: {outline_data.get('title_suggestion', 'N/A')}")
+            print(f"📝 Summary: {outline_data.get('summary_suggestion', 'N/A')}")
             print(f"👥 Host Count: {len(outline_data.get('hosts', []))}")
             
             # Print segments
@@ -362,9 +360,10 @@ async def step6_get_podcast_outline(ctx: IntegrationTestContext) -> bool:
             print(f"\n📚 SEGMENTS ({len(segments)} total):")
             print("-" * 40)
             for i, segment in enumerate(segments, 1):
-                print(f"{i}. {segment.get('title', 'Untitled')}")
-                print(f"   ⏱️  Duration: {segment.get('duration_minutes', 'N/A')} min")
-                print(f"   📝 Description: {segment.get('description', 'N/A')[:100]}...")
+                print(f"{i}. {segment.get('segment_title', 'Untitled')}")
+                print(f"   🎤 Speaker: {segment.get('speaker_id', 'N/A')}")
+                print(f"   ⏱️  Duration: {segment.get('estimated_duration_seconds', 'N/A')}s")
+                print(f"   📝 Content: {segment.get('content_cue', 'N/A')[:100]}...")
                 print()
             
             # Print hosts
@@ -476,7 +475,7 @@ async def print_test_summary(ctx: IntegrationTestContext):
                 status = status_check.get('status', 'unknown')
                 if isinstance(status, dict):
                     # First try to get status_description from nested dict
-                    status = status.get('status_description', None) or status.get('status', None)
+                    status = status.get('status_description') or status.get('status', None)
                     
                     # If we have a progress percentage, add it
                     if status and isinstance(status, dict) and status.get('progress_percentage') is not None:
