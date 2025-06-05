@@ -30,12 +30,7 @@ We'll create a Python-based MCP client using the `mcp` package to interact with 
 - Poll status until completion
 - Verify all status transitions
 
-**Test 3: Async Generation with Pydantic Model**
-- Create PodcastRequest object
-- Call `generate_podcast_async_pydantic`
-- Compare behavior with individual params version
-
-**Test 4: Task Status Monitoring**
+**Test 3: Task Status Monitoring**
 - Submit multiple tasks
 - Query status at different stages
 - Verify progress updates
