@@ -66,31 +66,30 @@ app.add_middleware(OAuthMiddleware)
 
 @mcp.prompt()
 def create_podcast_from_url(
-    url: str, 
-    personas: str = "Einstein, Marie Curie", 
-    length: Literal["short", "medium", "long"] = "medium",
-    language: Literal["en", "es", "fr", "de", "it", "pt", "hi", "ar"] = "en"
+    urls: List[str],
+    personas: str = "Einstein, Marie Curie",
+    length: str = "10 minutes",
 ) -> str:
-    """Generates a prompt template for creating a podcast from a URL with specific personas and length.
+    """Generates a prompt template for creating a podcast from one or more URLs with specific personas and length.
     
     Args:
-        url: The source URL to create a podcast from
+        urls: List of source URLs to create a podcast from
         personas: Comma-separated list of personas/characters for the discussion
-        length: Desired podcast length (short=~5min, medium=~10min, long=~15min)
-        language: Output language for the podcast
+        length: Desired podcast length using a time string (e.g., "10 minutes")
     """
-    return f"""I'd like to create a podcast discussion from this URL: {url}
+    url_list = ", ".join(urls)
+    personas_list = ", ".join([f'"{p.strip()}"' for p in personas.split(",")])
+    return f"""I'd like to create a podcast discussion from these URLs: {url_list}
 
 Please generate a conversational podcast featuring these personas: {personas}
 
 Requirements:
-- Length: {length} (short=~5min, medium=~10min, long=~15min)
-- Language: {language}
+- Length: {length}
 - Style: Natural conversation with different perspectives from each persona
 - Include interesting insights and contrasting viewpoints
 
 Use the MySalonCast tools to:
-1. First, generate the podcast: generate_podcast_async with source_urls=["{url}"], prominent_persons=[{", ".join([f'"{p.strip()}"' for p in personas.split(",")])}], output_language="{language}"
+1. First, generate the podcast: generate_podcast_async with source_urls=[{url_list}], prominent_persons=[{personas_list}], podcast_length="{length}"
 2. Monitor progress with: get_task_status using the returned task_id
 3. Access results via the podcast resources when complete
 
@@ -98,30 +97,26 @@ What aspects of this content would you like the personas to focus on?"""
 
 @mcp.prompt()
 def discuss_persona_viewpoint(
-    task_id: str, 
-    person_id: str, 
-    topic: str
+    task_id: str,
+    person_id: str,
 ) -> str:
-    """Generates a prompt for exploring a specific persona's viewpoint on a topic from their research.
+    """Generate a prompt for exploring a persona's viewpoints from their research.
     
     Args:
         task_id: The podcast generation task ID
-        person_id: The specific persona/person ID to research
-        topic: The topic or aspect to explore
+        person_id: The specific persona/person ID to explore
     """
-    return f"""Let's explore {person_id}'s perspective on "{topic}" from the podcast research.
+    return f"""Let's explore {person_id}'s viewpoints from podcast task {task_id}.
 
-Please use the MySalonCast resources to:
-1. Get the persona research: research://{task_id}/{person_id}
-2. Review their background, expertise, and viewpoints
+Please use the MySalonCast resource:
+research://{task_id}/{person_id}
+to review their detailed_profile and background information.
 
-Based on their research profile, help me understand:
-- How would {person_id} approach this topic "{topic}"?
-- What unique insights would they bring?
-- What questions would they ask?
-- How does their background influence their perspective?
-
-Use the research data to provide specific examples of how {person_id} would discuss "{topic}" in a podcast conversation."""
+Based on that research, help me understand:
+- What key topics are covered in the profile?
+- What viewpoints does {person_id} express about those topics?
+- How does their background influence these perspectives?
+- What questions or follow ups might they raise?"""
 
 @mcp.prompt()
 def analyze_podcast_content(
