@@ -325,126 +325,102 @@ class GoogleCloudTtsService:
         try:
             # List all available voices
             response = self.client.list_voices()
-            # Count natural and standard voices with good ratings
             english_voices = []
             for voice in response.voices:
-                # Only consider English voices
                 if any(lang_code.startswith('en-') for lang_code in voice.language_codes):
-                    # Include this voice
                     english_voices.append(voice)
-            
-            # Group voices by gender for natural sounding voices
-            # In some regions there are fewer options, so we'll try to get as many as we can
+
             male_voices = [v for v in english_voices if v.ssml_gender == texttospeech.SsmlVoiceGender.MALE]
             female_voices = [v for v in english_voices if v.ssml_gender == texttospeech.SsmlVoiceGender.FEMALE]
+
+            # Expanded parameter ranges for 60 unique combinations
+            speaking_rates = [round(0.85 + i * 0.03, 2) for i in range(11)]
+            male_pitches = [round(-0.6 + i * 0.12, 2) for i in range(11)]
+            female_pitches = [round(-0.2 + i * 0.12, 2) for i in range(11)]
+            neutral_pitches = [round(-0.3 + i * 0.06, 2) for i in range(11)]
+
+            language_distribution = {'en-US': 36, 'en-GB': 12, 'en-AU': 12}
+            gender_limits = {
+                'Male': {k: v // 3 for k, v in language_distribution.items()},
+                'Female': {k: v // 3 for k, v in language_distribution.items()},
+                'Neutral': {k: v // 3 for k, v in language_distribution.items()},
+            }
+
+            def sort_voices(voices):
+                return sorted(
+                    voices,
+                    key=lambda v: (
+                        'Chirp3-HD' not in v.name and 'Chirp-HD' not in v.name,
+                        v.name
+                    )
+                )
+
+            voices_by_gender_lang = {
+                'Male': {lc: [] for lc in language_distribution},
+                'Female': {lc: [] for lc in language_distribution}
+            }
+
+            for v in male_voices:
+                for lc in language_distribution:
+                    if lc in v.language_codes:
+                        voices_by_gender_lang['Male'][lc].append(v)
+
+            for v in female_voices:
+                for lc in language_distribution:
+                    if lc in v.language_codes:
+                        voices_by_gender_lang['Female'][lc].append(v)
+
+            for gender in voices_by_gender_lang:
+                for lc in voices_by_gender_lang[gender]:
+                    voices_by_gender_lang[gender][lc] = sort_voices(voices_by_gender_lang[gender][lc])
+
+            used_param_combos = set()
+            param_index = 0
+
+            def next_params(pitch_list):
+                nonlocal param_index
+                for _ in range(len(speaking_rates) * len(pitch_list)):
+                    rate = speaking_rates[param_index % len(speaking_rates)]
+                    pitch = pitch_list[(param_index * 2) % len(pitch_list)]
+                    param_index += 1
+                    combo = (rate, pitch)
+                    if combo not in used_param_combos:
+                        used_param_combos.add(combo)
+                        return rate, pitch
+                return speaking_rates[0], pitch_list[0]
+
+            selected_voice_objs = {g: {lc: [] for lc in language_distribution} for g in ['Male', 'Female']}
+
+            for gender, pitch_list in [('Male', male_pitches), ('Female', female_pitches)]:
+                for lc, limit in gender_limits[gender].items():
+                    count = 0
+                    for voice in voices_by_gender_lang[gender][lc]:
+                        if count >= limit:
+                            break
+                        speaking_rate, pitch = next_params(pitch_list)
+                        result[gender].append({
+                            'voice_id': voice.name,
+                            'language_codes': list(voice.language_codes),
+                            'speaking_rate': speaking_rate,
+                            'pitch': pitch
+                        })
+                        selected_voice_objs[gender][lc].append(voice)
+                        count += 1
+
+            neutral_limits = gender_limits['Neutral']
+            for lc, limit in neutral_limits.items():
+                half = limit // 2
+                male_pool = selected_voice_objs['Male'][lc][:half]
+                female_pool = selected_voice_objs['Female'][lc][:half]
+                for voice in male_pool + female_pool:
+                    speaking_rate, pitch = next_params(neutral_pitches)
+                    result['Neutral'].append({
+                        'voice_id': voice.name,
+                        'language_codes': list(voice.language_codes),
+                        'speaking_rate': speaking_rate,
+                        'pitch': pitch
+                    })
             
-            # Ensure we have enough parameter variations to make each voice unique
-            # Create a set of unique speaking rates and pitches
-            speaking_rates = [round(0.85 + i * 0.05, 2) for i in range(7)]  # 0.85 to 1.15
-            male_pitches = [round(-0.6 + i * 0.2, 1) for i in range(7)]     # -0.6 to 0.6
-            female_pitches = [round(-0.2 + i * 0.2, 1) for i in range(7)]   # -0.2 to 1.0
-            neutral_pitches = [round(-0.3 + i * 0.1, 1) for i in range(7)]  # -0.3 to 0.3
-            
-            # Process Male voices with unique parameters
-            used_male_combos = set()
-            for i, voice in enumerate(male_voices):
-                if i >= 10:  # Limit to 10 male voices
-                    break
-                
-                # Ensure unique parameter combinations
-                rate_idx = i % len(speaking_rates)
-                pitch_idx = (i * 2) % len(male_pitches)
-                speaking_rate = speaking_rates[rate_idx]
-                pitch = male_pitches[pitch_idx]
-                
-                # Check if this combo is already used
-                combo = (voice.name, speaking_rate, pitch)
-                attempts = 0
-                while combo in used_male_combos and attempts < 10:
-                    # Try a different combination
-                    rate_idx = (rate_idx + 1) % len(speaking_rates)
-                    pitch_idx = (pitch_idx + 1) % len(male_pitches)
-                    speaking_rate = speaking_rates[rate_idx]
-                    pitch = male_pitches[pitch_idx]
-                    combo = (voice.name, speaking_rate, pitch)
-                    attempts += 1
-                
-                used_male_combos.add(combo)
-                voice_data = {
-                    'voice_id': voice.name,
-                    'language_codes': list(voice.language_codes),
-                    'speaking_rate': speaking_rate,
-                    'pitch': pitch
-                }
-                result['Male'].append(voice_data)
-            
-            # Process Female voices with unique parameters
-            used_female_combos = set()
-            for i, voice in enumerate(female_voices):
-                if i >= 10:  # Limit to 10 female voices
-                    break
-                
-                # Ensure unique parameter combinations
-                rate_idx = (i + 3) % len(speaking_rates)  # Offset to create different patterns
-                pitch_idx = (i * 3) % len(female_pitches)
-                speaking_rate = speaking_rates[rate_idx]
-                pitch = female_pitches[pitch_idx]
-                
-                # Check if this combo is already used
-                combo = (voice.name, speaking_rate, pitch)
-                attempts = 0
-                while combo in used_female_combos and attempts < 10:
-                    # Try a different combination
-                    rate_idx = (rate_idx + 1) % len(speaking_rates)
-                    pitch_idx = (pitch_idx + 1) % len(female_pitches)
-                    speaking_rate = speaking_rates[rate_idx]
-                    pitch = female_pitches[pitch_idx]
-                    combo = (voice.name, speaking_rate, pitch)
-                    attempts += 1
-                
-                used_female_combos.add(combo)
-                voice_data = {
-                    'voice_id': voice.name,
-                    'language_codes': list(voice.language_codes),
-                    'speaking_rate': speaking_rate,
-                    'pitch': pitch
-                }
-                result['Female'].append(voice_data)
-            
-            # Create neutral voices with unique parameters
-            neutral_source_voices = male_voices[:5] + female_voices[:5]  # Take 5 from each gender
-            used_neutral_combos = set()
-            
-            for i, voice in enumerate(neutral_source_voices):
-                if i >= 10:  # Limit to 10 neutral voices
-                    break
-                
-                # Ensure unique parameter combinations
-                rate_idx = (i + 1) % len(speaking_rates)
-                pitch_idx = i % len(neutral_pitches)
-                speaking_rate = speaking_rates[rate_idx]
-                pitch = neutral_pitches[pitch_idx]
-                
-                # Check if this combo is already used
-                combo = (voice.name, speaking_rate, pitch)
-                attempts = 0
-                while combo in used_neutral_combos and attempts < 10:
-                    # Try a different combination
-                    rate_idx = (rate_idx + 1) % len(speaking_rates)
-                    pitch_idx = (pitch_idx + 1) % len(neutral_pitches)
-                    speaking_rate = speaking_rates[rate_idx]
-                    pitch = neutral_pitches[pitch_idx]
-                    combo = (voice.name, speaking_rate, pitch)
-                    attempts += 1
-                
-                used_neutral_combos.add(combo)
-                voice_data = {
-                    'voice_id': voice.name,
-                    'language_codes': list(voice.language_codes),
-                    'speaking_rate': speaking_rate,
-                    'pitch': pitch
-                }
-                result['Neutral'].append(voice_data)
             
             # Save the cache to file with timestamp
             timestamp = datetime.now().isoformat()
