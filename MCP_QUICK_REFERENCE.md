@@ -8,7 +8,7 @@
 |------|-------------|---------------|
 | `hello` | Test MCP connection | "Test the MySalonCast connection" |
 | `generate_podcast_async` | Start podcast generation from URL/PDF | "Generate a podcast from https://example.com with Einstein and Curie" |
-| `generate_podcast_async_pydantic` | Start podcast with Pydantic model | Advanced programmatic usage |
+| ~~`generate_podcast_async_pydantic`~~ | ~~Start podcast with Pydantic model (deprecated)~~ | ~~Advanced programmatic usage~~ |
 | `get_task_status` | Check generation progress | "What's the status of task task_123?" |
 
 ### 🧹 Management Tools

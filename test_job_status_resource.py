@@ -32,14 +32,15 @@ async def test_job_status_completed_task():
         # Generate a podcast first
         print("📝 Generating podcast for testing...")
         
-        generate_result = await client.call_tool("generate_podcast_async_pydantic", {
-            "request": {
-                "prominent_persons": ["Alan Turing", "Ada Lovelace"],
+        generate_result = await client.call_tool(
+            "generate_podcast_async",
+            {
                 "source_urls": ["https://en.wikipedia.org/wiki/Battle_of_Jutland"],
-                "podcast_duration_minutes": 3,
-                "language": "en"
-            }
-        })
+                "prominent_persons": ["Alan Turing", "Ada Lovelace"],
+                "podcast_length": "3 minutes",
+                "output_language": "en",
+            },
+        )
         
         if not generate_result.get("success"):
             print(f"❌ Failed to generate podcast: {generate_result}")
@@ -149,14 +150,15 @@ async def test_job_status_vs_tool_consistency():
     
     async with SimpleMCPTestClient() as client:
         # Generate a quick test podcast
-        generate_result = await client.call_tool("generate_podcast_async_pydantic", {
-            "request": {
-                "prominent_persons": ["Isaac Newton"],
+        generate_result = await client.call_tool(
+            "generate_podcast_async",
+            {
                 "source_urls": ["https://en.wikipedia.org/wiki/Battle_of_Jutland"],
-                "podcast_duration_minutes": 2,
-                "language": "en"
-            }
-        })
+                "prominent_persons": ["Isaac Newton"],
+                "podcast_length": "2 minutes",
+                "output_language": "en",
+            },
+        )
         
         if not generate_result.get("success"):
             print(f"❌ Failed to generate test podcast: {generate_result}")

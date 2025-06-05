@@ -22,14 +22,15 @@ async def debug_response_format():
         try:
             # Test tool call
             print("📞 Testing tool call...")
-            result = await client.call_tool("generate_podcast_async_pydantic", {
-                "request": {
-                    "prominent_persons": ["Test Person"],
+            result = await client.call_tool(
+                "generate_podcast_async",
+                {
                     "source_urls": ["https://en.wikipedia.org/wiki/Battle_of_Jutland"],
-                    "podcast_duration_minutes": 1,
-                    "language": "en"
-                }
-            })
+                    "prominent_persons": ["Test Person"],
+                    "podcast_length": "1 minute",
+                    "output_language": "en",
+                },
+            )
             
             print(f"Tool result type: {type(result)}")
             print(f"Tool result: {result}")

@@ -21,14 +21,15 @@ async def debug_tool_format():
     async with SimpleMCPTestClient() as client:
         try:
             # Generate a task first
-            generate_result = await client.call_tool("generate_podcast_async_pydantic", {
-                "request": {
-                    "prominent_persons": ["Test Person"],
+            generate_result = await client.call_tool(
+                "generate_podcast_async",
+                {
                     "source_urls": ["https://en.wikipedia.org/wiki/Battle_of_Jutland"],
-                    "podcast_duration_minutes": 1,
-                    "language": "en"
-                }
-            })
+                    "prominent_persons": ["Test Person"],
+                    "podcast_length": "1 minute",
+                    "output_language": "en",
+                },
+            )
             
             print(f"Generate result: {generate_result}")
             
