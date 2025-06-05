@@ -123,11 +123,11 @@ async def test_generate_podcast_async():
         # Create a podcast generation request
         print("Creating async podcast generation request...")
         payload = {
-            "source_urls": ["https://www.example.com/sample", "https://www.example.org/test"],
-            "podcast_name": "Test Podcast",
+            "source_urls": [
+                "https://www.example.com/sample",
+                "https://www.example.org/test",
+            ],
             "podcast_length": "3-5 minutes",
-            "output_language": "en",  
-            "dialogue_style": "conversational"
         }
         
         # Submit the request using the updated client
