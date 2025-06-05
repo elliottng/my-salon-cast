@@ -27,7 +27,7 @@ async def test_create_podcast_from_url_prompt():
     print("\n🧪 Testing create_podcast_from_url prompt...")
     
     # Test with default parameters
-    result1 = create_podcast_from_url("https://example.com/article")
+    result1 = create_podcast_from_url(["https://example.com/article"])
     
     # Verify the prompt contains key elements
     if "https://example.com/article" not in result1:
@@ -46,22 +46,17 @@ async def test_create_podcast_from_url_prompt():
     
     # Test with custom parameters
     result2 = create_podcast_from_url(
-        "https://research.com/quantum",
+        ["https://research.com/quantum"],
         personas="Tesla, Feynman, Hawking",
-        length="long",
-        language="es"
+        length="15 minutes"
     )
     
     if "Tesla, Feynman, Hawking" not in result2:
         print("❌ Custom personas not properly included")
         return False
     
-    if "long" not in result2:
+    if "15 minutes" not in result2:
         print("❌ Length parameter not included")
-        return False
-    
-    if 'output_language="es"' not in result2:
-        print("❌ Language parameter not properly formatted")
         return False
     
     print("✅ Custom parameters test passed")
@@ -75,9 +70,8 @@ async def test_discuss_persona_viewpoint_prompt():
     
     task_id = f"test_task_{test_run_suffix}"
     person_id = "albert-einstein"
-    topic = "quantum entanglement"
-    
-    result = discuss_persona_viewpoint(task_id, person_id, topic)
+
+    result = discuss_persona_viewpoint(task_id, person_id)
     
     # Verify key elements are included
     if task_id not in result:
@@ -88,9 +82,6 @@ async def test_discuss_persona_viewpoint_prompt():
         print("❌ Person ID not properly included")
         return False
     
-    if topic not in result:
-        print("❌ Topic not properly included")
-        return False
     
     if f"research://{task_id}/{person_id}" not in result:
         print("❌ Resource URL not properly formatted")
@@ -101,7 +92,7 @@ async def test_discuss_persona_viewpoint_prompt():
         return False
     
     print("✅ Persona viewpoint prompt test passed")
-    print(f"   🎭 Generated prompt for {person_id} on '{topic}'")
+    print(f"   🎭 Generated prompt for {person_id}")
     print(f"   📄 Prompt length: {len(result)} characters")
     
     return True
@@ -168,20 +159,12 @@ async def test_prompt_parameter_validation():
     print("\n🧪 Testing prompt parameter validation...")
     
     try:
-        # Test valid language parameter
-        result1 = create_podcast_from_url("https://test.com", language="fr")
-        if 'output_language="fr"' not in result1:
-            print("❌ Valid language parameter not handled correctly")
-            return False
-        
-        print("✅ Valid language parameter test passed")
-        
         # Test valid length parameter
-        result2 = create_podcast_from_url("https://test.com", length="short")
-        if "short" not in result2:
+        result1 = create_podcast_from_url(["https://test.com"], length="7 minutes")
+        if "7 minutes" not in result1:
             print("❌ Valid length parameter not handled correctly")
             return False
-        
+
         print("✅ Valid length parameter test passed")
         
         # Note: Type validation is handled by FastMCP automatically through function signatures
@@ -198,7 +181,7 @@ async def test_prompt_integration_guidance():
     print("\n🧪 Testing prompt integration guidance...")
     
     # Test that create_podcast_from_url includes proper tool usage guidance
-    result1 = create_podcast_from_url("https://example.com")
+    result1 = create_podcast_from_url(["https://example.com"])
     
     guidance_elements = [
         "generate_podcast_async",
@@ -217,12 +200,12 @@ async def test_prompt_integration_guidance():
     
     # Test that discuss_persona_viewpoint includes resource usage guidance
     task_id = f"test_task_{test_run_suffix}"
-    result2 = discuss_persona_viewpoint(task_id, "einstein", "relativity")
+    result2 = discuss_persona_viewpoint(task_id, "einstein")
     
     resource_elements = [
         f"research://{task_id}/einstein",
-        "MySalonCast resources",
-        "research data"
+        "MySalonCast resource",
+        "detailed_profile"
     ]
     
     for element in resource_elements:
