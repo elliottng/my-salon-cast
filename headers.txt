@@ -1,6 +1,0 @@
-HTTP/1.1 302 Found
-date: Wed, 04 Jun 2025 15:14:45 GMT
-server: uvicorn
-content-length: 0
-location: https://claude.ai/oauth/callback?code=oyI5G2142tWe9W-NENwVz801lrtEG5ZZFrrXMRe3JJ8&state=test123
-

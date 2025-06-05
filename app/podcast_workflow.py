@@ -11,7 +11,7 @@ import tempfile
 import time
 import uuid
 from datetime import datetime
-from typing import List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple
 from pydantic import ValidationError
 import aiohttp
 
@@ -326,7 +326,7 @@ class PodcastGeneratorService:
             if task.cancelled():
                 raise asyncio.CancelledError(f"Task {task_id} was cancelled")
 
-    def _select_host_voice(self, gender: str, used_voice_ids: set[str]) -> tuple[str, dict]:
+    def _select_host_voice(self, gender: str, used_voice_ids: set[str]) -> Tuple[str, Dict[str, float]]:
         """Select a host voice profile from the TTS cache avoiding conflicts."""
         default_profile = {"voice_id": "en-US-Neural2-A", "speaking_rate": 1.0, "pitch": 0.0}
         if not self.tts_service:
