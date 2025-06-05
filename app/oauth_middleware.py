@@ -65,9 +65,8 @@ class OAuthMiddleware(BaseHTTPMiddleware):
         "/auth/consent"
     }
     
-    # MCP endpoints that require authentication
+    # Paths that require OAuth authentication
     PROTECTED_PATHS = {
-        "/sse",  # MCP SSE endpoint
         "/resources",  # MCP resources
         "/tools",  # MCP tools
         "/prompts"  # MCP prompts
@@ -85,6 +84,26 @@ class OAuthMiddleware(BaseHTTPMiddleware):
         
         # Allow OPTIONS requests (CORS preflight) without authentication
         if request.method == "OPTIONS":
+            return await call_next(request)
+        
+        # Special handling for SSE endpoint - authenticate once then allow streaming
+        if path == "/sse":
+            # Check authentication for SSE connection initiation
+            auth_result = await self._authenticate_request(request)
+            if not auth_result:
+                return JSONResponse({
+                    "error": "unauthorized", 
+                    "error_description": "Valid Bearer token required for MCP SSE access"
+                }, status_code=401, headers={
+                    "WWW-Authenticate": "Bearer"
+                })
+            
+            # Add auth info to request state for SSE connection
+            credentials, user = auth_result
+            request.state.user = user
+            request.state.credentials = credentials
+            
+            # Pass through to SSE handler without further middleware interference
             return await call_next(request)
         
         # Check if this is a protected MCP endpoint
