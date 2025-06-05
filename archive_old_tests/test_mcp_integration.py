@@ -23,8 +23,8 @@ import json
 from typing import Dict, Any, List
 from datetime import datetime, timedelta
 
-# Add the app directory to the Python path so we can import modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
+# Add the parent directory to the Python path so we can import modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app.mcp_server import (
     mcp, 
