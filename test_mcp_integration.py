@@ -137,10 +137,7 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
             source_urls=TEST_URLS,
             prominent_persons=TEST_PERSONAS,
             custom_prompt=None,
-            podcast_name=f"Integration Test Podcast {test_run_suffix}",
-            podcast_tagline="Testing MCP integration",
-            output_language="en",
-            podcast_length="medium"
+            podcast_length="5-7 minutes"
         )
         
         print(f"\n📋 Generation Result:")
