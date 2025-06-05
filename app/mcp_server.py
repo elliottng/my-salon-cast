@@ -24,6 +24,12 @@ import glob
 import shutil
 import json
 import asyncio
+from app.mcp_descriptions import (
+    PROMPT_DESCRIPTIONS,
+    TOOL_DESCRIPTIONS,
+    RESOURCE_DESCRIPTIONS,
+    MANIFEST_DESCRIPTIONS
+)
 
 # Setup production environment and logging
 production_config = setup_production_environment()
@@ -64,19 +70,12 @@ app.add_middleware(OAuthMiddleware)
 # MCP PROMPTS
 # =============================================================================
 
-@mcp.prompt()
+@mcp.prompt(description=PROMPT_DESCRIPTIONS["create_podcast_from_url"])
 def create_podcast_from_url(
     urls: List[str],
     personas: str = "Einstein, Marie Curie",
     length: str = "10 minutes",
 ) -> str:
-    """Generates a prompt template for creating a podcast from one or more URLs with specific personas and length.
-    
-    Args:
-        urls: List of source URLs to create a podcast from
-        personas: Comma-separated list of personas/characters for the discussion
-        length: Desired podcast length using a time string (e.g., "10 minutes")
-    """
     url_list = ", ".join(urls)
     personas_list = ", ".join([f'"{p.strip()}"' for p in personas.split(",")])
     return f"""I'd like to create a podcast discussion from these URLs: {url_list}
@@ -95,17 +94,11 @@ Use the MySalonCast tools to:
 
 What aspects of this content would you like the personas to focus on?"""
 
-@mcp.prompt()
+@mcp.prompt(description=PROMPT_DESCRIPTIONS["discuss_persona_viewpoint"])
 def discuss_persona_viewpoint(
     task_id: str,
     person_id: str,
 ) -> str:
-    """Generate a prompt for exploring a persona's viewpoints from their research.
-    
-    Args:
-        task_id: The podcast generation task ID
-        person_id: The specific persona/person ID to explore
-    """
     return f"""Let's explore {person_id}'s viewpoints from podcast task {task_id}.
 
 Please use the MySalonCast resource:
@@ -118,17 +111,11 @@ Based on that research, help me understand:
 - How does their background influence these perspectives?
 - What questions or follow ups might they raise?"""
 
-@mcp.prompt()
+@mcp.prompt(description=PROMPT_DESCRIPTIONS["analyze_podcast_content"])
 def analyze_podcast_content(
     task_id: str,
     analysis_type: Literal["outline", "transcript", "personas", "summary"] = "summary"
 ) -> str:
-    """Generates a prompt for analyzing different aspects of podcast content.
-    
-    Args:
-        task_id: The podcast generation task ID  
-        analysis_type: Type of analysis to perform
-    """
     resource_map = {
         "outline": f"podcast://{task_id}/outline",
         "transcript": f"podcast://{task_id}/transcript", 
@@ -167,14 +154,13 @@ Provide a thoughtful analysis with specific examples from the content."""
 # =============================================================================
 
 # Simple test tool
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["hello"])
 async def hello(name: str = "world") -> str:
-    """Returns a simple greeting."""
     logger.info(f"Tool 'hello' called with name: {name}")
     return f"Hello, {name}!"
 
 # Async podcast generation with individual parameters
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["generate_podcast_async"])
 async def generate_podcast_async(
     ctx,  # MCP context for request correlation
     source_urls: Optional[List[str]] = None,
@@ -183,18 +169,6 @@ async def generate_podcast_async(
     custom_prompt: Optional[str] = None,
     podcast_length: str = "5-7 minutes",  # Accept time strings like "7 minutes", "5-7 minutes", etc.
 ) -> dict:
-    """
-    Generate a podcast asynchronously using provided sources.
-    Returns immediately with a task ID for status tracking.
-
-    Args:
-        ctx: MCP request context for correlation.
-        source_urls: Optional list of article URLs.
-        source_pdf_path: Optional PDF source path.
-        prominent_persons: Optional list of personas to feature.
-        custom_prompt: Optional custom instructions for the outline.
-        podcast_length: Desired episode length string.
-    """
     # Enhanced logging with MCP context
     request_id = getattr(ctx, 'request_id', 'unknown')
     client_info = getattr(ctx, 'client_info', {})
@@ -249,19 +223,8 @@ async def generate_podcast_async(
         raise ToolError("Failed to start podcast generation", str(e))
 
 # Get status of async task
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["get_task_status"])
 async def get_task_status(ctx, task_id: str) -> dict:
-    """
-    Get the status of an async podcast generation task.
-    
-    Returns current status, progress percentage, and result when complete.
-    
-    Args:
-        task_id: The task ID returned by generate_podcast_async
-        
-    Returns:
-        Dict with status information and episode data when complete
-    """
     # Enhanced logging with MCP context
     request_id = getattr(ctx, 'request_id', 'unknown')
     client_info = getattr(ctx, 'client_info', {})
@@ -293,28 +256,13 @@ async def get_task_status(ctx, task_id: str) -> dict:
 
 # Phase 4.3b: File Cleanup Management Tool
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["cleanup_task_files"])
 async def cleanup_task_files(
     ctx,  # MCP context for request correlation
     task_id: str = Field(..., description="Task ID to clean up files for"),
     force_cleanup: bool = Field(False, description="Force cleanup even if task is not completed"),
     policy_override: Optional[Literal["manual", "auto_on_complete", "auto_after_hours", "auto_after_days", "retain_audio_only", "retain_all"]] = Field(None, description="Override default cleanup policy for this operation")
 ) -> dict:
-    """
-    Clean up files associated with a podcast generation task.
-    
-    Removes temporary files, audio segments, and LLM output files for the specified task
-    based on the configured cleanup policy or optional override.
-    Use with caution as this action cannot be undone.
-    
-    Args:
-        task_id: The task ID to clean up files for
-        force_cleanup: If True, proceed with cleanup even if task is not completed
-        policy_override: Optional policy override ('manual', 'retain_audio_only', 'retain_all', etc.)
-        
-    Returns:
-        Dict with cleanup status and details about removed files
-    """
     # Enhanced logging with MCP context  
     request_id = getattr(ctx, 'request_id', 'unknown')
     logger.info(f"[{request_id}] MCP Tool 'cleanup_task_files' called for task_id: {task_id}")
@@ -541,12 +489,8 @@ async def cleanup_task_files(
         logger.error(f"Failed to cleanup task files: {e}", exc_info=True)
         raise ToolError("Cleanup operation failed", str(e))
 
-@mcp.resource("files://{task_id}/cleanup")
+@mcp.resource("files://{task_id}/cleanup", description=RESOURCE_DESCRIPTIONS["get_cleanup_status_resource"])
 async def get_cleanup_status_resource(task_id: str) -> dict:
-    """
-    Get cleanup status and options for task files.
-    Provides information about temporary files and cleanup policies.
-    """
     logger.info(f"Resource 'cleanup status' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -688,7 +632,7 @@ async def get_cleanup_status_resource(task_id: str) -> dict:
 
 # Phase 4.3c: Cleanup Configuration Management Tool
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["configure_cleanup_policy"])
 async def configure_cleanup_policy(
     ctx,  # MCP context for request correlation
     default_policy: str = None,
@@ -701,26 +645,6 @@ async def configure_cleanup_policy(
     max_temp_size_mb: int = None,
     enable_background_cleanup: bool = None
 ) -> dict:
-    """
-    Configure cleanup policies for MySalonCast file management.
-    
-    Updates the global cleanup configuration settings that control how and when
-    temporary files are cleaned up after podcast generation.
-    
-    Args:
-        default_policy: Default cleanup policy ('manual', 'auto_on_complete', 'auto_after_hours', etc.)
-        auto_cleanup_hours: Hours after completion before auto cleanup (for AUTO_AFTER_HOURS policy)  
-        auto_cleanup_days: Days after completion before auto cleanup (for AUTO_AFTER_DAYS policy)
-        retain_audio_files: Whether to retain final audio files during cleanup
-        retain_transcripts: Whether to retain transcript files during cleanup
-        retain_llm_outputs: Whether to retain LLM intermediate output files
-        retain_audio_segments: Whether to retain individual audio segment files
-        max_temp_size_mb: Maximum total size of temp files per task in MB
-        enable_background_cleanup: Whether to enable background cleanup scheduler
-        
-    Returns:
-        Dict with updated configuration and status
-    """
     # Enhanced logging with MCP context
     request_id = getattr(ctx, 'request_id', 'unknown')
     logger.info(f"[{request_id}] MCP Tool 'configure_cleanup_policy' called with updates")
@@ -788,14 +712,8 @@ async def configure_cleanup_policy(
 
 # Phase 4.3d: Cleanup Configuration Resource
 
-@mcp.resource("config://cleanup")
+@mcp.resource("config://cleanup", description=RESOURCE_DESCRIPTIONS["get_cleanup_config_resource"])
 async def get_cleanup_config_resource() -> dict:
-    """
-    Get current cleanup configuration and policy settings.
-    
-    Returns the current cleanup policy configuration including default policies,
-    retention settings, size limits, and background cleanup options.
-    """
     logger.info("Resource 'cleanup configuration' accessed")
     
     config = cleanup_manager.config
@@ -842,20 +760,8 @@ async def get_cleanup_config_resource() -> dict:
 # HEALTH AND MONITORING TOOLS
 # =============================================================================
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["get_service_health"])
 async def get_service_health(ctx, include_details: bool = True) -> dict:
-    """
-    Get health and performance metrics for MySalonCast services.
-    
-    Returns current status and performance metrics for TTS service, task runner,
-    and other critical components to help monitor service health in production.
-    
-    Args:
-        include_details: Whether to include detailed performance metrics
-    
-    Returns:
-        Dict with service health status and performance metrics
-    """
     # Enhanced logging with MCP context
     request_id = getattr(ctx, 'request_id', 'unknown')
     logger.info(f"[{request_id}] MCP Tool 'get_service_health' called")
@@ -917,21 +823,8 @@ async def get_service_health(ctx, include_details: bool = True) -> dict:
             }
         }
 
-@mcp.tool()
+@mcp.tool(description=TOOL_DESCRIPTIONS["test_tts_service"])
 async def test_tts_service(ctx, text: str = "Health monitoring test", output_filename: Optional[str] = None) -> dict:
-    """
-    Test TTS service functionality and update health metrics.
-    
-    This tool is specifically for testing and validating TTS health monitoring.
-    It triggers TTS operations within the MCP server process to update metrics.
-    
-    Args:
-        text: Text to synthesize (default: "Health monitoring test")
-        output_filename: Optional filename for audio output (uses temp file if not provided)
-    
-    Returns:
-        Dict with TTS operation result and basic metrics
-    """
     import tempfile
     import os
     
@@ -999,12 +892,8 @@ async def test_tts_service(ctx, text: str = "Health monitoring test", output_fil
 # PHASE 4.4: Job Status and Podcast Resources
 # =============================================================================
 
-@mcp.resource("jobs://{task_id}/status")
+@mcp.resource("jobs://{task_id}/status", description=RESOURCE_DESCRIPTIONS["get_job_status_resource"])
 async def get_job_status_resource(task_id: str) -> dict:
-    """
-    Get job status resource.
-    Returns detailed status information for a podcast generation task.
-    """
     logger.info(f"Resource 'job status' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1038,12 +927,8 @@ async def get_job_status_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve job status: {str(e)}")
 
 
-@mcp.resource("jobs://{task_id}/logs")
+@mcp.resource("jobs://{task_id}/logs", description=RESOURCE_DESCRIPTIONS["get_job_logs_resource"])
 async def get_job_logs_resource(task_id: str) -> dict:
-    """
-    Get job logs resource.
-    Returns structured log information for a podcast generation task.
-    """
     logger.info(f"Resource 'job logs' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1079,12 +964,8 @@ async def get_job_logs_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve job logs: {str(e)}")
 
 
-@mcp.resource("jobs://{task_id}/warnings")
+@mcp.resource("jobs://{task_id}/warnings", description=RESOURCE_DESCRIPTIONS["get_job_warnings_resource"])
 async def get_job_warnings_resource(task_id: str) -> dict:
-    """
-    Get job warnings resource.
-    Returns warning and error information for a podcast generation task.
-    """
     logger.info(f"Resource 'job warnings' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1121,12 +1002,8 @@ async def get_job_warnings_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve job warnings: {str(e)}")
 
 
-@mcp.resource("podcast://{task_id}/transcript")
+@mcp.resource("podcast://{task_id}/transcript", description=RESOURCE_DESCRIPTIONS["get_podcast_transcript_resource"])
 async def get_podcast_transcript_resource(task_id: str) -> dict:
-    """
-    Get podcast transcript resource.
-    Returns transcript content for a completed podcast.
-    """
     logger.info(f"Resource 'podcast transcript' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1162,12 +1039,8 @@ async def get_podcast_transcript_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve podcast transcript: {str(e)}")
 
 
-@mcp.resource("podcast://{task_id}/audio")
+@mcp.resource("podcast://{task_id}/audio", description=RESOURCE_DESCRIPTIONS["get_podcast_audio_resource"])
 async def get_podcast_audio_resource(task_id: str) -> dict:
-    """
-    Get podcast audio resource.
-    Returns audio file information for a completed podcast.
-    """
     logger.info(f"Resource 'podcast audio' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1205,12 +1078,8 @@ async def get_podcast_audio_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve podcast audio: {str(e)}")
 
 
-@mcp.resource("podcast://{task_id}/metadata")
+@mcp.resource("podcast://{task_id}/metadata", description=RESOURCE_DESCRIPTIONS["get_podcast_metadata_resource"])
 async def get_podcast_metadata_resource(task_id: str) -> dict:
-    """
-    Get podcast metadata resource.
-    Returns metadata for a completed podcast episode.
-    """
     logger.info(f"Resource 'podcast metadata' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1248,12 +1117,8 @@ async def get_podcast_metadata_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve podcast metadata: {str(e)}")
 
 
-@mcp.resource("podcast://{task_id}/outline")
+@mcp.resource("podcast://{task_id}/outline", description=RESOURCE_DESCRIPTIONS["get_podcast_outline_resource"])
 async def get_podcast_outline_resource(task_id: str) -> dict:
-    """
-    Get podcast outline resource.
-    Returns outline/structure information for a podcast episode.
-    """
     logger.info(f"Resource 'podcast outline' accessed for task_id: {task_id}")
     
     # Basic input validation
@@ -1311,12 +1176,8 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve podcast outline: {str(e)}")
 
 
-@mcp.resource("research://{task_id}/{person_id}")
+@mcp.resource("research://{task_id}/{person_id}", description=RESOURCE_DESCRIPTIONS["get_persona_research_resource"])
 async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
-    """
-    Get persona research resource for a specific person in a podcast generation task.
-    Returns research data loaded from PersonaResearch JSON file.
-    """
     logger.info(f"Resource 'persona research' accessed for task_id: {task_id}, person_id: {person_id}")
     
     # Basic input validation
@@ -1886,8 +1747,8 @@ async def mcp_root(request):
             base_url = f"https://{request.url.netloc}"
         
         manifest = {
-            "name": "MySalonCast MCP Server",
-            "description": "AI-powered podcast generation platform with comprehensive content creation tools",
+            "name": MANIFEST_DESCRIPTIONS["server_name"],
+            "description": MANIFEST_DESCRIPTIONS["server_description"],
             "version": "1.0.0",
             "protocol_version": "2024-11-05",
             "capabilities": {
@@ -1911,12 +1772,12 @@ async def mcp_root(request):
                 "health": f"{base_url}/health"
             },
             "features": {
-                "podcast_generation": "Generate high-quality podcasts from various content sources",
-                "content_analysis": "Analyze and extract insights from text, URLs, and documents", 
-                "persona_research": "Research and create detailed persona profiles",
-                "voice_synthesis": "Multi-voice TTS with Google Cloud Text-to-Speech",
-                "cloud_storage": "Secure cloud storage for podcast assets",
-                "workflow_management": "End-to-end podcast creation workflow"
+                "podcast_generation": MANIFEST_DESCRIPTIONS["feature_podcast_generation"],
+                "content_analysis": MANIFEST_DESCRIPTIONS["feature_content_analysis"], 
+                "persona_research": MANIFEST_DESCRIPTIONS["feature_persona_research"],
+                "voice_synthesis": MANIFEST_DESCRIPTIONS["feature_voice_synthesis"],
+                "cloud_storage": MANIFEST_DESCRIPTIONS["feature_cloud_storage"],
+                "workflow_management": MANIFEST_DESCRIPTIONS["feature_workflow_management"]
             },
             "authentication": {
                 "type": "oauth2",
