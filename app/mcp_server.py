@@ -44,6 +44,18 @@ mcp = FastMCP("MySalonCast Podcast Generator")
 # =============================================================================
 app = mcp.http_app(transport="sse")
 
+# Add CORS middleware first (before OAuth middleware)
+from fastapi.middleware.cors import CORSMiddleware
+from app.config import Config
+config = Config()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+)
+
 # Add OAuth middleware to protect MCP endpoints
 from app.oauth_middleware import OAuthMiddleware
 app.add_middleware(OAuthMiddleware)

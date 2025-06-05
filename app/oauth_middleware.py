@@ -83,6 +83,10 @@ class OAuthMiddleware(BaseHTTPMiddleware):
         if path in self.PUBLIC_PATHS:
             return await call_next(request)
         
+        # Allow OPTIONS requests (CORS preflight) without authentication
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        
         # Check if this is a protected MCP endpoint
         is_protected = any(path.startswith(protected) for protected in self.PROTECTED_PATHS)
         

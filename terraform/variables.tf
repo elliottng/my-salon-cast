@@ -36,9 +36,3 @@ variable "gemini_api_key" {
   type        = string
   sensitive   = true
 }
-
-variable "google_tts_api_key" {
-  description = "Google Text-to-Speech API key"
-  type        = string
-  sensitive   = true
-}

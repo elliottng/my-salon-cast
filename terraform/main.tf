@@ -171,8 +171,8 @@ resource "google_cloud_run_v2_service" "mcp_server_staging" {
       }
 
       env {
-        name  = "GOOGLE_TTS_API_KEY"
-        value = var.google_tts_api_key
+        name  = "ALLOWED_ORIGINS"
+        value = "https://claude.ai,https://inspect.mcp.garden"
       }
 
       ports {
@@ -238,8 +238,8 @@ resource "google_cloud_run_v2_service" "mcp_server_production" {
       }
 
       env {
-        name  = "GOOGLE_TTS_API_KEY"
-        value = var.google_tts_api_key
+        name  = "ALLOWED_ORIGINS"
+        value = "https://claude.ai,https://inspect.mcp.garden"
       }
 
       ports {

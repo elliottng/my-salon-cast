@@ -21,7 +21,7 @@ import secrets
 from urllib.parse import urlparse, parse_qs
 
 # Staging environment configuration
-STAGING_BASE_URL = "https://mcp-server-staging-ttvealhkuq-uw.a.run.app"
+STAGING_BASE_URL = "https://mcp-server-staging-644248751086.us-west1.run.app"
 CLAUDE_CLIENT_ID = "claude-ai"
 CLAUDE_REDIRECT_URI = "https://claude.ai/oauth/callback"
 
@@ -115,6 +115,7 @@ def test_token_exchange(auth_code, code_verifier):
     access_token = token_response["access_token"]
     
     print("✅ Token Exchange: PASSED")
+    print(f"\nAccess Token: {access_token}\n")
     return access_token
 
 def test_mcp_endpoint_protection(access_token):
