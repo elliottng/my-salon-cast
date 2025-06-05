@@ -67,10 +67,7 @@ async def test_cleanup_with_generated_task():
             "generate_podcast_async",
             {
                 "source_urls": [content_url],
-                "podcast_name": "AI Content Creation Test",
-                "dialogue_style": "casual",
                 "podcast_length": "1-2 minutes",
-                "output_language": "en"
             }
         )
         
