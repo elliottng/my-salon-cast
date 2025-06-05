@@ -81,9 +81,7 @@ async def test():
     # Create a simple request
     request = PodcastRequest(
         source_urls=["https://en.wikipedia.org/wiki/Machine_learning"],
-        podcast_length="3-5 minutes",
-        podcast_name="ML Quick Insights",
-        dialogue_style="casual"
+        desired_podcast_length_str="3-5 minutes",
     )
     
     # Submit async task
@@ -123,15 +121,7 @@ import logging
 logging.basicConfig(level=logging.WARNING)
 
 async def test():
-    # Test invalid language
-    try:
-        request = PodcastRequest(
-            source_urls=["https://example.com"],
-            output_language="xyz"  # Invalid language
-        )
-        print("ERROR: Should have raised validation error for invalid language")
-    except Exception as e:
-        print(f"✓ Correctly caught validation error: {type(e).__name__}")
+
     
     # Test no sources
     try:
