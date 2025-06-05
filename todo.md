@@ -233,10 +233,10 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
   - [x] Call `podcast_service.generate_podcast_async()`
   - [x] Return dict with task_id and initial status
   - [x] Handle validation errors gracefully
-- [x] Create `@mcp.tool()` for `generate_podcast_async_pydantic`
-  - [x] Accept PodcastRequest model directly
-  - [x] Pass through to service
-  - [x] Return same format as individual params version
+- [x] ~~Create `@mcp.tool()` for `generate_podcast_async_pydantic` (deprecated)~~
+  - ~~[x] Accept PodcastRequest model directly~~
+  - ~~[x] Pass through to service~~
+  - ~~[x] Return same format as individual params version~~
 - [x] Create `@mcp.tool()` for `get_task_status`
   - [x] Accept task_id parameter
   - [x] Query StatusManager for current status
@@ -253,7 +253,7 @@ This to-do list is broken down for a single LLM coding agent, focusing on action
 
 ## 1.8: End-to-End Testing of Async Tools (P1, M)
 - [x] Test `generate_podcast_async` with various input combinations
-- [ ] Test `generate_podcast_async_pydantic` with PodcastRequest models
+- [ ] ~~Test `generate_podcast_async_pydantic` with PodcastRequest models (deprecated)~~
 - [x] Test `get_task_status` throughout generation lifecycle
 - [x] Test resource access for completed podcasts
 - [x] Test error handling for invalid inputs and failed generations

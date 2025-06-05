@@ -248,39 +248,6 @@ async def generate_podcast_async(
     except Exception as e:
         raise ToolError("Failed to start podcast generation", str(e))
 
-# Async podcast generation with Pydantic model
-@mcp.tool()
-async def generate_podcast_async_pydantic(ctx, request: PodcastRequest) -> dict:
-    """
-    Start async podcast generation using a structured PodcastRequest model.
-    
-    Accepts a complete PodcastRequest object with all configuration options.
-    Use get_task_status with the returned task_id to check progress.
-    
-    Args:
-        request: PodcastRequest model with all generation parameters
-        
-    Returns:
-        Dict with task_id and initial status
-    """
-    # Enhanced logging with MCP context
-    request_id = getattr(ctx, 'request_id', 'unknown')
-    logger.info(f"[{request_id}] MCP Tool 'generate_podcast_async_pydantic' called")
-    logger.info(f"[{request_id}] Request model: {request.model_dump(exclude_none=True)}")
-    
-    try:
-        task_id = await podcast_service.generate_podcast_async(request)
-        logger.info(f"[{request_id}] Async podcast generation started with task_id: {task_id}")
-        
-        return {
-            "success": True,
-            "task_id": task_id,
-            "status": "queued",
-            "message": "Podcast generation started. Use get_task_status to check progress."
-        }
-    except Exception as e:
-        raise ToolError("Failed to start podcast generation", str(e))
-
 # Get status of async task
 @mcp.tool()
 async def get_task_status(ctx, task_id: str) -> dict:
