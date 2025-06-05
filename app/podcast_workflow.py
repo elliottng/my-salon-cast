@@ -325,6 +325,45 @@ class PodcastGeneratorService:
             task = task_runner._running_tasks[task_id]
             if task.cancelled():
                 raise asyncio.CancelledError(f"Task {task_id} was cancelled")
+
+    def _select_host_voice(self, gender: str, used_voice_ids: set[str]) -> tuple[str, dict]:
+        """Select a host voice profile from the TTS cache avoiding conflicts."""
+        default_profile = {"voice_id": "en-US-Neural2-A", "speaking_rate": 1.0, "pitch": 0.0}
+        if not self.tts_service:
+            logger.warning("TTS service unavailable, using fallback host voice")
+            return default_profile["voice_id"], {
+                "speaking_rate": default_profile["speaking_rate"],
+                "pitch": default_profile["pitch"],
+            }
+        try:
+            voices = self.tts_service.get_voices_by_gender(gender)
+            logger.debug(f"Retrieved {len(voices)} voices for host gender '{gender}'")
+            available = [v for v in voices if v.get("voice_id") not in used_voice_ids]
+            if not available:
+                logger.debug("All host voices in use; allowing reuse")
+                available = voices
+            if not available:
+                logger.warning(f"No voices available for gender '{gender}', using default")
+                return default_profile["voice_id"], {
+                    "speaking_rate": default_profile["speaking_rate"],
+                    "pitch": default_profile["pitch"],
+                }
+            chosen = random.choice(available)
+            voice_id = chosen.get("voice_id", default_profile["voice_id"])
+            params = {
+                "speaking_rate": chosen.get("speaking_rate", default_profile["speaking_rate"]),
+                "pitch": chosen.get("pitch", default_profile["pitch"]),
+            }
+            logger.debug(
+                f"Host voice selected: {voice_id}, Params: {{'speaking_rate': {params['speaking_rate']}, 'pitch': {params['pitch']}}}"
+            )
+            return voice_id, params
+        except Exception as e:
+            logger.error(f"Error selecting host voice: {e}")
+            return default_profile["voice_id"], {
+                "speaking_rate": default_profile["speaking_rate"],
+                "pitch": default_profile["pitch"],
+            }
     
     async def _generate_podcast_internal(
         self,
@@ -829,17 +868,24 @@ class PodcastGeneratorService:
                         # Convert datetime to string if it's a datetime object
                         updated_pr_data["creation_date"] = updated_pr_data["creation_date"].isoformat()
                     
-                    # Now we'll also set a specific voice ID based on gender
-                    # This would ideally come from a voice selection service
-                    if assigned_gender == "Male":
-                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-D"  # Example male voice
-                    elif assigned_gender == "Female":
-                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-F"  # Example female voice
-                    else:
-                        updated_pr_data["tts_voice_id"] = "en-US-Neural2-A"  # Example neutral voice
+
+                    original_voice_id = updated_pr_data.get("tts_voice_id")
+                    original_voice_params = updated_pr_data.get("tts_voice_params")
+                    logger.debug(
+                        f"Original voice for {person_id} ({real_name}): {original_voice_id},"
+                        f" Params: {original_voice_params}"
+                    )
                     
                     # Create a new PersonaResearch object with all the updated fields
                     updated_persona = PersonaResearch(**updated_pr_data)
+                    final_voice_id = updated_persona.tts_voice_id
+                    final_voice_params = updated_persona.tts_voice_params
+                    if not final_voice_id:
+                        logger.warning(f"No voice ID assigned for {person_id} ({real_name})")
+                    logger.debug(
+                        f"Final voice for {person_id} ({real_name}): {final_voice_id},"
+                        f" Params: {final_voice_params}"
+                    )
                     
                     # Add to persona_research_map for efficient lookups by ID
                     persona_research_map[updated_persona.person_id] = updated_persona
@@ -853,39 +899,25 @@ class PodcastGeneratorService:
                         "invented_name": invented_name,
                         "gender": assigned_gender,
                         "real_name": real_name,
-                        "tts_voice_id": updated_pr_data["tts_voice_id"]
+                        "tts_voice_id": updated_persona.tts_voice_id
                     }
-                    logger.info(f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}', Gender='{assigned_gender}'")
+                    logger.info(
+                        f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}',"
+                        f" Gender='{assigned_gender}', Voice='{final_voice_id}', Params: {final_voice_params}"
+                    )
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
                 except Exception as e:
                     logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
-            # Now create the Host persona with a voice that doesn't conflict with guests
-            # Expanded voice options to provide more variety and avoid duplicates
-            male_voices = ["en-US-Neural2-D", "en-US-Neural2-J", "en-GB-Neural2-B", "en-GB-Neural2-D"]
-            female_voices = ["en-US-Neural2-F", "en-US-Neural2-G", "en-GB-Neural2-A", "en-GB-Neural2-C"]
-            neutral_voices = ["en-US-Neural2-A", "en-US-Neural2-C"]
-            
-            # Find all currently assigned voices
-            used_voice_ids = set()
-            for details in persona_details_map.values():
-                if "tts_voice_id" in details:
-                    used_voice_ids.add(details["tts_voice_id"])
-            
-            # Select a unique voice for the Host based on gender
-            host_voice_id = None
-            if host_gender == "Male":
-                available_voices = [v for v in male_voices if v not in used_voice_ids]
-                # Fallback to all male voices if all are already used
-                host_voice_id = random.choice(available_voices if available_voices else male_voices)
-            elif host_gender == "Female":
-                available_voices = [v for v in female_voices if v not in used_voice_ids]
-                # Fallback to all female voices if all are already used
-                host_voice_id = random.choice(available_voices if available_voices else female_voices)
-            else:  # Neutral
-                available_voices = [v for v in neutral_voices if v not in used_voice_ids]
-                # Fallback to all neutral voices if all are already used
-                host_voice_id = random.choice(available_voices if available_voices else neutral_voices)
+            # Now create the Host persona using the TTS voice cache
+            used_voice_ids = {
+                details["tts_voice_id"]
+                for details in persona_details_map.values()
+                if details.get("tts_voice_id")
+            }
+            host_voice_id, host_voice_params = self._select_host_voice(
+                host_gender, used_voice_ids
+            )
             
             # Create the Host persona and add to maps
             host_persona = PersonaResearch(
@@ -895,6 +927,7 @@ class PodcastGeneratorService:
                 invented_name=host_name,
                 gender=host_gender,
                 tts_voice_id=host_voice_id,
+                tts_voice_params=host_voice_params,
                 creation_date=datetime.now().isoformat()
             )
             
@@ -909,7 +942,9 @@ class PodcastGeneratorService:
             
             # Add Host to persona research documents
             persona_research_docs_content.append(host_persona.model_dump_json())
-            logger.info(f"Assigned to Host (Host): Invented Name='{host_name}', Gender='{host_gender}', Voice ID='{host_voice_id}'")
+            logger.info(
+                f"Assigned to Host (Host): Invented Name='{host_name}', Gender='{host_gender}', Voice='{host_voice_id}', Params: {host_voice_params}"
+            )
             
             logger.info(f"Final persona_details_map: {persona_details_map}")
             
