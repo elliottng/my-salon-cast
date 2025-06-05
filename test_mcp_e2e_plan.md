@@ -110,10 +110,7 @@ test_cases = [
         "name": "Custom Configuration",
         "params": {
             "source_urls": ["https://example.com"],
-            "podcast_name": "Test Podcast",
-            "podcast_tagline": "Testing MCP Integration",
-            "output_language": "es",
-            "dialogue_style": "formal"
+            "podcast_length": "3-5 minutes"
         }
     }
 ]
@@ -136,12 +133,12 @@ error_cases = [
         "expected_error": "Cannot provide both"
     },
     {
-        "name": "Invalid Language",
+        "name": "Invalid Configuration",
         "params": {
             "source_urls": ["https://example.com"],
-            "output_language": "xyz"
+            "source_pdf_path": "/path/to/file.pdf"
         },
-        "expected_error": "Unsupported language"
+        "expected_error": "Cannot provide both"
     }
 ]
 ```

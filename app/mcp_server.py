@@ -181,16 +181,19 @@ async def generate_podcast_async(
     source_pdf_path: Optional[str] = None,
     prominent_persons: Optional[List[str]] = None,
     custom_prompt: Optional[str] = None,
-    podcast_name: Optional[str] = None,
-    podcast_tagline: Optional[str] = None,
-    output_language: Literal["en", "es", "fr", "de", "it", "pt", "hi", "ar"] = "en",
-    dialogue_style: Literal["interview", "conversation", "debate", "educational"] = "conversation",
     podcast_length: str = "5-7 minutes",  # Accept time strings like "7 minutes", "5-7 minutes", etc.
-    ending_message: Optional[str] = None
 ) -> dict:
     """
     Generate a podcast asynchronously using provided sources.
     Returns immediately with a task ID for status tracking.
+
+    Args:
+        ctx: MCP request context for correlation.
+        source_urls: Optional list of article URLs.
+        source_pdf_path: Optional PDF source path.
+        prominent_persons: Optional list of personas to feature.
+        custom_prompt: Optional custom instructions for the outline.
+        podcast_length: Desired episode length string.
     """
     # Enhanced logging with MCP context
     request_id = getattr(ctx, 'request_id', 'unknown')
@@ -198,7 +201,9 @@ async def generate_podcast_async(
     
     logger.info(f"[{request_id}] MCP Tool 'generate_podcast_async' called")
     logger.info(f"[{request_id}] Client info: {client_info}")
-    logger.info(f"[{request_id}] Request params: sources={len(source_urls or [])}, persons={len(prominent_persons or [])}, style={dialogue_style}, length={podcast_length}")
+    logger.info(
+        f"[{request_id}] Request params: sources={len(source_urls or [])}, persons={len(prominent_persons or [])}, length={podcast_length}"
+    )
     
     # Basic input validation
     if not source_urls and not source_pdf_path:

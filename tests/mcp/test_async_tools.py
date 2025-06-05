@@ -54,13 +54,9 @@ class MCPToolTester:
                 source_urls=source_urls or None,
                 source_pdf_path=source_pdf_path or None,
                 prominent_persons=kwargs.get("prominent_persons"),
-                custom_prompt=kwargs.get("custom_prompt"),
-                podcast_name=kwargs.get("podcast_name"),
-                podcast_tagline=kwargs.get("podcast_tagline"),
-                output_language=kwargs.get("output_language", "en"),
-                dialogue_style=kwargs.get("dialogue_style", "casual"),
-                podcast_length=kwargs.get("podcast_length", "5-8 minutes"),
-                webhook_url=kwargs.get("webhook_url")
+                custom_prompt_for_outline=kwargs.get("custom_prompt"),
+                desired_podcast_length_str=kwargs.get("podcast_length", "5-8 minutes"),
+                webhook_url=kwargs.get("webhook_url"),
             )
         except Exception as e:
             return {
@@ -130,9 +126,6 @@ async def test_full_workflow():
     test_params = {
         "source_urls": ["https://en.wikipedia.org/wiki/Artificial_intelligence"],
         "podcast_length": "3-5 minutes",
-        "podcast_name": "AI Today",
-        "podcast_tagline": "Understanding artificial intelligence",
-        "dialogue_style": "casual"
     }
     
     result = await tester.test_generate_podcast_async(**test_params)
@@ -176,12 +169,6 @@ async def test_full_workflow():
     )
     logger.info("Both sources result: %s", json.dumps(result, indent=2))
     
-    # Invalid language
-    result = await tester.test_generate_podcast_async(
-        source_urls=["https://example.com"],
-        output_language="xyz"
-    )
-    logger.info("Invalid language result: %s", json.dumps(result, indent=2))
     
     # Test 4: Non-existent task
     logger.info("\n=== Test 4: Non-existent Task ===")
