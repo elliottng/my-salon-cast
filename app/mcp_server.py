@@ -34,7 +34,15 @@ from .mcp_utils import (
     validate_task_id, 
     validate_person_id,
     download_and_parse_json,
-    build_resource_response
+    build_resource_response,
+    get_task_status_or_error,
+    build_job_status_response,
+    build_job_logs_response,
+    build_job_warnings_response,
+    handle_resource_error,
+    build_podcast_transcript_response,
+    build_podcast_audio_response,
+    build_podcast_metadata_response
 )
 
 # Setup production environment and logging
@@ -902,226 +910,73 @@ async def test_tts_service(ctx, text: str = "Health monitoring test", output_fil
 async def get_job_status_resource(task_id: str) -> dict:
     logger.info(f"Resource 'job status' accessed for task_id: {task_id}")
     
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
     try:
-        status_info = status_manager.get_status(task_id)
-        
-        if not status_info:
-            raise ToolError(f"Task not found: {task_id}")
-        
-        return {
-            "task_id": task_id,
-            "status": status_info.status,
-            "progress_percentage": status_info.progress_percentage,
-            "current_step": status_info.status_description,  # Map status_description to current_step
-            "start_time": status_info.created_at.isoformat() if status_info.created_at else None,
-            "end_time": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
-            "error_message": status_info.error_message,
-            "artifact_availability": status_info.artifacts.model_dump() if status_info.artifacts else None,
-            "resource_type": "job_status"
-        }
-        
+        status_info = await get_task_status_or_error(status_manager, task_id)
+        return build_job_status_response(task_id, status_info)
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        raise ToolError(f"Failed to retrieve job status: {str(e)}")
-
+        handle_resource_error(e, task_id, "retrieve job status")
 
 @mcp.resource("jobs://{task_id}/logs", description=RESOURCE_DESCRIPTIONS["get_job_logs_resource"])
 async def get_job_logs_resource(task_id: str) -> dict:
     logger.info(f"Resource 'job logs' accessed for task_id: {task_id}")
     
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
     try:
-        status_info = status_manager.get_status(task_id)
+        status_info = await get_task_status_or_error(status_manager, task_id)
         
-        if not status_info:
-            raise ToolError(f"Task not found: {task_id}")
+        # Extract logs from status info
+        logs = status_info.logs if hasattr(status_info, 'logs') and status_info.logs else []
         
-        # Get logs from the status info
-        logs = []
-        if hasattr(status_info, 'logs') and status_info.logs:
-            logs = status_info.logs
-        
-        return {
-            "task_id": task_id,
-            "logs": logs,
-            "log_count": len(logs),
-            "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
-            "current_step": status_info.status_description,
-            "resource_type": "job_logs"
-        }
+        return build_job_logs_response(task_id, logs)
         
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        raise ToolError(f"Failed to retrieve job logs: {str(e)}")
-
+        handle_resource_error(e, task_id, "retrieve job logs")
 
 @mcp.resource("jobs://{task_id}/warnings", description=RESOURCE_DESCRIPTIONS["get_job_warnings_resource"])
 async def get_job_warnings_resource(task_id: str) -> dict:
     logger.info(f"Resource 'job warnings' accessed for task_id: {task_id}")
     
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
     try:
-        status_info = status_manager.get_status(task_id)
-        
-        if not status_info:
-            raise ToolError(f"Task not found: {task_id}")
+        status_info = await get_task_status_or_error(status_manager, task_id)
         
         # Extract warnings from episode data if available
         warnings = []
         if status_info.result_episode and hasattr(status_info.result_episode, 'warnings'):
             warnings = status_info.result_episode.warnings or []
         
-        return {
-            "task_id": task_id,
-            "warnings": warnings,
-            "warning_count": len(warnings),
-            "has_errors": status_info.status == "failed",
-            "error_message": status_info.error_message,
-            "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
-            "resource_type": "job_warnings"
-        }
+        return build_job_warnings_response(task_id, status_info, warnings)
         
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        raise ToolError(f"Failed to retrieve job warnings: {str(e)}")
-
+        handle_resource_error(e, task_id, "retrieve job warnings")
 
 @mcp.resource("podcast://{task_id}/transcript", description=RESOURCE_DESCRIPTIONS["get_podcast_transcript_resource"])
 async def get_podcast_transcript_resource(task_id: str) -> dict:
     logger.info(f"Resource 'podcast transcript' accessed for task_id: {task_id}")
     
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
     try:
-        status_info = status_manager.get_status(task_id)
-        
-        if not status_info:
-            raise ToolError(f"Task not found: {task_id}")
-        
-        if not status_info.result_episode:
-            raise ToolError(f"Podcast episode not available for task: {task_id}")
-        
-        return {
-            "task_id": task_id,
-            "transcript": status_info.result_episode.transcript or "",
-            "title": status_info.result_episode.title or "",
-            "summary": status_info.result_episode.summary or "",
-            "character_count": len(status_info.result_episode.transcript) if status_info.result_episode.transcript else 0,
-            "resource_type": "podcast_transcript"
-        }
-        
+        status_info = await get_task_status_or_error(status_manager, task_id, require_episode=True)
+        return build_podcast_transcript_response(task_id, status_info.result_episode)
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        elif "not available" in str(e):
-            raise ToolError(f"Podcast episode not available for task: {task_id}")
-        raise ToolError(f"Failed to retrieve podcast transcript: {str(e)}")
-
+        handle_resource_error(e, task_id, "retrieve podcast transcript")
 
 @mcp.resource("podcast://{task_id}/audio", description=RESOURCE_DESCRIPTIONS["get_podcast_audio_resource"])
 async def get_podcast_audio_resource(task_id: str) -> dict:
     logger.info(f"Resource 'podcast audio' accessed for task_id: {task_id}")
     
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
     try:
-        status_info = status_manager.get_status(task_id)
-        
-        if not status_info:
-            raise ToolError(f"Task not found: {task_id}")
-        
-        if not status_info.result_episode:
-            raise ToolError(f"Podcast episode not available for task: {task_id}")
-        
-        audio_filepath = status_info.result_episode.audio_filepath or ""
-        audio_exists = os.path.exists(audio_filepath) if audio_filepath else False
-        
-        return {
-            "task_id": task_id,
-            "audio_filepath": audio_filepath,
-            "audio_exists": audio_exists,
-            "file_size": os.path.getsize(audio_filepath) if audio_exists else 0,
-            "resource_type": "podcast_audio"
-        }
-        
+        status_info = await get_task_status_or_error(status_manager, task_id, require_episode=True)
+        return build_podcast_audio_response(task_id, status_info.result_episode)
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        elif "not available" in str(e):
-            raise ToolError(f"Podcast episode not available for task: {task_id}")
-        raise ToolError(f"Failed to retrieve podcast audio: {str(e)}")
-
+        handle_resource_error(e, task_id, "retrieve podcast audio")
 
 @mcp.resource("podcast://{task_id}/metadata", description=RESOURCE_DESCRIPTIONS["get_podcast_metadata_resource"])
 async def get_podcast_metadata_resource(task_id: str) -> dict:
     logger.info(f"Resource 'podcast metadata' accessed for task_id: {task_id}")
     
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
     try:
-        status_info = status_manager.get_status(task_id)
-        
-        if not status_info:
-            raise ToolError(f"Task not found: {task_id}")
-        
-        if not status_info.result_episode:
-            raise ToolError(f"Podcast episode not available for task: {task_id}")
-        
-        return {
-            "task_id": task_id,
-            "title": status_info.result_episode.title or "",
-            "summary": status_info.result_episode.summary or "",
-            "duration": getattr(status_info.result_episode, 'duration', None),
-            "source_attributions": status_info.result_episode.source_attributions or [],
-            "creation_date": status_info.created_at.isoformat() if status_info.created_at else None,
-            "completion_date": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
-            "resource_type": "podcast_metadata"
-        }
-        
+        status_info = await get_task_status_or_error(status_manager, task_id, require_episode=True)
+        return build_podcast_metadata_response(task_id, status_info.result_episode)
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        elif "not available" in str(e):
-            raise ToolError(f"Podcast episode not available for task: {task_id}")
-        raise ToolError(f"Failed to retrieve podcast metadata: {str(e)}")
-
+        handle_resource_error(e, task_id, "retrieve podcast metadata")
 
 @mcp.resource("outline://{task_id}", description=RESOURCE_DESCRIPTIONS["get_podcast_outline_resource"])
 async def get_podcast_outline_resource(task_id: str) -> dict:
@@ -1173,7 +1028,6 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         elif "not available" in str(e):
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve podcast outline: {str(e)}")
-
 
 @mcp.resource("research://{task_id}/{person_id}", description=RESOURCE_DESCRIPTIONS["get_persona_research_resource"])
 async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
@@ -1270,7 +1124,6 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
         elif "not available" in str(e):
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve persona research: {str(e)}")
-
 
 # =============================================================================
 # OAUTH 2.0 ENDPOINTS

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from typing import Optional, Dict, Any
 from fastmcp.exceptions import ToolError
 
@@ -100,3 +101,201 @@ def build_resource_response(
         response.update(additional_fields)
         
     return response
+
+
+async def get_task_status_or_error(
+    status_manager,
+    task_id: str,
+    require_episode: bool = False
+):
+    """
+    Get task status with standard validation and error handling.
+    
+    Args:
+        status_manager: StatusManager instance
+        task_id: Task identifier
+        require_episode: Whether to require result_episode to be present
+        
+    Returns:
+        PodcastStatus object
+        
+    Raises:
+        ToolError: If task not found or episode not available
+    """
+    # Validate task ID
+    validate_task_id(task_id)
+    
+    # Get status
+    status_info = status_manager.get_status(task_id)
+    
+    if not status_info:
+        raise ToolError(f"Task not found: {task_id}")
+    
+    if require_episode and not status_info.result_episode:
+        raise ToolError(f"Podcast episode not available for task: {task_id}")
+    
+    return status_info
+
+
+def build_job_status_response(task_id: str, status_info) -> Dict[str, Any]:
+    """
+    Build a standardized job status response.
+    
+    Args:
+        task_id: Task identifier
+        status_info: PodcastStatus object
+        
+    Returns:
+        Standardized job status response
+    """
+    return {
+        "task_id": task_id,
+        "status": status_info.status,
+        "progress_percentage": status_info.progress_percentage,
+        "current_step": status_info.status_description,
+        "start_time": status_info.created_at.isoformat() if status_info.created_at else None,
+        "end_time": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
+        "error_message": status_info.error_message,
+        "artifact_availability": status_info.artifacts.model_dump() if status_info.artifacts else None,
+        "resource_type": "job_status"
+    }
+
+
+def build_job_logs_response(task_id: str, logs: list) -> Dict[str, Any]:
+    """
+    Build a standardized job logs response.
+    
+    Args:
+        task_id: Task identifier
+        logs: List of log entries
+        
+    Returns:
+        Standardized job logs response
+    """
+    return {
+        "task_id": task_id,
+        "logs": logs,
+        "log_count": len(logs),
+        "resource_type": "job_logs"
+    }
+
+
+def build_job_warnings_response(
+    task_id: str,
+    status_info,
+    warnings: Optional[list] = None
+) -> Dict[str, Any]:
+    """
+    Build a standardized job warnings response.
+    
+    Args:
+        task_id: Task identifier
+        status_info: PodcastStatus object
+        warnings: List of warnings (optional, extracted from episode)
+        
+    Returns:
+        Standardized job warnings response
+    """
+    if warnings is None:
+        warnings = []
+        
+    return {
+        "task_id": task_id,
+        "warnings": warnings,
+        "warning_count": len(warnings),
+        "has_errors": status_info.status == "failed",
+        "error_message": status_info.error_message,
+        "last_updated": status_info.last_updated_at.isoformat() if status_info.last_updated_at else None,
+        "resource_type": "job_warnings"
+    }
+
+
+def handle_resource_error(e: Exception, task_id: str, operation: str):
+    """
+    Handle common resource errors with consistent error messages.
+    
+    Args:
+        e: The exception that occurred
+        task_id: Task identifier
+        operation: The operation being performed (e.g., "retrieve job status")
+        
+    Raises:
+        ToolError: With appropriate error message
+    """
+    error_str = str(e)
+    
+    if "Task not found" in error_str:
+        raise ToolError(f"Task not found: {task_id}")
+    elif "not available" in error_str:
+        raise ToolError(f"Podcast episode not available for task: {task_id}")
+    else:
+        raise ToolError(f"Failed to {operation}: {error_str}")
+
+
+def build_podcast_transcript_response(task_id: str, episode) -> Dict[str, Any]:
+    """
+    Build a standardized podcast transcript response.
+    
+    Args:
+        task_id: Task identifier
+        episode: PodcastEpisode object
+        
+    Returns:
+        Standardized podcast transcript response
+    """
+    return {
+        "task_id": task_id,
+        "transcript": episode.transcript or "",
+        "title": episode.title or "",
+        "summary": episode.summary or "",
+        "character_count": len(episode.transcript) if episode.transcript else 0,
+        "resource_type": "podcast_transcript"
+    }
+
+
+def build_podcast_audio_response(task_id: str, episode) -> Dict[str, Any]:
+    """
+    Build a standardized podcast audio response.
+    
+    Args:
+        task_id: Task identifier
+        episode: PodcastEpisode object
+        
+    Returns:
+        Standardized podcast audio response
+    """
+    import os
+    
+    audio_filepath = getattr(episode, 'audio_filepath', '') or ""
+    audio_exists = os.path.exists(audio_filepath) if audio_filepath else False
+    
+    return {
+        "task_id": task_id,
+        "audio_filepath": audio_filepath,
+        "audio_exists": audio_exists,
+        "file_size": os.path.getsize(audio_filepath) if audio_exists else 0,
+        "resource_type": "podcast_audio"
+    }
+
+
+def build_podcast_metadata_response(task_id: str, episode) -> Dict[str, Any]:
+    """
+    Build a standardized podcast metadata response.
+    
+    Args:
+        task_id: Task identifier
+        episode: PodcastEpisode object
+        
+    Returns:
+        Standardized podcast metadata response
+    """
+    return {
+        "task_id": task_id,
+        "title": episode.title or "",
+        "summary": episode.summary or "",
+        "duration": getattr(episode, 'duration', None),
+        "source_attributions": getattr(episode, 'source_attributions', []) or [],
+        "creation_date": episode.created_at.isoformat() if hasattr(episode, 'created_at') and episode.created_at else None,
+        "completion_date": None,  # This should come from status_info, not episode
+        "resource_type": "podcast_metadata"
+    }
