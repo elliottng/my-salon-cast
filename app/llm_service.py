@@ -629,50 +629,60 @@ Your output MUST be a single, valid JSON object only, with no additional text be
         json_response_str: str = None  # Initialize
         try:
             logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
-            json_response_str = await self.generate_text_async(prompt, timeout_seconds=420)
             
-            logger.debug(f"Raw LLM response for persona research of '{person_name}': {json_response_str}")
+            # NEW: Use Pydantic AI structured output instead of manual JSON parsing
+            if self.use_pydantic_ai:
+                logger.info(f"Using Pydantic AI for structured PersonaResearch output for '{person_name}'")
+                persona_research = await self.generate_text_async(prompt, result_type=PersonaResearch, timeout_seconds=420)
+                # Convert to dict for the existing post-processing logic
+                parsed_json = persona_research.model_dump()
+                logger.info(f"Successfully received structured PersonaResearch for '{person_name}'")
+            else:
+                # LEGACY: Keep the existing JSON parsing logic for backward compatibility
+                json_response_str = await self.generate_text_async(prompt, timeout_seconds=420)
+                
+                logger.debug(f"Raw LLM response for persona research of '{person_name}': {json_response_str}")
 
-            # Strip potential markdown backticks if present
-            if isinstance(json_response_str, str):
-                # More robust stripping
-                temp_str = json_response_str.strip() # Remove leading/trailing whitespace first
-                if temp_str.startswith("```json") and temp_str.endswith("```"):
-                    # Find the first newline after ```json
-                    # The '7' comes from len("```json") + 1 for the newline, or just after ```json
-                    # Correct start index for content after "```json\n" or "```json "
-                    content_start_idx = temp_str.find('\n', 7) # Search after "```json"
-                    if content_start_idx == -1: # if no newline after ```json, maybe it's just ```json{...}```
-                        content_start_idx = 7 # len("```json")
+                # Strip potential markdown backticks if present
+                if isinstance(json_response_str, str):
+                    # More robust stripping
+                    temp_str = json_response_str.strip() # Remove leading/trailing whitespace first
+                    if temp_str.startswith("```json") and temp_str.endswith("```"):
+                        # Find the first newline after ```json
+                        # The '7' comes from len("```json") + 1 for the newline, or just after ```json
+                        # Correct start index for content after "```json\n" or "```json "
+                        content_start_idx = temp_str.find('\n', 7) # Search after "```json"
+                        if content_start_idx == -1: # if no newline after ```json, maybe it's just ```json{...}```
+                            content_start_idx = 7 # len("```json")
+                        else:
+                            content_start_idx += 1 # move past the newline itself
+                        
+                        # Find the last occurrence of ``` to mark the end of the JSON content
+                        content_end_idx = temp_str.rfind("```")
+                        
+                        if content_start_idx < content_end_idx:
+                            json_content_candidate = temp_str[content_start_idx:content_end_idx]
+                            json_response_str = json_content_candidate.strip() # Clean the extracted content
+                        else: # Fallback if stripping logic is confused, try to use the original temp_str or log error
+                            logger.warning(f"Markdown stripping for '```json...```' might have failed for '{person_name}'. Using temp_str directly after outer strip.")
+                            json_response_str = temp_str # Or consider it an error
+
+                    elif temp_str.startswith("```") and temp_str.endswith("```"):
+                        json_content_candidate = temp_str[3:-3]
+                        json_response_str = json_content_candidate.strip()
+                    # If no markdown fences, or they were already stripped,
+                    # ensure json_response_str is still the potentially valid JSON string
                     else:
-                        content_start_idx += 1 # move past the newline itself
-                    
-                    # Find the last occurrence of ``` to mark the end of the JSON content
-                    content_end_idx = temp_str.rfind("```")
-                    
-                    if content_start_idx < content_end_idx:
-                        json_content_candidate = temp_str[content_start_idx:content_end_idx]
-                        json_response_str = json_content_candidate.strip() # Clean the extracted content
-                    else: # Fallback if stripping logic is confused, try to use the original temp_str or log error
-                        logger.warning(f"Markdown stripping for '```json...```' might have failed for '{person_name}'. Using temp_str directly after outer strip.")
-                        json_response_str = temp_str # Or consider it an error
-
-                elif temp_str.startswith("```") and temp_str.endswith("```"):
-                    json_content_candidate = temp_str[3:-3]
-                    json_response_str = json_content_candidate.strip()
-                # If no markdown fences, or they were already stripped,
-                # ensure json_response_str is still the potentially valid JSON string
-                else:
-                    json_response_str = temp_str # Use the stripped version if no fences matched
-        
-            # Add a log to see what exactly is being passed to json.loads
-            logger.debug(f"String to be parsed by json.loads for '{person_name}': '{json_response_str}'")
-            cleaned_response_text = self._clean_json_string_from_markdown(json_response_str)
-            logger.debug(f"Cleaned persona research response: {cleaned_response_text[:200]}...")
+                        json_response_str = temp_str # Use the stripped version if no fences matched
             
-            parsed_json = json.loads(cleaned_response_text)
-            parsed_json = self._clean_keys_recursive(parsed_json) # Clean keys before validation
-            logger.debug(f"Attempting to create PersonaResearch with (cleaned) keys: {list(parsed_json.keys()) if isinstance(parsed_json, dict) else 'Not a dict'}")
+                # Add a log to see what exactly is being passed to json.loads
+                logger.debug(f"String to be parsed by json.loads for '{person_name}': '{json_response_str}'")
+                cleaned_response_text = self._clean_json_string_from_markdown(json_response_str)
+                logger.debug(f"Cleaned persona research response: {cleaned_response_text[:200]}...")
+                
+                parsed_json = json.loads(cleaned_response_text)
+                parsed_json = self._clean_keys_recursive(parsed_json) # Clean keys before validation
+                logger.debug(f"Attempting to create PersonaResearch with (cleaned) keys: {list(parsed_json.keys()) if isinstance(parsed_json, dict) else 'Not a dict'}")
             
             # Process gender and assign appropriate invented name and TTS voice ID
             # First normalize to lowercase for validation
@@ -755,17 +765,29 @@ Your output MUST be a single, valid JSON object only, with no additional text be
             return persona_research_data
             
         except json.JSONDecodeError as e:
-            output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
-            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
-            raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
+            if not self.use_pydantic_ai:
+                output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
+                logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
+                raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
+            else:
+                logger.error(f"Unexpected JSONDecodeError in Pydantic AI path for '{person_name}': {e}", exc_info=True)
+                raise RuntimeError(f"An unexpected JSON parsing error occurred in Pydantic AI mode for persona '{person_name}'.") from e
         except ValidationError as e: 
-            output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
-            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
-            raise ValueError(f"LLM response for persona '{person_name}' did not match expected structure.") from e
+            if self.use_pydantic_ai:
+                logger.error(f"ValidationError in Pydantic AI structured output for '{person_name}': {e}", exc_info=True)
+                raise ValueError(f"LLM response for persona '{person_name}' did not match expected PersonaResearch structure.") from e
+            else:
+                output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
+                logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
+                raise ValueError(f"LLM response for persona '{person_name}' did not match expected structure.") from e
         except Exception as e: # Catches errors from generate_text_async, or other unexpected issues like TypeError if json_response_str was None and json.loads tried it.
-            output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
-            logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {output_for_log}", exc_info=True)
-            raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
+            if self.use_pydantic_ai:
+                logger.error(f"Unexpected error during Pydantic AI persona research for '{person_name}': {e.__class__.__name__} - {e}", exc_info=True)
+                raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}' using Pydantic AI.") from e
+            else:
+                output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
+                logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {output_for_log}", exc_info=True)
+                raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
 
     def _parse_duration_to_seconds(self, duration_str: str) -> int:
         """
