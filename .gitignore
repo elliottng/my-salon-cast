@@ -3,6 +3,7 @@ terraform-sa-key.json
 *-credentials.json
 gcp-*.json
 google-*.json
+gcp-credentials.json
 
 # Environment variables
 .env

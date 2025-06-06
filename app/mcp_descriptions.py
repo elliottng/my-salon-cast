@@ -4,25 +4,81 @@ All descriptions preserved exactly as originally written.
 """
 
 PROMPT_DESCRIPTIONS = {
-    "create_podcast_from_url": """Generates a prompt template for creating a podcast from one or more URLs with specific personas and length.
-    
-    Args:
-        urls: List of source URLs to create a podcast from
-        personas: Comma-separated list of personas/characters for the discussion
-        length: Desired podcast length using a time string (e.g., "10 minutes")
-    """,
-    "discuss_persona_viewpoint": """Generate a prompt for exploring a persona's viewpoints from their research.
-    
-    Args:
-        task_id: The podcast generation task ID
-        person_id: The specific persona/person ID to explore
-    """,
-    "analyze_podcast_content": """Generates a prompt for analyzing different aspects of podcast content.
-    
-    Args:
-        task_id: The podcast generation task ID  
-        analysis_type: Type of analysis to perform
-    """,
+    "create_podcast_from_url": """Complete workflow guide for creating podcasts from URLs with specific personas and parameters.
+
+🎯 WHEN TO USE:
+- "Create a podcast from this URL"
+- "I want [personas] to discuss this article" 
+- "Make a podcast about [topic] with [people]"
+- User provides URL and wants podcast creation guidance
+
+🔄 WORKFLOW PROVIDED:
+1. Generate podcast with generate_podcast_async()
+2. Monitor progress with get_task_status()
+3. Access results via podcast resources
+4. Analyze personas via research resources
+5. Optional cleanup with cleanup_task_files()
+
+📋 FEATURES:
+- Supports multiple URLs and persona combinations
+- Configurable length (5-18 minutes) and dialogue styles
+- Complete step-by-step instructions with tool usage
+- Resource access guidance for transcript, audio, metadata
+- Troubleshooting and monitoring advice
+
+Perfect for first-time users and anyone wanting guided podcast creation from web content.""",
+
+    "discuss_persona_viewpoint": """Focused exploration of individual persona research and viewpoints from completed podcast tasks.
+
+🎯 WHEN TO USE:
+- "Tell me about Einstein's perspective in task abc123"
+- "What viewpoints does Marie Curie express?"
+- "Explore the persona research for [person]"
+- Understanding character representation and authenticity
+
+🔍 ANALYSIS PROVIDED:
+- Detailed persona research review via research://task_id/person_id
+- Background and expertise examination
+- Viewpoint analysis and perspective exploration
+- Historical context and accuracy assessment
+- Character voice and representation quality
+
+📊 INSIGHTS DELIVERED:
+- Key topics covered in persona profile
+- Specific viewpoints expressed by the historical figure
+- How background influences their perspectives
+- Potential questions or follow-ups they might raise
+
+Ideal for educators, researchers, and anyone wanting to understand how historical figures are represented.""",
+
+    "analyze_podcast_content": """Comprehensive analysis framework for examining different aspects of completed podcast episodes.
+
+🎯 WHEN TO USE:
+- "Analyze my podcast abc123"
+- "Break down the content structure"
+- "Show me insights from this episode"
+- Quality assessment and content review
+
+📊 ANALYSIS TYPES:
+- outline: Structure and organization analysis
+- transcript: Full dialogue and content review  
+- personas: Character research and authenticity
+- summary: Overview with key metadata insights
+
+🔍 EVALUATION FRAMEWORK:
+- Key themes and topics identification
+- Content structure and quality assessment
+- Most interesting insights and discussion points
+- Areas for enhancement or expansion
+- Educational value and engagement factors
+
+📋 DELIVERABLES:
+- Thoughtful analysis with specific examples
+- Quality ratings and recommendations
+- Memorable quotes and highlights
+- Improvement suggestions for future episodes
+
+Perfect for content creators, educators, and anyone wanting detailed podcast evaluation.""",
 }
 
 TOOL_DESCRIPTIONS = {
