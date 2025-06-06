@@ -14,6 +14,10 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from pydantic import ValidationError
 import aiohttp
+from .database import PodcastStatusDB
+from .common_exceptions import PodcastGenerationError
+from .status_manager import get_status_manager, PodcastStatus
+from .storage_utils import ensure_directory_exists
 
 # Add the project root to the Python path so we can import modules correctly
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -1259,7 +1263,7 @@ class PodcastGeneratorService:
                 )
                 
                 audio_segments_dir = os.path.join(tmpdir_path, "audio_segments")
-                os.makedirs(audio_segments_dir, exist_ok=True)
+                ensure_directory_exists(audio_segments_dir)
                 logger.info(f"Created directory for audio segments: {audio_segments_dir}")
                 
                 status_manager.add_progress_log(

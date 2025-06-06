@@ -17,6 +17,9 @@ except ImportError:
     CLOUD_STORAGE_AVAILABLE = False
     logging.warning("Google Cloud Storage not available. Running in local mode.")
 
+# Import storage utilities
+from .storage_utils import ensure_directory_exists
+
 # Database models using SQLModel
 class PodcastStatusDB(SQLModel, table=True):
     """Database model for storing podcast generation status."""
@@ -60,17 +63,23 @@ class PodcastStatusDB(SQLModel, table=True):
 
 # Database connection setup with cloud-aware configuration
 def get_database_path() -> str:
-    """Get the appropriate database path for the environment."""
+    """Get the database path, creating the directory if it doesn't exist."""
     environment = os.getenv("ENVIRONMENT", "local")
     
     if environment in ["staging", "production"]:
-        # Use a local path in Cloud Run container
+        # Use tmp for cloud deployments
         db_dir = "/tmp/database"
-        os.makedirs(db_dir, exist_ok=True)
-        return os.path.join(db_dir, "podcast_status.db")
+        db_path = os.path.join(db_dir, "podcast_status.db")
     else:
         # Local development
-        return "podcast_status.db"
+        db_path = "podcast_status.db"
+        db_dir = os.path.dirname(db_path)
+        if not db_dir:
+            db_dir = "."
+    
+    if not os.path.exists(db_dir):
+        ensure_directory_exists(db_dir)
+    return db_path
 
 DATABASE_PATH = get_database_path()
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH}")

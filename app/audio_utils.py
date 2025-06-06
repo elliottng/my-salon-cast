@@ -6,9 +6,11 @@ Contains classes for managing audio paths and stitching audio segments.
 import logging
 import os
 from typing import List, Tuple, Optional, Dict
+from pathlib import Path
 
 from pydub import AudioSegment
 from app.podcast_models import DialogueTurn
+from .storage_utils import ensure_directory_exists
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +33,8 @@ class AudioPathManager:
         podcast_dir = os.path.join(self.base_output_dir, "audio", podcast_id)
         segments_dir = os.path.join(podcast_dir, "segments")
         
-        os.makedirs(podcast_dir, exist_ok=True)
-        os.makedirs(segments_dir, exist_ok=True)
+        ensure_directory_exists(podcast_dir)
+        ensure_directory_exists(segments_dir)
         
         return podcast_dir, segments_dir
         
@@ -176,6 +178,9 @@ class AudioStitchingService:
             
             self.logger.info(f"[AUDIO_STITCH] Starting audio stitching of {len(segment_paths)} segments")
             
+            # Create the output directory if needed
+            ensure_directory_exists(os.path.dirname(output_path))
+            
             # Create silence segment
             silence = AudioSegment.silent(duration=silence_duration_ms)
             
@@ -196,9 +201,6 @@ class AudioStitchingService:
                 except Exception as e:
                     self.logger.error(f"[AUDIO_STITCH] Failed to add segment {i+1}: {e}", exc_info=True)
                     # Continue with remaining segments
-            
-            # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
             # Export the combined audio
             combined.export(output_path, format="mp3")
