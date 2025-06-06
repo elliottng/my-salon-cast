@@ -68,3 +68,5 @@ urllib3==2.4.0
 uvicorn==0.24.0
 websockets==15.0.1
 youtube-transcript-api==1.0.3
+pydantic-ai==0.2.15
+logfire==3.18.0

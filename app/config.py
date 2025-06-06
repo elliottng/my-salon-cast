@@ -42,6 +42,11 @@ class Config:
     def gemini_api_key(self) -> Optional[str]:
         """Get Gemini API key from environment variables."""
         return os.getenv("GEMINI_API_KEY")
+
+    @property
+    def use_pydantic_ai(self) -> bool:
+        """Feature flag to enable Pydantic AI integration."""
+        return os.getenv("USE_PYDANTIC_AI", "false").lower() == "true"
     
     @property
     def audio_bucket(self) -> Optional[str]:
