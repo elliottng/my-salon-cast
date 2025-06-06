@@ -15,6 +15,10 @@ import atexit
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from pydantic_ai import Agent
+from pydantic_ai.models.gemini import GeminiModel
+import logfire
+from app.config import get_config
 
 from google.api_core.exceptions import (
     DeadlineExceeded,
@@ -110,6 +114,38 @@ class GeminiService:
         
         # Store TTS service for voice profile lookup
         self.tts_service = tts_service
+        
+        # Initialize Pydantic AI agent if feature flag is enabled
+        config = get_config()
+        self.use_pydantic_ai = config.use_pydantic_ai
+        self.pydantic_agent = None
+        
+        if self.use_pydantic_ai:
+            logger.info("Initializing Pydantic AI agent for Gemini service")
+            # Create Pydantic AI model with standard approach
+            pydantic_model = GeminiModel('gemini-1.5-pro')
+            # Create a generic agent that can handle both string and structured outputs
+            self.pydantic_agent = Agent(
+                model=pydantic_model,
+                system_prompt=""  # Empty system prompt for default behavior
+            )
+            # Configure Logfire if credentials are available (either in project dir or env)
+            logfire_configured = (
+                os.path.exists('.logfire/logfire_credentials.json') or 
+                os.environ.get('LOGFIRE_TOKEN') is not None
+            )
+            
+            if logfire_configured:
+                try:
+                    logfire.configure()
+                    # Instrument all Pydantic AI agents globally
+                    logfire.instrument_pydantic_ai()
+                    logger.info("Logfire observability configured successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to configure Logfire: {e}")
+            else:
+                logger.info("Logfire credentials not found, skipping observability setup")
+            logger.info("Pydantic AI agent initialized successfully")
 
     @retry(
         stop=stop_after_attempt(3),  # Retry up to 3 times (total of 4 attempts)
@@ -125,9 +161,9 @@ class GeminiService:
             f"(Reason: {retry_state.outcome.exception()}). Attempt #{retry_state.attempt_number}"
         )
     )
-    async def generate_text_async(self, prompt: str, timeout_seconds: int = 180) -> str:
+    async def _legacy_generate_text_async(self, prompt: str, timeout_seconds: int = 180) -> str:
         """
-        Asynchronously generates text based on the given prompt using the configured Gemini model.
+        Legacy implementation: Asynchronously generates text based on the given prompt using the configured Gemini model.
         
         Args:
             prompt: The prompt to send to the model
@@ -141,7 +177,7 @@ class GeminiService:
             ValueError: If the prompt is empty
             RuntimeError: For other unexpected errors
         """
-        logger.info("ENTRY: generate_text_async method called")
+        logger.info("ENTRY: _legacy_generate_text_async method called")
         logger.info(f"Prompt length: {len(prompt) if prompt else 0} characters with {timeout_seconds}s timeout")
         
         if not prompt:
@@ -177,12 +213,12 @@ class GeminiService:
                 # Ensure all parts are concatenated, checking if they have a 'text' attribute
                 result = "".join(part.text for part in response.parts if hasattr(part, 'text'))
                 logger.info(f"Concatenated response text length: {len(result)} characters")
-                logger.info("EXIT: generate_text_async completed successfully with multi-part response")
+                logger.info("EXIT: _legacy_generate_text_async completed successfully with multi-part response")
                 return result
             # Fallback if response.text is directly available (older API versions or simpler responses)
             elif hasattr(response, 'text') and response.text:
                 logger.info(f"Response has single text attribute of length: {len(response.text)} characters")
-                logger.info("EXIT: generate_text_async completed successfully with single-part response")
+                logger.info("EXIT: _legacy_generate_text_async completed successfully with single-part response")
                 return response.text
             else:
                 # This case might occur if the response is blocked, has no text content, or an unexpected structure
@@ -190,18 +226,263 @@ class GeminiService:
                 # Check for prompt feedback which might indicate blocking
                 if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
                     logger.warning(f"Response has prompt_feedback: {response.prompt_feedback}")
-                    logger.info("EXIT: generate_text_async with prompt feedback issue")
+                    logger.info("EXIT: _legacy_generate_text_async with prompt feedback issue")
                     return f"Error: Could not generate text. Prompt feedback: {response.prompt_feedback}"
                 logger.warning("No text content or prompt feedback found in response")
-                logger.info("EXIT: generate_text_async with empty/blocked response")
+                logger.info("EXIT: _legacy_generate_text_async with empty/blocked response")
                 return "Error: No text content in Gemini response or response was blocked."
 
         except Exception as e:
             # This is a general catch-all for any other errors during the API call or response processing.
-            logger.error(f"Unexpected error in generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
-            logger.info("EXIT: generate_text_async with exception")
+            logger.error(f"Unexpected error in _legacy_generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
+            logger.info("EXIT: _legacy_generate_text_async with exception")
             # Ensure an exception is raised so the caller knows something went wrong.
             raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
+
+    async def generate_text_async(self, prompt: str, timeout_seconds: int = 180, result_type: Optional[type] = None) -> Union[str, Any]:
+        """
+        Asynchronously generates text based on the given prompt using the configured Gemini model.
+        When use_pydantic_ai is enabled, supports structured output via result_type parameter.
+        
+        Args:
+            prompt: The prompt to send to the model
+            timeout_seconds: Maximum time to wait for the API call in seconds (default: 180)
+            result_type: Optional type for structured output (only used when use_pydantic_ai is True)
+            
+        Returns:
+            The generated text response (string) or structured output if result_type is provided
+            
+        Raises:
+            TimeoutError: If the API call exceeds the timeout_seconds
+            ValueError: If the prompt is empty
+            RuntimeError: For other unexpected errors
+        """
+        logger.info("ENTRY: generate_text_async method called")
+        logger.info(f"Prompt length: {len(prompt) if prompt else 0} characters with {timeout_seconds}s timeout")
+        logger.info(f"Pydantic AI enabled: {self.use_pydantic_ai}, result_type: {result_type}")
+        
+        if self.use_pydantic_ai and self.pydantic_agent:
+            return await self._pydantic_generate_text_async(prompt, timeout_seconds, result_type)
+        else:
+            if result_type is not None:
+                logger.warning("result_type parameter ignored when use_pydantic_ai is False")
+            return await self._legacy_generate_text_async(prompt, timeout_seconds)
+    
+    async def _pydantic_generate_text_async(self, prompt: str, timeout_seconds: int = 180, result_type: Optional[type] = None) -> Union[str, Any]:
+        """
+        Pydantic AI implementation: Asynchronously generates text or structured output.
+        
+        Args:
+            prompt: The prompt to send to the model
+            timeout_seconds: Maximum time to wait for the API call in seconds
+            result_type: Optional type for structured output
+            
+        Returns:
+            The generated text response (string) or structured output if result_type is provided
+            
+        Raises:
+            TimeoutError: If the API call exceeds the timeout_seconds
+            ValueError: If the prompt is empty
+            ValidationError: If structured output validation fails
+            RuntimeError: For other unexpected errors
+        """
+        logger.info("ENTRY: _pydantic_generate_text_async method called")
+        
+        if not prompt:
+            logger.error("Prompt cannot be empty.")
+            raise ValueError("Prompt cannot be empty.")
+        
+        try:
+            # Configure timeout and retries
+            import pydantic_ai
+            from pydantic_ai.exceptions import UserError, ModelRetry
+            
+            # Set up run context with timeout and retries
+            run_kwargs = {
+                'message_history': [],
+                'model_settings': {
+                    'timeout': timeout_seconds,
+                }
+            }
+            
+            # Check if Logfire is configured
+            logfire_configured = (
+                os.path.exists('.logfire/logfire_credentials.json') or 
+                os.environ.get('LOGFIRE_TOKEN') is not None
+            )
+            
+            if result_type:
+                logger.info(f"Running Pydantic AI agent for structured output type: {result_type}")
+                # Create a specialized agent for this result type
+                agent = Agent(
+                    model=self.pydantic_agent.model,
+                    result_type=result_type,
+                    system_prompt=""
+                )
+                
+                # Logfire is instrumented globally, just run the agent
+                result = await agent.run(prompt, **run_kwargs)
+                logger.info(f"Pydantic AI call completed successfully, result type: {type(result.data)}")
+                logger.info("EXIT: _pydantic_generate_text_async completed successfully with structured output")
+                return result.data
+            else:
+                logger.info("Running Pydantic AI agent for string output")
+                
+                # Logfire is instrumented globally, just run the agent
+                result = await self.pydantic_agent.run(prompt, **run_kwargs)
+                logger.info(f"Pydantic AI call completed successfully, response length: {len(result.data) if result.data else 0}")
+                logger.info("EXIT: _pydantic_generate_text_async completed successfully with string output")
+                return result.data
+                    
+        except asyncio.TimeoutError as e:
+            logger.error(f"Pydantic AI call timed out after {timeout_seconds} seconds")
+            logger.info("EXIT: _pydantic_generate_text_async with timeout")
+            # For backward compatibility, return error JSON for timeout
+            error_json = '{"error": "Gemini API timeout", "details": "API call timed out after ' + str(timeout_seconds) + ' seconds"}'
+            logger.error(f"Returning error JSON: {error_json}")
+            return error_json
+            
+        except ValidationError as e:
+            logger.error(f"Pydantic validation error: {e}", exc_info=True)
+            logger.info("EXIT: _pydantic_generate_text_async with validation error")
+            # Re-raise ValidationError as it's already handled by callers
+            raise
+            
+        except UserError as e:
+            logger.error(f"Pydantic AI user error: {e}", exc_info=True)
+            logger.info("EXIT: _pydantic_generate_text_async with user error")
+            # Map to ValueError for backward compatibility
+            raise ValueError(str(e)) from e
+            
+        except ModelRetry as e:
+            logger.error(f"Pydantic AI model retry exhausted: {e}", exc_info=True)
+            logger.info("EXIT: _pydantic_generate_text_async with retry exhausted")
+            # Map to appropriate exception based on the underlying cause
+            if "rate limit" in str(e).lower() or "quota" in str(e).lower():
+                raise ResourceExhausted(str(e)) from e
+            elif "timeout" in str(e).lower() or "deadline" in str(e).lower():
+                raise DeadlineExceeded(str(e)) from e
+            else:
+                raise RuntimeError(f"Failed to generate text after retries: {e}") from e
+            
+        except Exception as e:
+            # Map common Pydantic AI exceptions to existing exceptions
+            error_message = str(e).lower()
+            if "rate limit" in error_message or "quota" in error_message:
+                logger.error(f"Rate limit/quota error: {e}", exc_info=True)
+                raise ResourceExhausted(str(e)) from e
+            elif "timeout" in error_message or "deadline" in error_message:
+                logger.error(f"Timeout/deadline error: {e}", exc_info=True)
+                raise DeadlineExceeded(str(e)) from e
+            elif "unavailable" in error_message or "503" in error_message:
+                logger.error(f"Service unavailable error: {e}", exc_info=True)
+                raise ServiceUnavailable(str(e)) from e
+            elif "internal" in error_message or "500" in error_message:
+                logger.error(f"Internal server error: {e}", exc_info=True)
+                raise InternalServerError(str(e)) from e
+            else:
+                # General catch-all for any other errors
+                logger.error(f"Unexpected error in _pydantic_generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
+                logger.info("EXIT: _pydantic_generate_text_async with exception")
+                raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
+
+    async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> SourceAnalysis:
+        """
+        Analyzes the provided source text using the LLM.
+        Allows for custom analysis instructions.
+        """
+        logger.info("ENTRY: analyze_source_text_async method called")
+        logger.info(f"Source text length: {len(source_text) if source_text else 0} characters")
+        
+        try:
+            if not source_text:
+                logger.error("Source text for analysis is empty or None")
+                raise ValueError("Source text for analysis cannot be empty.")
+
+            if analysis_instructions:
+                logger.info(f"Using custom analysis instructions: {analysis_instructions[:100]}...")
+                prompt = f"{analysis_instructions}\n\nAnalyze the following text:\n\n---\n{source_text}\n---"
+            else:
+                logger.info("Using default analysis prompt template, expecting JSON output for SourceAnalysis model")
+                # Default analysis prompt, expecting JSON output
+                prompt = (
+                    "Please analyze the following text and provide your analysis in JSON format. "
+                    "The JSON object should have exactly two keys: 'summary_points' and 'detailed_analysis'.\n"
+                    "- 'summary_points' should be a list of strings, where each string is a key summary point from the text.\n"
+                    "- 'detailed_analysis' should be a single string containing a more in-depth, free-form textual analysis of the source content.\n\n"
+                    "Example JSON format:\n"
+                    "{\n"
+                    "  \"summary_points\": [\"Key takeaway 1\", \"Important fact 2\", \"Main argument 3\"],\n"
+                    "  \"detailed_analysis\": \"The text discusses [topic] with a [tone/style]. It presents arguments such as [argument A] and [argument B], supported by [evidence]. The overall sentiment appears to be [sentiment]. Noteworthy stylistic features include [feature X]...\"\n"
+                    "}\n\n"
+                    f"Analyze this text:\n---\n{source_text}\n---"
+                )
+
+            logger.info("Calling generate_text_async with text analysis prompt")
+            
+            # Use structured output if Pydantic AI is enabled
+            if self.use_pydantic_ai and self.pydantic_agent:
+                logger.info("Using Pydantic AI for structured SourceAnalysis output")
+                # When using Pydantic AI, we can pass the result_type for structured output
+                return await self.generate_text_async(prompt, timeout_seconds=60, result_type=SourceAnalysis)
+            else:
+                # Legacy path: get JSON string and parse it
+                response = await self.generate_text_async(prompt, timeout_seconds=60)
+                logger.info(f"Received response of length: {len(response) if response else 0}")
+                
+                # Clean the response and attempt to parse as JSON
+                if response.startswith("{") and response.endswith("}"):
+                    # Response is already clean JSON
+                    logger.info("Response appears to be clean JSON")
+                    cleaned_response_str = response
+                else:
+                    logger.info("Cleaning response from potential markdown formatting")
+                    # It might be wrapped in markdown or have extraneous content
+                    cleaned_response_str = self._clean_json_string_from_markdown(response)
+                
+                logger.info(f"Attempting to parse JSON response of length: {len(cleaned_response_str)}")
+                
+                # Parse the response as SourceAnalysis
+                try:
+                    response_dict = json.loads(cleaned_response_str)
+                    logger.info("Successfully parsed JSON response")
+                    # Use Pydantic validation
+                    analysis = SourceAnalysis(**response_dict)
+                    logger.info(f"Successfully validated SourceAnalysis with {len(analysis.summary_points)} summary points")
+                    logger.info("EXIT: analyze_source_text_async completed successfully")
+                    return analysis
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON parsing error: {e}")
+                    logger.error(f"Problematic response (first 500 chars): {cleaned_response_str[:500]}")
+                    raise LLMProcessingError(f"Failed to parse LLM's JSON response for source analysis: {e}") from e
+                except ValidationError as e:
+                    logger.error(f"Pydantic validation error: {e}")
+                    logger.error(f"Response dict: {response_dict}")
+                    raise LLMProcessingError(f"LLM's response doesn't match expected SourceAnalysis structure: {e}") from e
+            
+        except ValueError as ve:
+            logger.error(f"ValueError in analyze_source_text_async: {ve}")
+            raise LLMProcessingError(f"Input validation error for source analysis: {ve}") from ve
+            
+        except Exception as e:
+            logger.error(f"Unexpected error in analyze_source_text_async: {e}", exc_info=True)
+            raise LLMProcessingError(f"Unexpected error during source analysis: {e}") from e
+            
+        finally:
+            logger.info("EXIT: analyze_source_text_async method complete")
+
+    def _clean_keys_recursive(self, obj):
+        # logger.debug(f"_clean_keys_recursive processing type: {type(obj)}")
+        if isinstance(obj, dict):
+            new_dict = {}
+            for key, value in obj.items():
+                stripped_key = key.strip()
+                # logger.debug(f"Original key: '{key}', Stripped key: '{stripped_key}'")
+                new_dict[stripped_key] = self._clean_keys_recursive(value)
+            return new_dict
+        elif isinstance(obj, list):
+            return [self._clean_keys_recursive(element) for element in obj]
+        return obj
 
     def _clean_json_string_from_markdown(self, text: str) -> str:
         """
@@ -238,89 +519,6 @@ class GeminiService:
             pass
             
         return cleaned_text
-
-    async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> SourceAnalysis:
-        """
-        Analyzes the provided source text using the LLM.
-        Allows for custom analysis instructions.
-        """
-        logger.info("ENTRY: analyze_source_text_async method called")
-        logger.info(f"Source text length: {len(source_text) if source_text else 0} characters")
-        
-        try:
-            if not source_text:
-                logger.error("Source text for analysis is empty or None")
-                raise ValueError("Source text for analysis cannot be empty.")
-
-            if analysis_instructions:
-                logger.info(f"Using custom analysis instructions: {analysis_instructions[:100]}...")
-                prompt = f"{analysis_instructions}\n\nAnalyze the following text:\n\n---\n{source_text}\n---"
-            else:
-                logger.info("Using default analysis prompt template, expecting JSON output for SourceAnalysis model")
-            # Default analysis prompt, expecting JSON output
-            prompt = (
-                "Please analyze the following text and provide your analysis in JSON format. "
-                "The JSON object should have exactly two keys: 'summary_points' and 'detailed_analysis'.\n"
-                "- 'summary_points' should be a list of strings, where each string is a key summary point from the text.\n"
-                "- 'detailed_analysis' should be a single string containing a more in-depth, free-form textual analysis of the source content.\n\n"
-                "Example JSON format:\n"
-                "{\n"
-                "  \"summary_points\": [\"Key takeaway 1\", \"Important fact 2\", \"Main argument 3\"],\n"
-                "  \"detailed_analysis\": \"The text discusses [topic] with a [tone/style]. It presents arguments such as [argument A] and [argument B], supported by [evidence]. The overall sentiment appears to be [sentiment]. Noteworthy stylistic features include [feature X]...\"\n"
-                "}\n\n"
-                f"Analyze this text:\n---\n{source_text}\n---"
-            )
-        
-            logger.info(f"Constructed prompt of length {len(prompt)} characters")
-            logger.info("Calling generate_text_async for source analysis...")
-            
-            try:
-                response = await self.generate_text_async(prompt, timeout_seconds=360)
-                logger.info(f"generate_text_async returned response of length: {len(response) if response else 0} characters")
-                
-                if not response:
-                    logger.error("LLM returned empty response for source analysis")
-                    raise LLMProcessingError("LLM returned empty response for source analysis")
-                
-                cleaned_response_str = self._clean_json_string_from_markdown(response)
-                if not cleaned_response_str:
-                    logger.error("LLM response was empty after cleaning Markdown.")
-                    raise LLMProcessingError("LLM response was empty after cleaning Markdown.")
-
-                try:
-                    import json # Ensure json is imported in this scope if not already at top level
-                    parsed_json = json.loads(cleaned_response_str)
-                    logger.info("Successfully parsed JSON from cleaned LLM response.")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse JSON from cleaned LLM response: {e}", exc_info=True)
-                    logger.error(f"Cleaned response snippet: {cleaned_response_str[:200]}")
-                    raise LLMProcessingError(f"Response was not valid JSON after cleaning Markdown: {e}")
-
-                try:
-                    analysis_object = SourceAnalysis.model_validate(parsed_json)
-                    logger.info("Successfully validated LLM response against SourceAnalysis model.")
-                    logger.info("EXIT: analyze_source_text_async completed successfully")
-                    return analysis_object
-                except ValidationError as ve:
-                    logger.error(f"Failed to validate LLM response against SourceAnalysis model: {ve}", exc_info=True)
-                    logger.error(f"Parsed JSON data: {parsed_json}")
-                    raise LLMProcessingError(f"Failed to validate the structure of the LLM response for source analysis: {ve}")
-                
-            except Exception as gen_error:
-                logger.error(f"Error during generate_text_async call: {gen_error}", exc_info=True)
-                logger.error(f"LLM API error during source analysis: {gen_error}")
-                raise LLMProcessingError(f"LLM API error during source analysis: {gen_error}") from gen_error
-                
-        except ValueError as ve:
-            logger.error(f"ValueError in analyze_source_text_async: {ve}")
-            raise LLMProcessingError(f"Input validation error for source analysis: {ve}") from ve
-            
-        except Exception as e:
-            logger.error(f"Unexpected error in analyze_source_text_async: {e}", exc_info=True)
-            raise LLMProcessingError(f"Unexpected error during source analysis: {e}") from e
-            
-        finally:
-            logger.info("EXIT: analyze_source_text_async method (in finally block)")
 
     async def research_persona_async(self, source_text: str, person_name: str) -> PersonaResearch:
         """
@@ -473,7 +671,7 @@ Your output MUST be a single, valid JSON object only, with no additional text be
             logger.debug(f"Cleaned persona research response: {cleaned_response_text[:200]}...")
             
             parsed_json = json.loads(cleaned_response_text)
-            parsed_json = GeminiService._clean_keys_recursive(parsed_json) # Clean keys before validation
+            parsed_json = self._clean_keys_recursive(parsed_json) # Clean keys before validation
             logger.debug(f"Attempting to create PersonaResearch with (cleaned) keys: {list(parsed_json.keys()) if isinstance(parsed_json, dict) else 'Not a dict'}")
             
             # Process gender and assign appropriate invented name and TTS voice ID
@@ -1052,7 +1250,7 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
                 
                 # Clean keys before parsing, as Gemini sometimes adds extra spaces
                 parsed_json_dict = json.loads(cleaned_response_text)
-                parsed_json_dict = GeminiService._clean_keys_recursive(parsed_json_dict) 
+                parsed_json_dict = self._clean_keys_recursive(parsed_json_dict) 
 
                 # Create the basic podcast outline from the LLM response
                 podcast_outline = PodcastOutline(**parsed_json_dict)
@@ -1310,7 +1508,7 @@ Additional User Instructions:
             
             # Parse the response
             parsed_json_list = json.loads(cleaned_response_text)
-            parsed_json_list = GeminiService._clean_keys_recursive(parsed_json_list)
+            parsed_json_list = self._clean_keys_recursive(parsed_json_list)
             
             # Validate it's a list
             if not isinstance(parsed_json_list, list):
