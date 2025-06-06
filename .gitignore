@@ -5,6 +5,9 @@ gcp-*.json
 google-*.json
 gcp-credentials.json
 
+# Template files with .test extension are committed to help developers
+# Copy these to remove .test extension and fill in real values
+
 # Environment variables
 .env
 
