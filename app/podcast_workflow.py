@@ -309,12 +309,11 @@ class PodcastGeneratorService:
 
     def _select_host_voice(self, gender: str, used_voice_ids: set[str]) -> Tuple[str, Dict[str, float]]:
         """Select a host voice profile from the TTS cache avoiding conflicts."""
-        default_profile = {"voice_id": "en-US-Neural2-A", "speaking_rate": 1.0, "pitch": 0.0}
+        default_profile = {"voice_id": "en-US-Neural2-A", "speaking_rate": 1.0}
         if not self.tts_service:
             logger.warning("TTS service unavailable, using fallback host voice")
             return default_profile["voice_id"], {
-                "speaking_rate": default_profile["speaking_rate"],
-                "pitch": default_profile["pitch"],
+                "speaking_rate": default_profile["speaking_rate"]
             }
         try:
             voices = self.tts_service.get_voices_by_gender(gender)
@@ -326,24 +325,21 @@ class PodcastGeneratorService:
             if not available:
                 logger.warning(f"No voices available for gender '{gender}', using default")
                 return default_profile["voice_id"], {
-                    "speaking_rate": default_profile["speaking_rate"],
-                    "pitch": default_profile["pitch"],
+                    "speaking_rate": default_profile["speaking_rate"]
                 }
             chosen = random.choice(available)
             voice_id = chosen.get("voice_id", default_profile["voice_id"])
             params = {
-                "speaking_rate": chosen.get("speaking_rate", default_profile["speaking_rate"]),
-                "pitch": chosen.get("pitch", default_profile["pitch"]),
+                "speaking_rate": chosen.get("speaking_rate", default_profile["speaking_rate"])
             }
             logger.debug(
-                f"Host voice selected: {voice_id}, Params: {{'speaking_rate': {params['speaking_rate']}, 'pitch': {params['pitch']}}}"
+                f"Host voice selected: {voice_id}, Params: {{'speaking_rate': {params['speaking_rate']}}}"
             )
             return voice_id, params
         except Exception as e:
             logger.error(f"Error selecting host voice: {e}")
             return default_profile["voice_id"], {
-                "speaking_rate": default_profile["speaking_rate"],
-                "pitch": default_profile["pitch"],
+                "speaking_rate": default_profile["speaking_rate"]
             }
     
     async def _generate_podcast_internal(

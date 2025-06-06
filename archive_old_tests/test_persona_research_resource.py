@@ -241,7 +241,7 @@ async def test_valid_research_access():
             "invented_name": "Dr. Alex",
             "gender": "neutral",
             "tts_voice_id": "en-US-Neural2-J",
-            "tts_voice_params": {"speaking_rate": 1.0, "pitch": 0.0},
+            "tts_voice_params": {"speaking_rate": 1.0},
             "source_context": "Physics research papers",
             "creation_date": "2025-06-02T20:00:00Z"
         }

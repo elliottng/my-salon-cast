@@ -705,7 +705,7 @@ Your output MUST be a single, valid JSON object only, with no additional text be
             # Select an invented name based on gender
             import random
             # Select voice profile from TTS service cache which includes additional parameters
-            # like speaking_rate and pitch
+            # like speaking_rate
             if gender == 'Male':
                 invented_name = random.choice(male_names)
             elif gender == 'Female':
@@ -727,8 +727,7 @@ Your output MUST be a single, valid JSON object only, with no additional text be
                     # Create a fallback voice profile
                     voice_profile = {
                         'voice_id': None,  # Will use gender-based selection
-                        'speaking_rate': 1.0,
-                        'pitch': 0.0
+                        'speaking_rate': 1.0
                     }
                     tts_voice_id = None
             else:
@@ -736,12 +735,11 @@ Your output MUST be a single, valid JSON object only, with no additional text be
                 # Create a fallback voice profile
                 voice_profile = {
                     'voice_id': None,  # Will use gender-based selection
-                    'speaking_rate': 1.0,
-                    'pitch': 0.0
+                    'speaking_rate': 1.0
                 }
                 tts_voice_id = None
                 
-            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id if tts_voice_id else 'based on gender'}, speaking_rate={voice_profile['speaking_rate']}, pitch={voice_profile['pitch']}")
+            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id if tts_voice_id else 'based on gender'}, speaking_rate={voice_profile['speaking_rate']}")
             
             # Store the full voice profile parameters for future use
             voice_params = {}

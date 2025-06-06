@@ -39,7 +39,6 @@ async def test_voice_selection():
             # Log voice parameters if available
             if persona.tts_voice_params:
                 logger.info(f"  Speaking Rate: {persona.tts_voice_params.get('speaking_rate', 'Default')}")
-                logger.info(f"  Pitch: {persona.tts_voice_params.get('pitch', 'Default')}")
             else:
                 logger.info("  No voice parameters available")
             logger.info("---")
