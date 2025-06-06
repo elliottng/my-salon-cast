@@ -1,0 +1,42 @@
+# Terraform Variables Template for MySalonCast
+# Copy this file to terraform.tfvars and fill in your actual values
+
+# Google Cloud Project Configuration
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+zone       = "us-central1-a"
+
+# Application Configuration
+app_name = "mysaloncast"
+environment = "development"
+
+# Cloud Run Configuration
+service_name = "mysaloncast-server"
+container_image = "gcr.io/your-project-id/mysaloncast:latest"
+
+# Storage Configuration
+storage_bucket_name = "your-project-id-mysaloncast-storage"
+storage_location = "US"
+
+# Database Configuration (if using Cloud SQL)
+# database_instance_name = "mysaloncast-db"
+# database_name = "podcast_status"
+# database_user = "app_user"
+# database_password = "secure-password-here"
+
+# Network Configuration
+# vpc_name = "mysaloncast-vpc"
+# subnet_name = "mysaloncast-subnet"
+# subnet_cidr = "10.0.1.0/24"
+
+# IAM Configuration
+service_account_name = "mysaloncast-service-account"
+
+# Monitoring & Logging
+# enable_logging = true
+# enable_monitoring = true
+# log_retention_days = 30
+
+# Domain Configuration (if using custom domain)
+# domain_name = "api.yourdomain.com"
+# ssl_certificate_name = "mysaloncast-ssl-cert"
