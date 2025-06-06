@@ -7,6 +7,7 @@ from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.cleanup_config import cleanup_manager, get_cleanup_manager, CleanupPolicy
 from app.tts_service import GoogleCloudTtsService
+from app.llm_service import GeminiService
 from app.production_config import setup_production_environment, get_server_config, get_health_status
 from fastmcp.prompts.prompt import Message
 from pydantic import Field
@@ -171,27 +172,47 @@ async def hello(name: str = "world") -> str:
 
 # Async podcast generation with individual parameters
 @mcp.tool(description=TOOL_DESCRIPTIONS["generate_podcast_async"])
-async def generate_podcast_async(ctx, request: PodcastRequest) -> dict:
+async def generate_podcast_async(
+    ctx,
+    source_urls: List[str] = None,
+    source_pdf_path: str = None,
+    prominent_persons: List[str] = None,
+    podcast_length: str = "7 minutes",
+    dialogue_style: str = "conversation",
+    custom_prompt: str = None,
+    podcast_name: str = None,
+    webhook_url: str = None
+) -> dict:
     # Use standardized logging
     request_id, client_info = log_mcp_tool_call("generate_podcast_async", ctx)
     
     try:
-        # Configure generator with LLM and TTS service instances
-        generator = PodcastGeneratorService(llm_service=llm_service, tts_service=tts_service)
+        # Convert individual parameters to PodcastRequest object
+        request = PodcastRequest(
+            source_urls=source_urls,
+            source_pdf_path=source_pdf_path,
+            prominent_persons=prominent_persons,
+            desired_podcast_length_str=podcast_length,
+            custom_prompt_for_outline=custom_prompt,
+            webhook_url=webhook_url
+            # Note: dialogue_style and podcast_name don't have direct mappings in PodcastRequest
+            # These could be added to PodcastRequest in the future if needed
+        )
         
-        # Use the async generation mode with custom task ID generation
-        task_id, episode = await generator.generate_podcast(request, async_mode=True)
+        # Configure generator - it creates its own service instances
+        generator = PodcastGeneratorService()
+        
+        # Use the async generation mode
+        task_id = await generator.generate_podcast_async(request)
         
         return {
             "task_id": task_id,
             "status": "accepted",
             "message": f"Podcast generation started for task: {task_id}",
             "request_details": {
-                "topic": request.topic,
-                "duration_minutes": request.duration_minutes,
-                "source_count": len(request.source_urls),
+                "source_count": len(request.source_urls) if request.source_urls else 0,
                 "has_webhook": bool(request.webhook_url),
-                "persona_count": len(request.personas) if request.personas else 0
+                "persona_count": len(request.prominent_persons) if request.prominent_persons else 0
             }
         }
     except Exception as e:
@@ -210,7 +231,7 @@ async def get_task_status(ctx, task_id: str) -> dict:
     
     try:
         status_manager = get_status_manager()
-        status_info = status_manager.get_task_status(task_id)
+        status_info = status_manager.get_status(task_id)
         
         if status_info:
             return {

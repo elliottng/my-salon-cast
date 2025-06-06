@@ -131,33 +131,28 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
         print(f"   📄 URLs: {TEST_URLS}")
         print(f"   👥 Personas: {TEST_PERSONAS}")
         
-        # Call generate_podcast_async with our test inputs
+        # Call generate_podcast_async with individual parameters as documented in the tool description
         ctx.generation_result = await generate_podcast_async(
             ctx=mock_ctx,
             source_urls=TEST_URLS,
             prominent_persons=TEST_PERSONAS,
-            custom_prompt=None,
             podcast_length="5-7 minutes"
         )
         
         print(f"\n📋 Generation Result:")
-        print(f"   ✅ Success: {ctx.generation_result.get('success', False)}")
+        print(f"   ✅ Status: {ctx.generation_result.get('status', 'N/A')}")
         print(f"   🆔 Task ID: {ctx.generation_result.get('task_id', 'N/A')}")
-        print(f"   📊 Status: {ctx.generation_result.get('status', 'N/A')}")
         print(f"   💬 Message: {ctx.generation_result.get('message', 'N/A')}")
         
         # Extract task_id for subsequent steps
-        if ctx.generation_result.get('success'):
-            ctx.task_id = ctx.generation_result.get('task_id', '')
-            if not ctx.task_id:
-                print("❌ No task_id returned despite success=True")
-                return False
+        task_id = ctx.generation_result.get('task_id', '')
+        if task_id:
+            ctx.task_id = task_id
+            print(f"✅ Podcast generation started successfully - Task ID: {ctx.task_id}")
+            return True
         else:
-            print("❌ Generation was not successful")
+            print("❌ No task_id returned")
             return False
-        
-        print(f"✅ Podcast generation started successfully - Task ID: {ctx.task_id}")
-        return True
         
     except Exception as e:
         print(f"❌ Step 2 failed: {e}")
