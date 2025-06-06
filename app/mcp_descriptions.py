@@ -4,15 +4,14 @@ All descriptions preserved exactly as originally written.
 """
 
 PROMPT_DESCRIPTIONS = {
-    "create_podcast_from_url": """Complete workflow guide for creating podcasts from URLs with specific personas and parameters.
+    "create_podcast_from_url": """Complete workflow guide for creating podcasts from URLs with specific personas.
 
 🎯 WHEN TO USE:
 - "Create a podcast from this URL"
 - "I want [personas] to discuss this article" 
 - "Make a podcast about [topic] with [people]"
-- User provides URL and wants podcast creation guidance
 
-🔄 WORKFLOW PROVIDED:
+🔄 WORKFLOW:
 1. Generate podcast with generate_podcast_async()
 2. Monitor progress with get_task_status()
 3. Access results via podcast resources
@@ -20,44 +19,40 @@ PROMPT_DESCRIPTIONS = {
 5. Optional cleanup with cleanup_task_files()
 
 📋 FEATURES:
-- Supports multiple URLs and persona combinations
+- Multiple URLs and persona combinations
 - Configurable length (5-18 minutes) and dialogue styles
-- Complete step-by-step instructions with tool usage
+- Step-by-step instructions with tool usage
 - Resource access guidance for transcript, audio, metadata
-- Troubleshooting and monitoring advice
 
-Perfect for first-time users and anyone wanting guided podcast creation from web content.""",
+Perfect for guided podcast creation from web content.""",
 
-    "discuss_persona_viewpoint": """Focused exploration of individual persona research and viewpoints from completed podcast tasks.
+    "discuss_persona_viewpoint": """Focused exploration of persona research and viewpoints from completed podcast tasks.
 
 🎯 WHEN TO USE:
 - "Tell me about Einstein's perspective in task abc123"
 - "What viewpoints does Marie Curie express?"
 - "Explore the persona research for [person]"
-- Understanding character representation and authenticity
 
 🔍 ANALYSIS PROVIDED:
-- Detailed persona research review via research://task_id/person_id
+- Detailed persona research via research://task_id/person_id
 - Background and expertise examination
 - Viewpoint analysis and perspective exploration
 - Historical context and accuracy assessment
-- Character voice and representation quality
 
-📊 INSIGHTS DELIVERED:
+📊 INSIGHTS:
 - Key topics covered in persona profile
-- Specific viewpoints expressed by the historical figure
+- Specific viewpoints expressed by historical figures
 - How background influences their perspectives
-- Potential questions or follow-ups they might raise
+- Potential questions they might raise
 
-Ideal for educators, researchers, and anyone wanting to understand how historical figures are represented.""",
+Ideal for educators and researchers understanding historical figure representation.""",
 
-    "analyze_podcast_content": """Comprehensive analysis framework for examining different aspects of completed podcast episodes.
+    "analyze_podcast_content": """Comprehensive analysis framework for examining completed podcast episodes.
 
 🎯 WHEN TO USE:
 - "Analyze my podcast abc123"
 - "Break down the content structure"
 - "Show me insights from this episode"
-- Quality assessment and content review
 
 📊 ANALYSIS TYPES:
 - outline: Structure and organization analysis
@@ -65,35 +60,47 @@ Ideal for educators, researchers, and anyone wanting to understand how historica
 - personas: Character research and authenticity
 - summary: Overview with key metadata insights
 
-🔍 EVALUATION FRAMEWORK:
+🔍 EVALUATION:
 - Key themes and topics identification
 - Content structure and quality assessment
 - Most interesting insights and discussion points
-- Areas for enhancement or expansion
 - Educational value and engagement factors
 
 📋 DELIVERABLES:
 - Thoughtful analysis with specific examples
 - Quality ratings and recommendations
 - Memorable quotes and highlights
-- Improvement suggestions for future episodes
 
-Perfect for content creators, educators, and anyone wanting detailed podcast evaluation.""",
+Perfect for content creators and educators wanting detailed podcast evaluation.""",
 }
 
 TOOL_DESCRIPTIONS = {
     "hello": """Returns a simple greeting.""",
     "generate_podcast_async": """
-    Generate a podcast asynchronously using provided sources.
-    Returns immediately with a task ID for status tracking.
+Generate a podcast asynchronously from source materials with AI personas.
 
-    Args:
-        ctx: MCP request context for correlation.
-        source_urls: Optional list of article URLs.
-        source_pdf_path: Optional PDF source path.
-        prominent_persons: Optional list of personas to feature.
-        custom_prompt: Optional custom instructions for the outline.
-        podcast_length: Desired episode length string.
+⭐ PRIMARY WORKFLOW ENTRY POINT - First step in podcast creation (2-8 minutes total)
+
+WORKFLOW: Call this tool → get task_id → monitor with get_task_status() → access results via podcast:// resources
+
+WHEN TO USE:
+✅ "Create a podcast about [topic]"
+✅ "Generate discussion between [person A] and [person B]"
+✅ "Make podcast from this article"
+✅ "I want [historical figures] to debate [topic]"
+
+PARAMETERS:
+- source_urls: News articles, research papers, Wikipedia (3-5 URLs optimal)
+- prominent_persons: Historical figures like "Einstein", "Tesla" (2-4 works best)
+- dialogue_style: "conversation" (collaborative), "debate" (opposing), "interview", "educational"
+- podcast_length: "5 minutes" (quick), "7-10 minutes" (standard), "15+ minutes" (deep dive)
+
+EXAMPLES:
+Einstein + Newton debate relativity | Turing + Lovelace discuss AI | Sagan + Goodall on climate
+
+TIMING: Short (2-4 min) | Medium (4-6 min) | Long (6-10 min)
+
+RETURNS: task_id for monitoring with get_task_status()
     """,
     "get_task_status": """
     Get the status of an async podcast generation task.
@@ -172,37 +179,236 @@ TOOL_DESCRIPTIONS = {
 
 RESOURCE_DESCRIPTIONS = {
     "get_job_status_resource": """
-    Get job status resource.
-    Returns detailed status information for a podcast generation task.
+🔍 ALWAYS AVAILABLE RESOURCE - Available immediately after generate_podcast_async()
+
+WHEN TO USE:
+✅ "Show me detailed status for task abc123"
+✅ "What's the current progress?"  
+✅ "Give me technical details about the job"
+
+CONTAINS:
+- Current status and progress percentage
+- Start/end timestamps
+- Error information if failed
+- Artifact availability flags
+
+DIFFERENCE FROM get_task_status() TOOL:
+- Tool: Better for monitoring, includes workflow guidance
+- Resource: Raw data access, better for programmatic use
+
+EXAMPLE RESPONSE:
+{
+    "task_id": "abc123",
+    "status": "generating_dialogue", 
+    "progress_percentage": 65.0,
+    "current_step": "Creating conversation between Einstein and Tesla",
+    "start_time": "2024-01-15T10:30:00Z",
+    "artifact_availability": {
+        "source_analysis_complete": true,
+        "podcast_outline_complete": true,
+        "final_podcast_audio_available": false
+    }
+}
     """,
     "get_job_logs_resource": """
-    Get job logs resource.
-    Returns structured log information for a podcast generation task.
+📋 ALWAYS AVAILABLE RESOURCE - Detailed execution logs and progress tracking
+
+WHEN TO USE:
+✅ "Show me the processing logs"
+✅ "What steps have been completed?"
+✅ "Debug why my podcast is taking so long"
+
+CONTAINS:
+- Timestamped log entries for each processing step
+- Progress updates with detailed descriptions
+- Sub-task completion status
+- Performance timing data
+
+LOG FORMAT:
+"2024-01-15T10:32:15Z - [analyzing_sources] 15% - Source analysis complete"
+
+EXAMPLE RESPONSE:
+{
+    "task_id": "abc123",
+    "logs": [
+        "2024-01-15T10:30:00Z - [queued] 0% - Podcast generation task queued",
+        "2024-01-15T10:30:15Z - [preprocessing_sources] 5% - Content extracted",
+        "2024-01-15T10:33:45Z - [researching_personas] 30% - Researching Einstein"
+    ],
+    "log_count": 12,
+    "current_step": "researching_personas"
+}
     """,
     "get_job_warnings_resource": """
-    Get job warnings resource.
-    Returns warning and error information for a podcast generation task.
+⚠️ ALWAYS AVAILABLE RESOURCE - Issues, warnings, and error details
+
+WHEN TO USE:
+✅ "Are there any warnings or errors?"
+✅ "Why did my podcast generation fail?"
+✅ "What went wrong with task abc123?"
+
+CONTAINS:
+- Non-fatal warnings that didn't stop processing
+- Error messages if task failed
+- Content extraction issues
+- Voice generation problems
+
+WARNING TYPES:
+- Content extraction warnings (some URLs failed)
+- Persona research issues (person not found)
+- Audio generation warnings (segments failed)
+
+EXAMPLE RESPONSE:
+{
+    "task_id": "abc123",
+    "warnings": [
+        "Failed to extract content from URL https://example.com/broken-link",
+        "TTS failed for turn 23: text too long, skipping audio"
+    ],
+    "warning_count": 2,
+    "has_errors": false
+}
     """,
-    "get_podcast_transcript_resource": """
-    Get podcast transcript resource.
-    Returns transcript content for a completed podcast.
-    """,
-    "get_podcast_audio_resource": """
-    Get podcast audio resource.
-    Returns audio file information for a completed podcast.
-    """,
-    "get_podcast_metadata_resource": """
-    Get podcast metadata resource.
-    Returns metadata for a completed podcast episode.
-    """,
-    "get_podcast_outline_resource": """
-    Get podcast outline resource.
-    Returns outline/structure information for a podcast episode.
-    """,
-    "get_persona_research_resource": """
-    Get persona research resource for a specific person in a podcast generation task.
-    Returns research data loaded from PersonaResearch JSON file.
-    """,
+
+    "get_podcast_transcript_resource": """Get the full transcript of a completed podcast episode.
+
+📝 COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
+
+WHEN TO USE:
+- "Show me the transcript" (after completion)
+- "What did they talk about?"
+- "Let me read the conversation"
+- "What did Einstein say about relativity?"
+
+CONTAINS:
+- Complete dialogue with speaker labels
+- Full conversation text from all personas
+- Generated episode title and summary
+- Character count for length assessment
+
+FORMAT: Speaker-labeled dialogue (Host: Welcome... Einstein: Thank you...)
+
+USE CASES:
+- Content review before listening
+- Text analysis and quote searching
+- Sharing portions for social media
+- Accessibility text alternative
+- Research persona viewpoints
+
+⚠️ PREREQUISITE: Always check get_task_status() first to confirm completion before accessing.""",
+
+    "get_podcast_audio_resource": """Get audio file information for a completed podcast episode.
+
+🎵 COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
+
+WHEN TO USE:
+- "Where's the audio file?" (after completion)
+- "I want to listen to my podcast"
+- "Give me the MP3 file"
+- "How do I download the audio?"
+
+CONTAINS:
+- Direct URL/path to final podcast audio file
+- File size and format information (MP3, high-quality)
+- Audio availability confirmation
+- Download/streaming access details
+
+FORMATS: MP3 for universal compatibility, typically 1MB per minute
+
+USE CASES:
+- Personal listening (stream/download)
+- Sharing audio with others
+- Publishing to podcast platforms
+- Archiving for future reference
+- Audio quality assessment
+
+⚠️ PREREQUISITE: Audio generation is the final step - verify status="completed" first.""",
+
+    "get_podcast_metadata_resource": """Get comprehensive metadata for a completed podcast episode.
+
+📊 COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
+
+WHEN TO USE:
+- "Tell me about my podcast" (after completion)
+- "What's the episode information?"
+- "What personas were used?"
+- "What sources were used?"
+
+CONTAINS:
+- Episode title and description
+- Creation and completion timestamps
+- Source attributions (URLs/documents used)
+- Persona information and person_ids
+- Duration and technical details
+
+PERSONA DISCOVERY: Use person_ids from metadata with research://{task_id}/{person_id}
+
+USE CASES:
+- Episode information for publishing
+- Source verification and attribution
+- Persona discovery for research access
+- Quality and performance assessment
+
+⚠️ PREREQUISITE: Check get_task_status() for completion before accessing metadata.""",
+
+    "get_podcast_outline_resource": """Get the structural outline and segment organization of a completed podcast.
+
+🗂️ COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
+
+WHEN TO USE:
+- "Show me the podcast structure" (after completion)
+- "What's the outline?"
+- "How is the episode organized?"
+- "What segments were created?"
+
+CONTAINS:
+- Detailed segment breakdown with topics
+- Speaker assignments per segment
+- Time allocations and pacing
+- Content themes and focus areas
+- Discussion flow organization
+
+STRUCTURE: Introduction → Main Topics → Debates/Discussions → Conclusion
+
+USE CASES:
+- Content analysis and topic navigation
+- Quality assessment of conversation flow
+- Educational study of debate organization
+- Production analysis of AI structure
+
+⚠️ PREREQUISITE: Outline generated during creation - verify status="completed" first.""",
+
+    "get_persona_research_resource": """Get detailed persona research for a specific person in a completed podcast.
+
+🧠 COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
+
+WHEN TO USE:
+- "Tell me about Einstein in this podcast"
+- "What research was done on Tesla?"
+- "How was [historical figure] characterized?"
+
+PERSON_ID DISCOVERY: First get podcast://{task_id}/metadata to find available person_ids
+
+CONTAINS:
+- Comprehensive biographical information
+- Historical context and core beliefs
+- Speaking style and personality traits
+- Topic expertise and viewpoints
+- AI voice characteristics and settings
+
+RESEARCH COMPONENTS:
+- Biographical profile and accomplishments
+- Viewpoints and philosophical positions
+- Topic analysis and expertise areas
+- Speaking style and communication patterns
+
+USE CASES:
+- Character understanding and dialogue analysis
+- Educational research on historical figures
+- Content validation of persona representation
+
+⚠️ PREREQUISITE: Use exact person_id from metadata after verifying completion.""",
+
     "get_cleanup_status_resource": """
     Get cleanup status and options for task files.
     Provides information about temporary files and cleanup policies.
