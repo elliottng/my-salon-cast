@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastmcp.exceptions import ToolError
 
 logger = logging.getLogger(__name__)
@@ -331,3 +331,153 @@ def collect_file_info(file_path: str, file_type: str, **extra_attrs) -> Dict[str
     file_info.update(extra_attrs)
     
     return file_info
+
+
+def collect_directory_info(dir_path: str, **extra_attrs) -> Dict[str, Any]:
+    """
+    Collect information about a directory including total size and file count.
+    
+    Args:
+        dir_path: Path to the directory
+        **extra_attrs: Additional attributes to include
+        
+    Returns:
+        Dictionary with directory information
+    """
+    dir_info = {
+        "path": dir_path,
+        "exists": False,
+        "size": 0,
+        "file_count": 0
+    }
+    
+    if dir_path and os.path.isdir(dir_path):
+        try:
+            total_size = 0
+            file_count = 0
+            for dirpath, dirnames, filenames in os.walk(dir_path):
+                for filename in filenames:
+                    file_path = os.path.join(dirpath, filename)
+                    total_size += os.path.getsize(file_path)
+                    file_count += 1
+            
+            dir_info.update({
+                "size": total_size,
+                "exists": True,
+                "file_count": file_count
+            })
+        except Exception:
+            pass
+    
+    dir_info.update(extra_attrs)
+    return dir_info
+
+
+def collect_multiple_files_info(file_paths: List[str], file_type: str, 
+                               add_index: bool = False) -> List[Dict[str, Any]]:
+    """
+    Collect info for multiple files with optional indexing.
+    
+    Args:
+        file_paths: List of file paths to collect info for
+        file_type: Type of files (e.g., "audio_segment")
+        add_index: Whether to add segment_index to each file info
+        
+    Returns:
+        List of file information dictionaries
+    """
+    files_info = []
+    for i, file_path in enumerate(file_paths or []):
+        extra_attrs = {"segment_index": i} if add_index else {}
+        file_info = collect_file_info(file_path, file_type, **extra_attrs)
+        files_info.append(file_info)
+    return files_info
+
+
+def collect_and_delete_file_info(file_path: str, file_type: str, **extra_attrs) -> Dict[str, Any]:
+    """
+    Collect file info and then delete the file if it exists.
+    
+    Args:
+        file_path: Path to the file
+        file_type: Type of file (e.g., "main_audio", "audio_segment")
+        **extra_attrs: Additional attributes to include
+        
+    Returns:
+        Dictionary with file information including deletion status
+    """
+    file_info = collect_file_info(file_path, file_type, **extra_attrs)
+    
+    if file_info["exists"]:
+        try:
+            os.remove(file_path)
+            file_info["deleted"] = True
+        except Exception as e:
+            file_info["deleted"] = False
+            file_info["delete_error"] = str(e)
+    else:
+        file_info["deleted"] = False
+    
+    return file_info
+
+
+def collect_llm_files_info(episode) -> List[Dict[str, Any]]:
+    """
+    Collect information for all LLM output files from an episode.
+    
+    Args:
+        episode: Episode object with LLM file paths
+        
+    Returns:
+        List of file information dictionaries for LLM files
+    """
+    llm_files = []
+    
+    # Source analysis files
+    if episode.llm_source_analysis_paths:
+        for i, path in enumerate(episode.llm_source_analysis_paths):
+            llm_files.append(collect_file_info(path, f"llm_source_analysis", analysis_index=i))
+    
+    # Persona research files  
+    if episode.llm_persona_research_paths:
+        for i, path in enumerate(episode.llm_persona_research_paths):
+            llm_files.append(collect_file_info(path, f"llm_persona_research", research_index=i))
+    
+    # Single LLM files
+    if episode.llm_podcast_outline_path:
+        llm_files.append(collect_file_info(episode.llm_podcast_outline_path, "llm_outline"))
+    if episode.llm_dialogue_turns_path:
+        llm_files.append(collect_file_info(episode.llm_dialogue_turns_path, "llm_dialogue"))
+    
+    return llm_files
+
+
+def collect_and_delete_llm_files(episode) -> List[Dict[str, Any]]:
+    """
+    Collect information and delete all LLM output files from an episode.
+    
+    Args:
+        episode: Episode object with LLM file paths
+        
+    Returns:
+        List of file information dictionaries for deleted LLM files
+    """
+    llm_files = []
+    
+    # Source analysis files
+    if episode.llm_source_analysis_paths:
+        for i, path in enumerate(episode.llm_source_analysis_paths):
+            llm_files.append(collect_and_delete_file_info(path, f"llm_source_analysis", analysis_index=i))
+    
+    # Persona research files
+    if episode.llm_persona_research_paths:
+        for i, path in enumerate(episode.llm_persona_research_paths):
+            llm_files.append(collect_and_delete_file_info(path, f"llm_persona_research", research_index=i))
+    
+    # Single LLM files
+    if episode.llm_podcast_outline_path:
+        llm_files.append(collect_and_delete_file_info(episode.llm_podcast_outline_path, "llm_outline"))
+    if episode.llm_dialogue_turns_path:
+        llm_files.append(collect_and_delete_file_info(episode.llm_dialogue_turns_path, "llm_dialogue"))
+    
+    return llm_files

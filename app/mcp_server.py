@@ -31,18 +31,13 @@ from app.mcp_descriptions import (
     MANIFEST_DESCRIPTIONS
 )
 from .mcp_utils import (
-    validate_task_id, 
-    validate_person_id,
-    download_and_parse_json,
-    build_resource_response,
-    get_task_status_or_error,
-    build_job_status_response,
-    build_job_logs_response,
-    build_job_warnings_response,
-    handle_resource_error,
-    build_podcast_transcript_response,
-    build_podcast_audio_response,
-    build_podcast_metadata_response
+    validate_task_id, validate_person_id, download_and_parse_json, 
+    build_resource_response, get_task_status_or_error, 
+    build_job_status_response, build_job_logs_response, build_job_warnings_response,
+    handle_resource_error, collect_file_info,
+    build_podcast_transcript_response, build_podcast_audio_response, build_podcast_metadata_response,
+    collect_directory_info, collect_multiple_files_info, collect_and_delete_file_info,
+    collect_llm_files_info, collect_and_delete_llm_files
 )
 from app.logging_utils import log_mcp_tool_call, log_mcp_resource_access
 
@@ -266,69 +261,36 @@ async def cleanup_task_files(
         
         if episode:
             # Clean up main audio file
-            if episode.audio_filepath and os.path.exists(episode.audio_filepath):
-                try:
-                    file_size = os.path.getsize(episode.audio_filepath)
-                    os.remove(episode.audio_filepath)
-                    cleaned_files.append({
-                        "type": "main_audio",
-                        "path": episode.audio_filepath,
-                        "size": file_size
-                    })
-                    total_size_cleaned += file_size
+            if episode.audio_filepath:
+                main_audio_cleaned = collect_and_delete_file_info(episode.audio_filepath, "main_audio")
+                cleaned_files.append(main_audio_cleaned)
+                if main_audio_cleaned.get("deleted"):
+                    total_size_cleaned += main_audio_cleaned["size"]
                     logger.info(f"[{request_id}] Cleaned main audio file: {episode.audio_filepath}")
-                except Exception as e:
-                    errors.append(f"Failed to clean main audio file: {str(e)}")
+                elif main_audio_cleaned.get("delete_error"):
+                    errors.append(f"Failed to clean main audio file: {main_audio_cleaned['delete_error']}")
             
             # Clean up audio segments
             if episode.dialogue_turn_audio_paths:
                 for i, segment_path in enumerate(episode.dialogue_turn_audio_paths):
-                    if segment_path and os.path.exists(segment_path):
-                        try:
-                            file_size = os.path.getsize(segment_path)
-                            os.remove(segment_path)
-                            cleaned_files.append({
-                                "type": "audio_segment",
-                                "path": segment_path,
-                                "size": file_size,
-                                "segment_index": i
-                            })
-                            total_size_cleaned += file_size
-                        except Exception as e:
-                            errors.append(f"Failed to clean audio segment {i}: {str(e)}")
+                    if segment_path:
+                        segment_cleaned = collect_and_delete_file_info(segment_path, "audio_segment", segment_index=i)
+                        cleaned_files.append(segment_cleaned)
+                        if segment_cleaned.get("deleted"):
+                            total_size_cleaned += segment_cleaned["size"]
+                            logger.info(f"[{request_id}] Cleaned audio segment {i}: {segment_path}")
+                        elif segment_cleaned.get("delete_error"):
+                            errors.append(f"Failed to clean audio segment {i}: {segment_cleaned['delete_error']}")
             
-            # Clean up LLM output files
-            llm_files = []
-            
-            # Handle source analysis paths (list)
-            if episode.llm_source_analysis_paths:
-                for i, path in enumerate(episode.llm_source_analysis_paths):
-                    llm_files.append((f"source_analysis_{i}", path))
-            
-            # Handle persona research paths (list)
-            if episode.llm_persona_research_paths:
-                for i, path in enumerate(episode.llm_persona_research_paths):
-                    llm_files.append((f"persona_research_{i}", path))
-            
-            # Handle single paths
-            if episode.llm_podcast_outline_path:
-                llm_files.append(("outline", episode.llm_podcast_outline_path))
-            if episode.llm_dialogue_turns_path:
-                llm_files.append(("dialogue", episode.llm_dialogue_turns_path))
-            
-            for file_type, file_path in llm_files:
-                if file_path and os.path.exists(file_path):
-                    try:
-                        file_size = os.path.getsize(file_path)
-                        os.remove(file_path)
-                        cleaned_files.append({
-                            "type": f"llm_{file_type}",
-                            "path": file_path,
-                            "size": file_size
-                        })
-                        total_size_cleaned += file_size
-                    except Exception as e:
-                        errors.append(f"Failed to clean LLM file {file_type}: {str(e)}")
+            # Clean up LLM files using utility
+            llm_files_cleaned = collect_and_delete_llm_files(episode)
+            cleaned_files.extend(llm_files_cleaned)
+            for llm_file in llm_files_cleaned:
+                if llm_file.get("deleted"):
+                    total_size_cleaned += llm_file["size"]
+                    logger.info(f"[{request_id}] Cleaned LLM file: {llm_file['path']}")
+                elif llm_file.get("delete_error"):
+                    errors.append(f"Failed to clean LLM file {llm_file['type']}: {llm_file['delete_error']}")
         
         # Clean up temporary directories if requested
         temp_dirs_cleaned = []
@@ -338,21 +300,26 @@ async def cleanup_task_files(
             for temp_dir in glob.glob(temp_pattern):
                 if task_id[:8] in temp_dir and os.path.isdir(temp_dir):
                     try:
-                        # Calculate directory size before deletion
-                        dir_size = sum(os.path.getsize(os.path.join(dirpath, filename))
-                                     for dirpath, dirnames, filenames in os.walk(temp_dir)
-                                     for filename in filenames)
-                        
-                        import shutil
+                        # Get directory info before deletion
+                        dir_info = collect_directory_info(temp_dir)
                         shutil.rmtree(temp_dir)
                         temp_dirs_cleaned.append({
                             "path": temp_dir,
-                            "size": dir_size
+                            "size": dir_info["size"],
+                            "file_count": dir_info["file_count"],
+                            "deleted": True
                         })
-                        total_size_cleaned += dir_size
-                        logger.info(f"[{request_id}] Cleaned temp directory: {temp_dir}")
+                        total_size_cleaned += dir_info["size"]
+                        logger.info(f"[{request_id}] Cleaned temporary directory: {temp_dir}")
                     except Exception as e:
-                        errors.append(f"Failed to clean temp directory {temp_dir}: {str(e)}")
+                        temp_dirs_cleaned.append({
+                            "path": temp_dir,
+                            "size": 0,
+                            "file_count": 0,
+                            "deleted": False,
+                            "error": str(e)
+                        })
+                        errors.append(f"Failed to clean temp directory: {str(e)}")
         
         logger.info(f"[{request_id}] Cleanup completed for task {task_id}. Files: {len(cleaned_files)}, Size: {total_size_cleaned} bytes")
         
@@ -387,112 +354,40 @@ async def get_cleanup_status_resource(task_id: str) -> dict:
         
         episode = get_task_status_or_error(task_json)
         
-        # Collect file information for cleanup
+        # Collect file information using utilities
         files_info = []
         total_size = 0
         
         # Main audio file
-        if episode.audio_filepath and os.path.exists(episode.audio_filepath):
-            try:
-                size = os.path.getsize(episode.audio_filepath)
-                files_info.append({
-                    "type": "main_audio",
-                    "path": episode.audio_filepath,
-                    "size": size,
-                    "exists": True
-                })
-                total_size += size
-            except Exception as e:
-                files_info.append({
-                    "type": "main_audio",
-                    "path": episode.audio_filepath,
-                    "size": 0,
-                    "exists": False,
-                    "error": str(e)
-                })
+        if episode.audio_filepath:
+            main_audio_info = collect_file_info(episode.audio_filepath, "main_audio")
+            files_info.append(main_audio_info)
+            total_size += main_audio_info["size"]
         
         # Audio segments
         if episode.dialogue_turn_audio_paths:
-            for i, segment_path in enumerate(episode.dialogue_turn_audio_paths):
-                if segment_path and os.path.exists(segment_path):
-                    try:
-                        size = os.path.getsize(segment_path)
-                        files_info.append({
-                            "type": "audio_segment",
-                            "path": segment_path,
-                            "size": size,
-                            "segment_index": i,
-                            "exists": True
-                        })
-                        total_size += size
-                    except Exception as e:
-                        files_info.append({
-                            "type": "audio_segment",
-                            "path": segment_path,
-                            "size": 0,
-                            "segment_index": i,
-                            "exists": False,
-                            "error": str(e)
-                        })
+            segment_files = collect_multiple_files_info(
+                episode.dialogue_turn_audio_paths, 
+                "audio_segment", 
+                add_index=True
+            )
+            files_info.extend(segment_files)
+            total_size += sum(f["size"] for f in segment_files)
         
-        # LLM output files - use standardized collection
-        llm_files = []
-        if episode.llm_source_analysis_paths:
-            for i, path in enumerate(episode.llm_source_analysis_paths):
-                llm_files.append((f"source_analysis_{i}", path))
-        
-        if episode.llm_persona_research_paths:
-            for i, path in enumerate(episode.llm_persona_research_paths):
-                llm_files.append((f"persona_research_{i}", path))
-        
-        if episode.llm_podcast_outline_path:
-            llm_files.append(("outline", episode.llm_podcast_outline_path))
-        if episode.llm_dialogue_turns_path:
-            llm_files.append(("dialogue", episode.llm_dialogue_turns_path))
-        
-        for file_type, file_path in llm_files:
-            if file_path and os.path.exists(file_path):
-                try:
-                    size = os.path.getsize(file_path)
-                    files_info.append({
-                        "type": f"llm_{file_type}",
-                        "path": file_path,
-                        "size": size,
-                        "exists": True
-                    })
-                    total_size += size
-                except Exception as e:
-                    files_info.append({
-                        "type": f"llm_{file_type}",
-                        "path": file_path,
-                        "size": 0,
-                        "exists": False,
-                        "error": str(e)
-                    })
+        # LLM output files
+        llm_files = collect_llm_files_info(episode)
+        files_info.extend(llm_files)
+        total_size += sum(f["size"] for f in llm_files)
         
         # Temporary directories
         temp_dirs_info = []
         import glob
         temp_pattern = os.path.join(tempfile.gettempdir(), "podcast_job_*")
         for temp_dir in glob.glob(temp_pattern):
-            if task_id[:8] in temp_dir and os.path.isdir(temp_dir):
-                try:
-                    dir_size = sum(os.path.getsize(os.path.join(dirpath, filename))
-                                 for dirpath, dirnames, filenames in os.walk(temp_dir)
-                                 for filename in filenames)
-                    temp_dirs_info.append({
-                        "path": temp_dir,
-                        "size": dir_size,
-                        "exists": True
-                    })
-                    total_size += dir_size
-                except Exception as e:
-                    temp_dirs_info.append({
-                        "path": temp_dir,
-                        "size": 0,
-                        "exists": False,
-                        "error": str(e)
-                    })
+            if task_id[:8] in temp_dir:
+                temp_dir_info = collect_directory_info(temp_dir)
+                temp_dirs_info.append(temp_dir_info)
+                total_size += temp_dir_info["size"]
         
         # Prepare response using utility
         return build_resource_response(
