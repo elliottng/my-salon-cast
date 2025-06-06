@@ -772,33 +772,11 @@ class PodcastGeneratorService:
             if background_task_id:
                 self._check_cancellation(background_task_id)
             
-            # 4.5. Assign Invented Names and Genders to Personas (mirroring podcast_workflow.py)
+            # 4.5. Assign Invented Names and Genders to Personas
             logger.info("STEP: Assigning invented names and genders to personas...")
-            # Create a map of PersonaResearch objects for easy lookup by person_id - PRIMARY APPROACH
+            # Create a map of PersonaResearch objects for easy lookup by person_id
             persona_research_map: dict[str, PersonaResearch] = {}
             
-            # DEPRECATED: persona_details_map is being phased out in favor of PersonaResearch objects
-            # This structure is only maintained temporarily for backward compatibility with dependent services
-            # TODO: Remove this completely once all dependencies have been updated
-            persona_details_map: dict[str, dict[str, str]] = {}
-            
-            # We'll create the Host persona after processing all guests to avoid voice duplication
-            # Capture the host details for later use
-            host_name = request_data.host_invented_name or "Brigette"
-            host_gender = request_data.host_gender or "Female"
-            
-            # Track assigned voice IDs to avoid duplicates
-            assigned_voice_ids = set()
-            
-            # We will add the host to persona_research_docs_content after processing all guests
-
-            MALE_INVENTED_NAMES = ["Liam", "Noah", "Oliver", "Elijah", "James", "William", "Benjamin", "Lucas", "Henry", "Theodore"]
-            FEMALE_INVENTED_NAMES = ["Olivia", "Emma", "Charlotte", "Amelia", "Sophia", "Isabella", "Ava", "Mia", "Evelyn", "Luna"]
-            NEUTRAL_INVENTED_NAMES = ["Kai", "Rowan", "River", "Phoenix", "Sage", "Justice", "Remy", "Dakota", "Skyler", "Alexis"]
-            used_male_names = set()
-            used_female_names = set()
-            used_neutral_names = set()
-
             for idx, pr_json_str in enumerate(persona_research_docs_content):
                 try:
                     pr_data = json.loads(pr_json_str)
@@ -806,94 +784,31 @@ class PodcastGeneratorService:
                     person_id = persona_research_obj_temp.person_id
                     real_name = persona_research_obj_temp.name
                     
-                    # Use gender from PersonaResearch if available, otherwise assign based on name analysis or randomize
-                    # In a real implementation, you might use a name gender classifier library
-                    if persona_research_obj_temp.gender:
-                        assigned_gender = persona_research_obj_temp.gender
-                    else:
-                        # For testing, we'll alternate between genders to ensure variety
-                        # In production, consider a more sophisticated approach
-                        genders = ["Male", "Female", "Neutral"]
-                        assigned_gender = genders[idx % len(genders)]
-                    
-                    invented_name = "Unknown Person"
-                    if assigned_gender == "Male":
-                        available_names = [name for name in MALE_INVENTED_NAMES if name not in used_male_names]
-                        if not available_names: available_names = MALE_INVENTED_NAMES # fallback if all used
-                        invented_name = available_names[idx % len(available_names)]
-                        used_male_names.add(invented_name)
-                    elif assigned_gender == "Female":
-                        available_names = [name for name in FEMALE_INVENTED_NAMES if name not in used_female_names]
-                        if not available_names: available_names = FEMALE_INVENTED_NAMES
-                        invented_name = available_names[idx % len(available_names)]
-                        used_female_names.add(invented_name)
-                    else: # Neutral or unknown
-                        available_names = [name for name in NEUTRAL_INVENTED_NAMES if name not in used_neutral_names]
-                        if not available_names: available_names = NEUTRAL_INVENTED_NAMES
-                        invented_name = available_names[idx % len(available_names)]
-                        used_neutral_names.add(invented_name)
+                    # Use LLM service assignments (service layer provides reliable fallbacks)
+                    assigned_gender = persona_research_obj_temp.gender
+                    invented_name = persona_research_obj_temp.invented_name
 
-                    # Update the PersonaResearch object with voice information
-                    updated_pr_data = pr_data.copy()
-                    updated_pr_data["invented_name"] = invented_name
-                    updated_pr_data["gender"] = assigned_gender
-                    
-                    # Set creation_date as ISO format string if it doesn't exist
-                    if "creation_date" not in updated_pr_data or updated_pr_data["creation_date"] is None:
-                        updated_pr_data["creation_date"] = datetime.now().isoformat()
-                    elif isinstance(updated_pr_data["creation_date"], datetime):
-                        # Convert datetime to string if it's a datetime object
-                        updated_pr_data["creation_date"] = updated_pr_data["creation_date"].isoformat()
-                    
-
-                    original_voice_id = updated_pr_data.get("tts_voice_id")
-                    original_voice_params = updated_pr_data.get("tts_voice_params")
-                    logger.debug(
-                        f"Original voice for {person_id} ({real_name}): {original_voice_id},"
-                        f" Params: {original_voice_params}"
-                    )
-                    
-                    # Create a new PersonaResearch object with all the updated fields
-                    updated_persona = PersonaResearch(**updated_pr_data)
-                    final_voice_id = updated_persona.tts_voice_id
-                    final_voice_params = updated_persona.tts_voice_params
-                    if not final_voice_id:
-                        logger.warning(f"No voice ID assigned for {person_id} ({real_name})")
-                    logger.debug(
-                        f"Final voice for {person_id} ({real_name}): {final_voice_id},"
-                        f" Params: {final_voice_params}"
-                    )
+                    logger.info(f"Using persona assignments for {real_name}: gender='{assigned_gender}', invented_name='{invented_name}'")
                     
                     # Add to persona_research_map for efficient lookups by ID
-                    persona_research_map[updated_persona.person_id] = updated_persona
+                    persona_research_map[person_id] = persona_research_obj_temp
                     
                     # Replace the original JSON string with the updated one - use model_dump_json for proper serialization
-                    persona_research_docs_content[idx] = updated_persona.model_dump_json()
+                    persona_research_docs_content[idx] = persona_research_obj_temp.model_dump_json()
                     
-                    # Also maintain the persona_details_map for backward compatibility
-                    # This will be deprecated in future versions
-                    persona_details_map[person_id] = {
-                        "invented_name": invented_name,
-                        "gender": assigned_gender,
-                        "real_name": real_name,
-                        "tts_voice_id": updated_persona.tts_voice_id
-                    }
-                    logger.info(
-                        f"Assigned to {person_id} ({real_name}): Invented Name='{invented_name}',"
-                        f" Gender='{assigned_gender}', Voice='{final_voice_id}', Params: {final_voice_params}"
-                    )
                 except json.JSONDecodeError as e:
                     logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
                 except Exception as e:
                     logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
+            
             # Now create the Host persona using the TTS voice cache
             used_voice_ids = {
-                details["tts_voice_id"]
-                for details in persona_details_map.values()
-                if details.get("tts_voice_id")
+                details.tts_voice_id
+                for details in persona_research_map.values()
+                if details.tts_voice_id
             }
             host_voice_id, host_voice_params = self._select_host_voice(
-                host_gender, used_voice_ids
+                request_data.host_gender or "Female", used_voice_ids
             )
             
             # Create the Host persona and add to maps
@@ -901,8 +816,8 @@ class PodcastGeneratorService:
                 person_id="Host",
                 name="Host",
                 detailed_profile="The podcast host is an engaging personality who is intellectually inquisitive and interested in fostering debate and viewpoint diversity",
-                invented_name=host_name,
-                gender=host_gender,
+                invented_name=request_data.host_invented_name or "Brigette",
+                gender=request_data.host_gender or "Female",
                 tts_voice_id=host_voice_id,
                 tts_voice_params=host_voice_params,
                 creation_date=datetime.now().isoformat()
@@ -910,20 +825,24 @@ class PodcastGeneratorService:
             
             # Add Host to maps
             persona_research_map["Host"] = host_persona
-            persona_details_map["Host"] = {
-                "invented_name": host_name,
-                "gender": host_gender,
-                "real_name": "Host",
-                "tts_voice_id": host_voice_id
-            }
-            
-            # Add Host to persona research documents
             persona_research_docs_content.append(host_persona.model_dump_json())
             logger.info(
-                f"Assigned to Host (Host): Invented Name='{host_name}', Gender='{host_gender}', Voice='{host_voice_id}', Params: {host_voice_params}"
+                f"Assigned to Host (Host): Invented Name='{request_data.host_invented_name or 'Brigette'}', Gender='{request_data.host_gender or 'Female'}', Voice='{host_voice_id}', Params: {host_voice_params}"
             )
             
-            logger.info(f"Final persona_details_map: {persona_details_map}")
+            logger.info(f"Final persona_research_map: {persona_research_map}")
+            
+            # Build persona_details_map from persona_research_map for backward compatibility
+            # This provides the expected data structure for both outline and dialogue generation
+            persona_details_map = {
+                person_id: {
+                    "invented_name": pr.invented_name,
+                    "gender": pr.gender,
+                    "real_name": pr.name
+                }
+                for person_id, pr in persona_research_map.items()
+            }
+            logger.info(f"Built persona_details_map for backward compatibility: {persona_details_map}")
             
             # 5. LLM - Podcast Outline Generation
             logger.info("STEP: Starting Podcast Outline Generation...")
@@ -984,7 +903,7 @@ class PodcastGeneratorService:
                         desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,
                         names_prominent_persons_list=request_data.prominent_persons,
-                        persona_details_map=persona_details_map,  # TEMPORARY: Will be removed in future refactoring
+                        persona_details_map=persona_details_map,  # Use the newly created map
                         user_provided_custom_prompt=request_data.custom_prompt_for_outline
                     )
                     if podcast_outline_obj:
@@ -1135,7 +1054,7 @@ class PodcastGeneratorService:
                         podcast_outline=podcast_outline_obj,
                         source_analyses=source_analysis_objects, 
                         persona_research_docs=persona_research_objects_for_dialogue,
-                        persona_details_map=persona_details_map,  # TEMPORARY: Will be removed in future refactoring
+                        persona_details_map=persona_details_map,  # Use the newly created map
                         user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
                     )
 
