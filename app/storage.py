@@ -3,9 +3,15 @@
 import os
 import logging
 import time
-from typing import Optional, List, BinaryIO
+from typing import Optional, List, BinaryIO, Dict, Any
 from pathlib import Path
 from app.config import get_config
+from app.storage_utils import (
+    parse_gs_url, 
+    ensure_directory_exists, 
+    log_storage_error,
+    validate_storage_available
+)
 
 # Import Google Cloud Storage client (optional for local development)
 try:
@@ -91,7 +97,7 @@ class StorageManager:
         
         # Local storage fallback
         target_dir = f"./outputs/audio/{podcast_id}"
-        os.makedirs(target_dir, exist_ok=True)
+        ensure_directory_exists(target_dir)
         target_path = f"{target_dir}/{filename}"
         
         if local_path != target_path:
@@ -114,20 +120,22 @@ class StorageManager:
         """
         try:
             if storage_path.startswith("gs://"):
-                if not self.is_cloud_storage_available:
-                    logging.error("Cloud Storage not available for download")
+                if not validate_storage_available(self, "download"):
                     return False
                 
                 # Parse GS URL
-                parts = storage_path[5:].split("/", 1)  # Remove gs://
-                bucket_name = parts[0]
-                blob_path = parts[1]
+                parsed = parse_gs_url(storage_path)
+                if not parsed:
+                    logging.error(f"Invalid GS URL format: {storage_path}")
+                    return False
+                    
+                bucket_name, blob_path = parsed
                 
                 bucket = self.client.bucket(bucket_name)
                 blob = bucket.blob(blob_path)
                 
                 # Create target directory
-                os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                ensure_directory_exists(os.path.dirname(local_path))
                 
                 blob.download_to_filename(local_path)
                 logging.info(f"Downloaded from Cloud Storage: {storage_path}")
@@ -135,7 +143,7 @@ class StorageManager:
             else:
                 # Local file copy
                 if os.path.exists(storage_path):
-                    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                    ensure_directory_exists(os.path.dirname(local_path))
                     import shutil
                     shutil.copy2(storage_path, local_path)
                     logging.info(f"Copied local file: {storage_path}")
@@ -145,7 +153,7 @@ class StorageManager:
                     return False
                     
         except Exception as e:
-            logging.error(f"Failed to download audio file: {e}")
+            log_storage_error("download audio file", e, storage_path)
             return False
     
     def delete_audio_file(self, storage_path: str) -> bool:
@@ -160,12 +168,15 @@ class StorageManager:
         """
         try:
             if storage_path.startswith("gs://"):
-                if not self.is_cloud_storage_available:
+                if not validate_storage_available(self, "delete"):
                     return False
                 
-                parts = storage_path[5:].split("/", 1)
-                bucket_name = parts[0]
-                blob_path = parts[1]
+                parsed = parse_gs_url(storage_path)
+                if not parsed:
+                    logging.error(f"Invalid GS URL format: {storage_path}")
+                    return False
+                    
+                bucket_name, blob_path = parsed
                 
                 bucket = self.client.bucket(bucket_name)
                 blob = bucket.blob(blob_path)
@@ -181,7 +192,7 @@ class StorageManager:
                     return True
                     
         except Exception as e:
-            logging.error(f"Failed to delete audio file: {e}")
+            log_storage_error("delete audio file", e, storage_path)
             return False
     
     def list_podcast_files(self, podcast_id: str) -> List[str]:
@@ -276,7 +287,7 @@ class CloudStorageManager(StorageManager):
         import hashlib
         return hashlib.md5(url.encode()).hexdigest()
     
-    def _is_cache_valid(self, cache_entry: dict) -> bool:
+    def _is_cache_valid(self, cache_entry: Dict[str, Any]) -> bool:
         """Check if cache entry is still valid."""
         import time
         return time.time() - cache_entry['timestamp'] < self._cache_ttl
@@ -471,7 +482,7 @@ class CloudStorageManager(StorageManager):
             # Create a deterministic local path based on cloud_path
             safe_filename = cloud_path.replace("/", "_").replace("\\", "_")
             local_dir = os.path.join(tempfile.gettempdir(), "mysaloncast_text_files")
-            os.makedirs(local_dir, exist_ok=True)
+            ensure_directory_exists(local_dir)
             local_path = os.path.join(local_dir, safe_filename)
             
             try:
@@ -483,7 +494,42 @@ class CloudStorageManager(StorageManager):
                 logging.error(f"Failed to save text file locally: {e}")
                 return None
 
-    async def upload_outline_async(self, outline_data: dict, task_id: str) -> Optional[str]:
+    async def _upload_json_data_async(
+        self, 
+        data: Dict[str, Any], 
+        cloud_path: str, 
+        data_type: str
+    ) -> Optional[str]:
+        """
+        Generic method to upload JSON data to cloud storage.
+        
+        Args:
+            data: Data dictionary to serialize as JSON
+            cloud_path: Target cloud storage path
+            data_type: Type of data for error messages (e.g., "outline", "persona research")
+            
+        Returns:
+            Cloud storage URL if successful, None otherwise
+        """
+        if not data:
+            logging.error(f"Empty {data_type} data provided")
+            return None
+            
+        try:
+            import json
+            json_content = json.dumps(data, indent=2, ensure_ascii=False)
+            
+            return await self.upload_text_file_async(
+                json_content, 
+                cloud_path, 
+                content_type="application/json"
+            )
+            
+        except Exception as e:
+            logging.error(f"Failed to serialize {data_type} data: {e}")
+            return None
+
+    async def upload_outline_async(self, outline_data: Dict[str, Any], task_id: str) -> Optional[str]:
         """
         Upload podcast outline JSON to cloud storage.
         
@@ -494,26 +540,10 @@ class CloudStorageManager(StorageManager):
         Returns:
             Cloud storage URL if successful, None otherwise
         """
-        if not outline_data:
-            logging.error("Empty outline data provided")
-            return None
-            
-        try:
-            import json
-            outline_json = json.dumps(outline_data, indent=2, ensure_ascii=False)
-            cloud_path = f"text/{task_id}/podcast_outline.json"
-            
-            return await self.upload_text_file_async(
-                outline_json, 
-                cloud_path, 
-                content_type="application/json"
-            )
-            
-        except Exception as e:
-            logging.error(f"Failed to serialize outline data: {e}")
-            return None
+        cloud_path = f"text/{task_id}/podcast_outline.json"
+        return await self._upload_json_data_async(outline_data, cloud_path, "outline")
 
-    async def upload_persona_research_async(self, research_data: dict, task_id: str, person_id: str) -> Optional[str]:
+    async def upload_persona_research_async(self, research_data: Dict[str, Any], task_id: str, person_id: str) -> Optional[str]:
         """
         Upload persona research JSON to cloud storage.
         
@@ -525,24 +555,8 @@ class CloudStorageManager(StorageManager):
         Returns:
             Cloud storage URL if successful, None otherwise
         """
-        if not research_data:
-            logging.error("Empty persona research data provided")
-            return None
-            
-        try:
-            import json
-            research_json = json.dumps(research_data, indent=2, ensure_ascii=False)
-            cloud_path = f"text/{task_id}/persona_research_{person_id}.json"
-            
-            return await self.upload_text_file_async(
-                research_json, 
-                cloud_path, 
-                content_type="application/json"
-            )
-            
-        except Exception as e:
-            logging.error(f"Failed to serialize persona research data: {e}")
-            return None
+        cloud_path = f"text/{task_id}/persona_research_{person_id}.json"
+        return await self._upload_json_data_async(research_data, cloud_path, "persona research")
 
     async def download_text_file_async(self, cloud_url: str) -> Optional[str]:
         """

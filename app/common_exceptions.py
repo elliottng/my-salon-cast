@@ -17,3 +17,7 @@ class TTSNotInitializedError(Exception):
 class AudioGenerationError(Exception):
     """Custom exception for errors during audio generation or processing."""
     pass
+
+class PodcastGenerationError(Exception):
+    """Custom exception for errors during podcast generation workflow."""
+    pass

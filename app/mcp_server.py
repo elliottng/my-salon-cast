@@ -30,6 +30,12 @@ from app.mcp_descriptions import (
     RESOURCE_DESCRIPTIONS,
     MANIFEST_DESCRIPTIONS
 )
+from .mcp_utils import (
+    validate_task_id, 
+    validate_person_id,
+    download_and_parse_json,
+    build_resource_response
+)
 
 # Setup production environment and logging
 production_config = setup_production_environment()
@@ -1117,16 +1123,15 @@ async def get_podcast_metadata_resource(task_id: str) -> dict:
         raise ToolError(f"Failed to retrieve podcast metadata: {str(e)}")
 
 
-@mcp.resource("podcast://{task_id}/outline", description=RESOURCE_DESCRIPTIONS["get_podcast_outline_resource"])
+@mcp.resource("outline://{task_id}", description=RESOURCE_DESCRIPTIONS["get_podcast_outline_resource"])
 async def get_podcast_outline_resource(task_id: str) -> dict:
     logger.info(f"Resource 'podcast outline' accessed for task_id: {task_id}")
     
     # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
+    validate_task_id(task_id)
     
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
+    # Get the status manager and fetch the task status
+    status_manager = get_status_manager()
     
     try:
         status_info = status_manager.get_status(task_id)
@@ -1142,31 +1147,25 @@ async def get_podcast_outline_resource(task_id: str) -> dict:
         outline_file_path = status_info.result_episode.llm_podcast_outline_path
         
         if outline_file_path:
-            try:
-                # Handle both local file paths and cloud URLs
-                from app.storage import CloudStorageManager
-                cloud_storage = CloudStorageManager()
-                
-                # Try to download text content (handles local files, GCS URLs, and HTTP URLs)
-                outline_content = await cloud_storage.download_text_file_async(outline_file_path)
-                
-                if outline_content:
-                    outline_data = json.loads(outline_content)
-                    logger.info(f"Successfully loaded outline from: {outline_file_path}")
-                else:
-                    logger.warning(f"Failed to download outline from: {outline_file_path}")
-                    
-            except (json.JSONDecodeError, Exception) as e:
-                logger.warning(f"Failed to read outline from {outline_file_path}: {e}")
-                outline_data = None
+            from app.storage import CloudStorageManager
+            cloud_storage = CloudStorageManager()
+            
+            outline_data = await download_and_parse_json(
+                cloud_storage,
+                outline_file_path,
+                "outline"
+            )
         
-        return {
-            "task_id": task_id,
-            "outline": outline_data,
-            "has_outline": outline_data is not None,
-            "outline_file_path": outline_file_path,
-            "resource_type": "podcast_outline"
-        }
+        return build_resource_response(
+            task_id=task_id,
+            data=outline_data,
+            resource_type="outline",
+            additional_fields={
+                "has_outline": outline_data is not None,
+                "outline_file_path": outline_file_path,
+                "resource_type": "podcast_outline"
+            }
+        )
         
     except Exception as e:
         if "Task not found" in str(e):
@@ -1181,14 +1180,10 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
     logger.info(f"Resource 'persona research' accessed for task_id: {task_id}, person_id: {person_id}")
     
     # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
+    validate_task_id(task_id)
+    validate_person_id(person_id)
     
-    if not person_id or not person_id.strip():
-        raise ToolError("person_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
+    status_manager = get_status_manager()
     
     try:
         status_info = status_manager.get_status(task_id)
@@ -1199,102 +1194,81 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
         if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
-        episode = status_info.result_episode
-        
-        # Check if task has any persona research files
-        if not episode.llm_persona_research_paths:
-            raise ToolError(f"No persona research available for task: {task_id}")
-        
-        # Find the research file for the requested person_id
-        target_filename = f"persona_research_{person_id}.json"
+        # Build research file path based on task directory
         research_file_path = None
         
-        for file_path in episode.llm_persona_research_paths:
-            # Handle both local paths and cloud URLs - check filename pattern
-            if file_path.startswith(('http://', 'https://', 'gs://')):
-                # For cloud URLs, extract filename from the path
-                if target_filename in file_path:
-                    research_file_path = file_path
-                    break
+        # If we have a task directory and person ID, we can try to find the persona research file
+        task_directory = status_info.result_episode.task_output_directory
+        if task_directory:
+            # First check if it's a cloud URL pattern
+            if task_directory.startswith(("gs://", "http://", "https://")):
+                # For cloud URLs, we need to append the persona research path
+                research_file_path = f"{task_directory.rstrip('/')}/persona_research_{person_id}.json"
             else:
-                # For local paths, check if target pattern is contained in the filename
-                # This handles the new naming pattern: text_{task_id}_persona_research_{person_id}.json
-                if target_filename in os.path.basename(file_path):
-                    research_file_path = file_path
-                    break
+                # For local paths, construct the full path
+                import os
+                research_file_path = os.path.join(task_directory, f"persona_research_{person_id}.json")
         
-        if not research_file_path:
-            # Extract available person_ids from this task's files for error message
-            available_persons = []
-            for path in episode.llm_persona_research_paths:
-                if path.startswith(('http://', 'https://', 'gs://')):
-                    # Extract person_id from cloud URL
-                    if "persona_research_" in path and ".json" in path:
-                        start_idx = path.find("persona_research_") + 17
-                        end_idx = path.find(".json", start_idx)
-                        if end_idx > start_idx:
-                            available_person_id = path[start_idx:end_idx]
-                            available_persons.append(available_person_id)
-                else:
-                    # Extract person_id from local filename
-                    filename = os.path.basename(path)
-                    if filename.startswith("persona_research_") and filename.endswith(".json"):
-                        available_person_id = filename[17:-5]  # Remove "persona_research_" and ".json"
-                        available_persons.append(available_person_id)
-            
-            if available_persons:
-                raise ToolError(f"Person '{person_id}' not found in task {task_id}. Available persons: {', '.join(available_persons)}")
+        # Check if the file exists for the specified person_id
+        if research_file_path:
+            # Check if the file exists (this is a simplified check, actual existence check would vary)
+            import os
+            if research_file_path.startswith(("gs://", "http://", "https://")) or os.path.exists(research_file_path):
+                logger.info(f"Found persona research file at: {research_file_path}")
             else:
-                raise ToolError(f"No persona research files found for task: {task_id}")
+                # File doesn't exist - let's list available person IDs
+                available_persons = []
+                if task_directory and os.path.exists(task_directory):
+                    for filename in os.listdir(task_directory):
+                        if filename.startswith("persona_research_") and filename.endswith(".json"):
+                            available_person_id = filename[17:-5]  # Remove "persona_research_" and ".json"
+                            available_persons.append(available_person_id)
+                
+                if available_persons:
+                    raise ToolError(f"Person '{person_id}' not found in task {task_id}. Available persons: {', '.join(available_persons)}")
+                else:
+                    raise ToolError(f"No persona research files found for task: {task_id}")
         
         # Read and parse the PersonaResearch JSON file or download from cloud
         research_data = None
         file_exists = False
         file_size = 0
         
-        try:
-            # Handle both local file paths and cloud URLs
+        if research_file_path:
             from app.storage import CloudStorageManager
             cloud_storage = CloudStorageManager()
             
-            # Try to download/read text content (handles local files, GCS URLs, and HTTP URLs)
-            research_content = await cloud_storage.download_text_file_async(research_file_path)
+            research_data = await download_and_parse_json(
+                cloud_storage,
+                research_file_path,
+                "persona research"
+            )
             
-            if research_content:
+            if research_data:
                 file_exists = True
-                file_size = len(research_content.encode('utf-8'))
-                
-                try:
-                    research_data = json.loads(research_content)
-                    logger.info(f"Successfully loaded persona research for {person_id} from {research_file_path}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse persona research JSON for {person_id}: {e}")
-                    research_data = None
-            else:
-                logger.warning(f"Failed to download persona research from: {research_file_path}")
-                
-        except Exception as e:
-            logger.error(f"Error reading persona research file for {person_id}: {e}")
-            research_data = None
+                # Calculate approximate file size from JSON content
+                import json
+                file_size = len(json.dumps(research_data).encode('utf-8'))
         
-        return {
-            "task_id": task_id,
-            "person_id": person_id,
-            "research_data": research_data,
-            "has_research": research_data is not None,
-            "file_metadata": {
+        return build_resource_response(
+            task_id=task_id,
+            data=research_data,
+            resource_type="persona_research",
+            additional_fields={
+                "person_id": person_id,
+                "has_research": research_data is not None,
                 "research_file_path": research_file_path,
                 "file_exists": file_exists,
-                "file_size": file_size
-            },
-            "resource_type": "persona_research"
-        }
+                "file_size_bytes": file_size,
+                "resource_type": "persona_research"
+            }
+        )
         
     except Exception as e:
-        if "Task not found" in str(e):
-            raise ToolError(f"Task not found: {task_id}")
-        elif "not available" in str(e) or "not found" in str(e):
-            raise  # Re-raise specific errors with original message
+        if "Task not found" in str(e) or "not found in task" in str(e):
+            raise
+        elif "not available" in str(e):
+            raise ToolError(f"Podcast episode not available for task: {task_id}")
         raise ToolError(f"Failed to retrieve persona research: {str(e)}")
 
 
