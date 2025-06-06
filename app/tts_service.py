@@ -333,11 +333,8 @@ class GoogleCloudTtsService:
             male_voices = [v for v in english_voices if v.ssml_gender == texttospeech.SsmlVoiceGender.MALE]
             female_voices = [v for v in english_voices if v.ssml_gender == texttospeech.SsmlVoiceGender.FEMALE]
 
-            # Expanded parameter ranges for 60 unique combinations
+            # Simplified parameter range - only speaking rates (no pitch support)
             speaking_rates = [round(0.85 + i * 0.03, 2) for i in range(11)]
-            male_pitches = [round(-0.6 + i * 0.12, 2) for i in range(11)]
-            female_pitches = [round(-0.2 + i * 0.12, 2) for i in range(11)]
-            neutral_pitches = [round(-0.3 + i * 0.06, 2) for i in range(11)]
 
             language_distribution = {'en-US': 36, 'en-GB': 12, 'en-AU': 12}
             gender_limits = {
@@ -374,35 +371,33 @@ class GoogleCloudTtsService:
                 for lc in voices_by_gender_lang[gender]:
                     voices_by_gender_lang[gender][lc] = sort_voices(voices_by_gender_lang[gender][lc])
 
-            used_param_combos = set()
-            param_index = 0
+            used_speaking_rates = set()
+            rate_index = 0
 
-            def next_params(pitch_list):
-                nonlocal param_index
-                for _ in range(len(speaking_rates) * len(pitch_list)):
-                    rate = speaking_rates[param_index % len(speaking_rates)]
-                    pitch = pitch_list[(param_index * 2) % len(pitch_list)]
-                    param_index += 1
-                    combo = (rate, pitch)
-                    if combo not in used_param_combos:
-                        used_param_combos.add(combo)
-                        return rate, pitch
-                return speaking_rates[0], pitch_list[0]
+            def next_speaking_rate():
+                nonlocal rate_index
+                for _ in range(len(speaking_rates)):
+                    rate = speaking_rates[rate_index % len(speaking_rates)]
+                    rate_index += 1
+                    if rate not in used_speaking_rates:
+                        used_speaking_rates.add(rate)
+                        return rate
+                # If all rates are used, cycle through them again
+                return speaking_rates[rate_index % len(speaking_rates)]
 
             selected_voice_objs = {g: {lc: [] for lc in language_distribution} for g in ['Male', 'Female']}
 
-            for gender, pitch_list in [('Male', male_pitches), ('Female', female_pitches)]:
+            for gender in ['Male', 'Female']:
                 for lc, limit in gender_limits[gender].items():
                     count = 0
                     for voice in voices_by_gender_lang[gender][lc]:
                         if count >= limit:
                             break
-                        speaking_rate, pitch = next_params(pitch_list)
+                        speaking_rate = next_speaking_rate()
                         result[gender].append({
                             'voice_id': voice.name,
                             'language_codes': list(voice.language_codes),
-                            'speaking_rate': speaking_rate,
-                            'pitch': pitch
+                            'speaking_rate': speaking_rate
                         })
                         selected_voice_objs[gender][lc].append(voice)
                         count += 1
@@ -413,15 +408,14 @@ class GoogleCloudTtsService:
                 male_pool = selected_voice_objs['Male'][lc][:half]
                 female_pool = selected_voice_objs['Female'][lc][:half]
                 for voice in male_pool + female_pool:
-                    speaking_rate, pitch = next_params(neutral_pitches)
+                    speaking_rate = next_speaking_rate()
                     result['Neutral'].append({
                         'voice_id': voice.name,
                         'language_codes': list(voice.language_codes),
-                        'speaking_rate': speaking_rate,
-                        'pitch': pitch
+                        'speaking_rate': speaking_rate
                     })
-            
-            
+        
+        
             # Save the cache to file with timestamp
             timestamp = datetime.now().isoformat()
             cache_data = {
@@ -438,7 +432,7 @@ class GoogleCloudTtsService:
         except Exception as e:
             logger.error(f"Error refreshing voice cache: {str(e)}", exc_info=True)
             return result
-    
+
     def get_voices_by_gender(self, gender: str) -> List[Dict]:
         """Get cached voices for a specific gender.
         
@@ -460,7 +454,7 @@ class GoogleCloudTtsService:
         language_code: Optional[str] = "en-US",
         speaker_gender: str = None,  # e.g., "Male", "Female", "Neutral", or None for default
         voice_name: str = None,      # e.g., "en-US-Neural2-F", overrides gender if provided
-        voice_params: dict = None    # Optional additional voice parameters like speaking_rate and pitch
+        voice_params: dict = None    # Optional additional voice parameters like speaking_rate
     ) -> bool:
         """
         Synthesizes speech from text and saves it to an audio file.
@@ -475,7 +469,6 @@ class GoogleCloudTtsService:
                        If provided, this overrides the speaker_gender setting.
             voice_params: Optional dictionary of additional voice parameters such as:
                          - 'speaking_rate': Speed of speech (0.25 to 4.0, default 1.0)
-                         - 'pitch': Voice pitch (-20.0 to 20.0, default 0.0)
         
         Returns:
             True if synthesis was successful and file was saved, False otherwise.
@@ -527,8 +520,6 @@ class GoogleCloudTtsService:
             if voice_params:
                 if 'speaking_rate' in voice_params:
                     audio_config.speaking_rate = voice_params['speaking_rate']
-                if 'pitch' in voice_params:
-                    audio_config.pitch = voice_params['pitch']
 
             # Enhanced logging with all voice parameters
             log_message = f"Requesting speech synthesis for text: '{text_input[:50]}...' with "

@@ -49,9 +49,9 @@ def test_voice_cache():
         logger.warning("Duplicate voice IDs in Neutral voices")
     
     # Check for variation in voice parameters
-    male_params = [(v['speaking_rate'], v['pitch']) for v in male_voices]
-    female_params = [(v['speaking_rate'], v['pitch']) for v in female_voices]
-    neutral_params = [(v['speaking_rate'], v['pitch']) for v in neutral_voices]
+    male_params = [(v['speaking_rate']) for v in male_voices]
+    female_params = [(v['speaking_rate']) for v in female_voices]
+    neutral_params = [(v['speaking_rate']) for v in neutral_voices]
     
     if len(set(male_params)) != len(male_params):
         logger.warning("Duplicate voice parameters in Male voices")
@@ -88,7 +88,7 @@ def test_llm_voice_selection():
         logger.info(f"Found {len(voices)} voices for {persona['gender']} gender")
         # Print the first few voices to check parameters
         for i, voice in enumerate(voices[:3]):
-            logger.info(f"Voice {i+1}: ID={voice['voice_id']}, rate={voice['speaking_rate']}, pitch={voice['pitch']}")
+            logger.info(f"Voice {i+1}: ID={voice['voice_id']}, rate={voice['speaking_rate']}")
     
     logger.info("LLM voice selection test completed")
     return True
