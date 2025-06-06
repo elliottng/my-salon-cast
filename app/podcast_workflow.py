@@ -32,6 +32,7 @@ from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.storage import CloudStorageManager
 from app.config import setup_environment
+from app.http_utils import send_webhook_with_retry, build_webhook_payload
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -236,14 +237,10 @@ class PodcastGeneratorService:
             podcast_episode: The generated episode (if successful)
             error: Error message (if failed)
         """
-        payload = {
-            "task_id": task_id,
-            "status": status,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
+        result = None
         
         if status == "completed" and podcast_episode:
-            payload["result"] = {
+            result = {
                 "title": podcast_episode.title,
                 "summary": podcast_episode.summary,
                 "audio_filepath": podcast_episode.audio_filepath,
@@ -251,41 +248,21 @@ class PodcastGeneratorService:
                 "source_count": len(podcast_episode.source_attributions),
                 "warnings": podcast_episode.warnings
             }
-        elif status == "failed" and error:
-            payload["error"] = error
         
-        # Attempt to send webhook with retry logic
-        max_retries = 3
-        retry_delay = 1.0
+        payload = build_webhook_payload(
+            task_id=task_id,
+            status=status,
+            result=result,
+            error=error
+        )
         
-        for attempt in range(max_retries):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        webhook_url,
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=10.0)
-                    ) as response:
-                        if response.status < 300:
-                            logger.info(f"Webhook notification sent successfully for task {task_id}")
-                            return
-                        else:
-                            logger.warning(
-                                f"Webhook returned status {response.status} for task {task_id}, "
-                                f"attempt {attempt + 1}/{max_retries}"
-                            )
-            except Exception as e:
-                logger.warning(
-                    f"Webhook notification failed for task {task_id}, "
-                    f"attempt {attempt + 1}/{max_retries}: {str(e)}"
-                )
-            
-            if attempt < max_retries - 1:
-                await asyncio.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
-        
-        logger.error(f"Failed to send webhook notification for task {task_id} after {max_retries} attempts")
-    
+        # Use the retry utility
+        await send_webhook_with_retry(
+            url=webhook_url,
+            payload=payload,
+            identifier=task_id
+        )
+
     def _run_podcast_generation_sync_wrapper(self, task_id: str, request_data: PodcastRequest) -> None:
         """
         Synchronous wrapper for _run_podcast_generation_async to be used by ThreadPoolExecutor.

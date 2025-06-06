@@ -299,3 +299,35 @@ def build_podcast_metadata_response(task_id: str, episode) -> Dict[str, Any]:
         "completion_date": None,  # This should come from status_info, not episode
         "resource_type": "podcast_metadata"
     }
+
+
+def collect_file_info(file_path: str, file_type: str, **extra_attrs) -> Dict[str, Any]:
+    """
+    Collect information about a file including size and existence.
+    
+    Args:
+        file_path: Path to the file
+        file_type: Type of file (e.g., "main_audio", "audio_segment")
+        **extra_attrs: Additional attributes to include
+        
+    Returns:
+        Dictionary with file information
+    """
+    file_info = {
+        "type": file_type,
+        "path": file_path,
+        "exists": False,
+        "size": 0
+    }
+    
+    if file_path and os.path.exists(file_path):
+        try:
+            file_info["size"] = os.path.getsize(file_path)
+            file_info["exists"] = True
+        except Exception:
+            pass
+    
+    # Add any extra attributes
+    file_info.update(extra_attrs)
+    
+    return file_info
