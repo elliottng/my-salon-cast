@@ -701,17 +701,20 @@ Your output MUST be a single, valid JSON object only, with no additional text be
                 
             logger.info(f"Normalized gender for {person_name}: '{raw_gender}' -> '{gender}'")
             
-                
-            # Select an invented name based on gender
-            import random
-            # Select voice profile from TTS service cache which includes additional parameters
-            # like speaking_rate
-            if gender == 'Male':
-                invented_name = random.choice(male_names)
-            elif gender == 'Female':
-                invented_name = random.choice(female_names)
-            else:  # Neutral
-                invented_name = random.choice(neutral_names)
+            # Respect LLM-generated invented_name, fallback if missing
+            if 'invented_name' in parsed_json and parsed_json['invented_name'] and parsed_json['invented_name'].strip():
+                invented_name = parsed_json['invented_name'].strip()
+                logger.info(f"Using LLM-generated invented name for {person_name}: '{invented_name}'")
+            else:
+                # Fallback: assign name based on gender if LLM didn't provide one
+                import random
+                if gender == 'Male':
+                    invented_name = random.choice(male_names)
+                elif gender == 'Female':
+                    invented_name = random.choice(female_names)
+                else:  # Neutral
+                    invented_name = random.choice(neutral_names)
+                logger.info(f"LLM did not provide invented name for {person_name}, assigned fallback: '{invented_name}'")
             
             # Get voice profile from TTS service if available
             voice_profile = None
