@@ -1,0 +1,62 @@
+commit 4595dc6bb915ff73cc7199f406bd6ed9e43105ef
+Author: Elliott Ng <elliott.ng@gmail.com>
+Date:   Sat Jun 7 07:32:30 2025 -0700
+
+    feat: Add LLM-generated similar-sounding invented names for personas
+    
+    ✨ Major improvements to persona voice assignment and prompt management:
+    
+    🎯 **Invented Name Enhancement:**
+    - Add 'invented_name' field to persona research prompt template
+    - LLM now generates names phonetically similar to original personas
+    - Examples: 'Yuval Noah Harari' → 'Yoav', 'Dario Amodei' → 'Danilo'
+    - Eliminates random fallback names, ensures meaningful persona identification
+    
+    🏗️ **Prompt Template Refactoring:**
+    - Create new app/prompts/ module for better organization
+    - Extract all LLM prompt templates from llm_service.py
+    - Add SOURCE_ANALYSIS_TEMPLATE, PERSONA_RESEARCH_TEMPLATE,
+      PODCAST_OUTLINE_TEMPLATE, SEGMENT_DIALOGUE_TEMPLATE
+    - Improve maintainability and version control of prompts
+    
+    🧪 **Testing Updates:**
+    - Update integration test to use AI-focused personas and sources
+    - Test with Yuval Noah Harari, Dario Amodei, Sam Altman
+    - Validate end-to-end workflow with new invented name logic
+    
+    ✅ **Validation:**
+    - Full integration test passes (280.5s execution)
+    - Generated 3.1MB podcast with distinct persona voices
+    - LLM-generated names used consistently throughout workflow
+    - No more random fallback name assignments
+    
+    This resolves the core issue where personas were getting random names
+    instead of meaningful identifiers related to their actual names.
+
+commit b907767cdc8d7d717d91eb9d6d4d3e4a3f751142
+Author: Elliott Ng <elliott.ng@gmail.com>
+Date:   Fri Jun 6 18:43:06 2025 -0700
+
+    feat: Add transcript saving to generated_transcripts folder and remove individual audio segment archiving
+    
+    - Add llm_transcript_path field to PodcastEpisode model
+    - Save transcript.txt file during podcast generation workflow
+    - Update integration test to copy transcripts to generated_transcripts/ folder
+    - Remove copying of individual audio segments to generated_podcasts/ folder
+    - Fix duration enforcement test configuration (17 minutes vs 5-7 minutes)
+    - Improve prompt word count variable handling in LLM service
+
+commit 26c150ecc423fdf9ef387102aaecb9139cab489d
+Author: Elliott Ng <elliott.ng@gmail.com>
+Date:   Fri Jun 6 11:22:13 2025 -0700
+
+    Fix workflow name/gender override deprecation bugs
+    
+    - Fixed PersonaResearch attribute access in workflow (tts_voice_id)
+    - Respect LLM-generated invented_name in research_persona_async with fallback
+    - Add persona_details_map backward compatibility for outline/dialogue generation
+    - Remove redundant name/gender assignment logic from workflow
+    - Resolve 'PersonaResearch object has no attribute get' error
+    - Eliminate speaker ID warnings in dialogue generation
+    
+    All workflow phases now complete successfully in end-to-end testing.
