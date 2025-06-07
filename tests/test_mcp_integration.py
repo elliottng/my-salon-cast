@@ -39,11 +39,10 @@ from app.mcp_server import (
 
 # Test configuration
 TEST_URLS = [
-    "https://ai-2027.com/",
-    "https://en.wikipedia.org/wiki/Artificial_general_intelligence"
+    "https://www.youtube.com/watch?v=3N3TnaViyjk&t=22s"
 ]
 
-TEST_PERSONAS = ["Yuval Noah Harari", "Dario Amodei","Sam Altman"]
+TEST_PERSONAS = ["Brad Gerstner", "Bill Gurley",""]
 
 # Generate unique suffix for this test run
 test_run_suffix = str(int(time.time()))
