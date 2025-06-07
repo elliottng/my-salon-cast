@@ -817,7 +817,7 @@ class PodcastGeneratorService:
                 person_id="Host",
                 name="Host",
                 detailed_profile="The podcast host is an engaging personality who is intellectually inquisitive and interested in fostering debate and viewpoint diversity",
-                invented_name=request_data.host_invented_name or "Brigette",
+                invented_name=request_data.host_invented_name or "Bridgette",
                 gender=request_data.host_gender or "Female",
                 tts_voice_id=host_voice_id,
                 tts_voice_params=host_voice_params,
@@ -828,7 +828,7 @@ class PodcastGeneratorService:
             persona_research_map["Host"] = host_persona
             persona_research_docs_content.append(host_persona.model_dump_json())
             logger.info(
-                f"Assigned to Host (Host): Invented Name='{request_data.host_invented_name or 'Brigette'}', Gender='{request_data.host_gender or 'Female'}', Voice='{host_voice_id}', Params: {host_voice_params}"
+                f"Assigned to Host (Host): Invented Name='{request_data.host_invented_name or 'Bridgette'}', Gender='{request_data.host_gender or 'Female'}', Voice='{host_voice_id}', Params: {host_voice_params}"
             )
             
             logger.info(f"Final persona_research_map: {persona_research_map}")
