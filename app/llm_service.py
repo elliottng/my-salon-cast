@@ -19,6 +19,12 @@ from pydantic_ai import Agent
 from pydantic_ai.models.gemini import GeminiModel
 import logfire
 from app.config import get_config
+from app.prompts import (
+    SOURCE_ANALYSIS_TEMPLATE,
+    PERSONA_RESEARCH_TEMPLATE,
+    PODCAST_OUTLINE_TEMPLATE,
+    SEGMENT_DIALOGUE_TEMPLATE,
+)
 
 from google.api_core.exceptions import (
     DeadlineExceeded,
@@ -405,19 +411,8 @@ class GeminiService:
             else:
                 logger.info("Using default analysis prompt template, expecting JSON output for SourceAnalysis model")
                 # Default analysis prompt, expecting JSON output
-                prompt = (
-                    "Please analyze the following text and provide your analysis in JSON format. "
-                    "The JSON object should have exactly two keys: 'summary_points' and 'detailed_analysis'.\n"
-                    "- 'summary_points' should be a list of strings, where each string is a key summary point from the text.\n"
-                    "- 'detailed_analysis' should be a single string containing a more in-depth, free-form textual analysis of the source content.\n\n"
-                    "Example JSON format:\n"
-                    "{\n"
-                    "  \"summary_points\": [\"Key takeaway 1\", \"Important fact 2\", \"Main argument 3\"],\n"
-                    "  \"detailed_analysis\": \"The text discusses [topic] with a [tone/style]. It presents arguments such as [argument A] and [argument B], supported by [evidence]. The overall sentiment appears to be [sentiment]. Noteworthy stylistic features include [feature X]...\"\n"
-                    "}\n\n"
-                    f"Analyze this text:\n---\n{source_text}\n---"
-                )
-
+                prompt = SOURCE_ANALYSIS_TEMPLATE.format(source_text=source_text)
+            
             logger.info("Calling generate_text_async with text analysis prompt")
             
             # Use structured output if Pydantic AI is enabled
@@ -537,95 +532,13 @@ class GeminiService:
 
         # We'll use the global name and voice profile lists defined at the top of the file
 
-        prompt = f"""
-You are a debate coach and you are preparing {person_name} for a podcast appearance. Your work will contribute to a podcast aiming to be educational, entertaining, and to highlight viewpoint diversity by authentically representing {person_name}'s perspectives.
-
-GENDER DETERMINATION:
-As a critical step, determine the gender of {person_name} based on historical facts and biographical information.
-- For historical or public figures, use verified biographical information.
-- For fictional characters or less documented individuals, base this on the source text.
-- Assign EXACTLY ONE of these values: "male", "female", or "neutral" (for non-binary or cases with insufficient information).
-- This determination will be used for voice assignment in the podcast, so accuracy is important.
-
-IMPORTANT DISTINCTION:
-You have two separate tasks:
-1. First, establish a detailed profile of {person_name} based on general historical knowledge (not limited to the source text)
-2. Then, have this established persona analyze and engage with the specific topics in the source text
-3. When the source text contains topics with minimal obvious connection to {person_name}'s known interests:
-   - First identify the underlying principles, values, or frameworks that guided their thinking
-   - Then apply these fundamental principles to the new topic rather than inventing specific opinions
-   - Clearly indicate the level of confidence in your extrapolations (e.g., "Based on their views on X, they would likely approach Y by...")
-   - Focus on methodological similarities rather than speculating about specific technical details beyond their era
-
-Source Text:
----
-{source_text}
----
-
-Please provide your research as a JSON object with the following structure:
-{{
-  "person_id": "{person_id}",
-  "name": "{person_name}",
-  "gender": "REQUIRED: Use verified biographical information to determine {person_name}'s gender. Assign EXACTLY one value: 'male', 'female', or 'neutral'. This is critical for voice selection.",
-  "detailed_profile": "Your detailed profile should be organized into the following five distinct sections, each clearly labeled:
-
-  ### PART 1: PROFILE OF {person_name.upper()} (250 words)
-  Provide a concise biography highlighting their significance, background, key accomplishments, and historical context. This should be based on general historical knowledge, not limited to the source text. Include 1-2 authentic quotes if available with contextual explanation.
-
-  ### PART 2: CORE VIEWPOINTS AND BELIEFS (400 words)
-  Detail {person_name}'s most strongly held viewpoints, ideas, and opinions based on historical record and general knowledge. Focus on their fundamental principles, philosophical stance, and value system. Include both mainstream and controversial positions they advocated for. Preserve the authenticity of their perspectives even when they differ from contemporary views.
-
-  ### PART 3: TOPIC ANALYSIS FROM {person_name.upper()}'S PERSPECTIVE (1000 words)
-  First, identify 2-6 primary topics from the source text that {person_name} would find most compelling or contentious based on their background and beliefs. These should be topics where their perspective would be most distinctive or valuable.
-  
-  For each identified topic:
-  - Identify what aspect would interest or concern them most
-  - Explain what positions they would likely take based on their known principles
-  - Describe how they would frame arguments in support of these positions
-  - Find the facts, figures, and statistics that most powerfully support these positions
-  - Address how they might handle counterarguments
-  
-  For topics with minimal connection to {person_name}'s known interests:
-  - Focus on how their fundamental values and thinking methods would apply
-  - Draw parallels between their known positions and the unfamiliar topic
-  - Identify aspects they would recognize as familiar despite the different context
-  - Be transparent about the degree of extrapolation required (e.g., \"While [topic] didn't exist in their time, their approach to [analogous issue] suggests...\")
-  
-  If the source topics emerged after their lifetime, extrapolate their views based on their established principles and thinking patterns.
-
-  ### PART 4: DEBATE PREPARATION AND ADVICE (250 words)
-  Provide specific strategies for {person_name} to effectively communicate their positions during a podcast discussion about the source material. Include:
-  - Compelling talking points they could use
-  - Potential questions they might pose to other speakers
-  - How to address likely challenges to their viewpoints
-  - Ways to leverage their unique expertise and perspective
-
-  ### PART 5: SPEAKING STYLE AND EXPRESSION (250 words)
-  Describe {person_name}'s observed or inferred communication style based on historical accounts. Include:
-  - Characteristic patterns in their rhetoric and argumentation
-  - Tone and emotional qualities of their speech
-  - Distinctive vocabulary, phrases, or sentence structures they favor
-  - 3-5 example sentence templates that capture their authentic voice
-  - How they engage with opponents or contrasting viewpoints
-
-  Format all five parts as a single cohesive document with clear section headings."
-}}
-
-Important guidelines:
-1. Parts 1, 2, and 5 should draw primarily from general historical knowledge about {person_name}, not from the source text.
-2. Parts 3 and 4 should have the established persona engage with the specific source text content.
-3. Present {person_name}'s authentic viewpoints and beliefs even if they differ from contemporary views or standards.
-4. Adhere closely to the word count guidelines for each section.
-5. Ensure all analysis is substantiated by known facts about {person_name} or reasonable extrapolation from their documented views.
-
-⚠️ CRITICALLY IMPORTANT JSON FORMAT INSTRUCTIONS ⚠️ 
-Your output MUST be a single, valid JSON object only, with no additional text before or after the JSON. 
-- The detailed_profile field must be a simple string (not a nested object or array)
-- Use proper JSON escaping for quotes and special characters in the detailed_profile string
-- Do not include any markdown formatting markers like ```json or ``` in your response
-- Double-check that your final output is parseable by JavaScript's JSON.parse()
-"""
-
+        prompt = PERSONA_RESEARCH_TEMPLATE.format(
+            person_name=person_name,
+            person_id=person_id,
+            person_name_upper=person_name.upper(),
+            source_text=source_text
+        )
+        
         json_response_str: str = None  # Initialize
         try:
             logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
@@ -1146,14 +1059,13 @@ Your output MUST be a single, valid JSON object only, with no additional text be
             # Calculate target word count based on 150 words per minute
             calculated_total_words = int(calculated_total_seconds / 60 * 150)
             
-            # Pre-calculate word counts for each segment (fixed percentages)
-            intro_words = int(calculated_total_words * 0.05)
-            overview_words = int(calculated_total_words * 0.10)
-            theme1_words = int(calculated_total_words * 0.10)
-            theme2_words = int(calculated_total_words * 0.10)
-            discussion_words = int(calculated_total_words * 0.50)
-            conclusion_words = int(calculated_total_words * 0.15)
-
+            # Pre-calculate word counts for each segment (redistributed percentages after removing overview)
+            intro_words = int(calculated_total_words * 0.08)  # Increased from 5% to 8%
+            theme1_words = int(calculated_total_words * 0.13)  # Increased from 10% to 13%
+            theme2_words = int(calculated_total_words * 0.13)  # Increased from 10% to 13%
+            discussion_words = int(calculated_total_words * 0.50)  # Stays 50%
+            conclusion_words = int(calculated_total_words * 0.16)  # Increased from 15% to 16%
+            
             # Format Persona Details Map for the prompt
             formatted_persona_details_str_parts = ["Persona Details (Mappings: Persona ID -> Invented Name, Real Name, Gender):"]
             if persona_details_map:
@@ -1175,117 +1087,9 @@ Your output MUST be a single, valid JSON object only, with no additional text be
                 formatted_names_prominent_persons_str = "None"
 
             # PRD 4.2.4 Prompt Template, MODIFIED for Multi-Segment Outline
-            prd_outline_prompt_template = """LLM Prompt: Multi-Segment Podcast Outline Generation
-Role: You are an expert podcast script developer and debate moderator. Your primary objective is to create a comprehensive, engaging, and informative multi-segment podcast outline based on the provided materials.
-
-Overall Podcast Goals:
-
-Educate: Clearly summarize and explain the key topics, findings, and information presented in the source documents for an audience of intellectually curious professionals.
-Explore Perspectives: If prominent persons are specified, the podcast must clearly and forcefully articulate their known viewpoints and perspectives on the topics, drawing from their provided persona research documents. Each persona should have opportunities to speak.
-Facilitate Viewpoint Diversity and Insightful Discussion/Debate: If these prominent persons have differing opinions, or if source materials present conflicting yet important viewpoints, the podcast should feature a healthy, robust debate and discussion, allowing for strong expression of these differing standpoints across various segments.  If the personas have differing points of view, please find opportunities for a persona to directly respond to the other persona with counterarguments
-
-Inputs Provided to You:
-
-Source Analysis Documents:
-{input_formatted_source_analyses_str}
-
-Persona Research Documents:
-{input_formatted_persona_research_str}
-
-⚠️ IMPORTANT ⚠️- TARGET TOTAL WORD COUNT: {calculated_total_words} words (This is a hard requirement based on the requested podcast duration of {input_desired_podcast_length_str})
-Number of Prominent Persons Specified: {input_num_prominent_persons}
-Names of Prominent People Specified: {input_formatted_names_prominent_persons_str}
-Available Persona IDs (from Persona Research Documents, if any): {input_formatted_available_persona_ids_str}
-Generic Speaker IDs available: "Host" (Invented Name: "Host", Gender: [Host's gender from persona_details_map]), "Narrator" (Typically neutral or assigned as needed)
-
-Persona Details:
-{input_formatted_persona_details_str}
-
-Task: Generate a Multi-Segment Podcast Outline
-
-Create a detailed, multi-segment outline for the entire podcast. This outline will serve as the blueprint for the subsequent dialogue writing step. The podcast should be divided into logical segments, each with a clear purpose and speaker focus.
-
-Outline Structure Guidelines:
-
-Your outline must break the podcast into several distinct segments. Each segment should contribute to the overall flow and goals. Create segments with EXACTLY these word count targets:
-
-- Introduction/Opening Hook: {intro_words} words
-- Topic Overview & Speaker Introductions: {overview_words} words
-  • The 'Host' must introduce any personas speaking in a segment using their 'Invented Name' and clarifying which 'Real Name' they represent.
-  • For example: 'Host: Now, let's hear from Jarvis, an expert representing John Doe on this topic.'
-  • This should happen when a persona is first introduced or takes a significant speaking turn in a new context.
-- Deep Dive into Theme 1: {theme1_words} words (Potentially featuring specific personas)
-- Deep Dive into Theme 2: {theme2_words} words (Potentially featuring other personas)
-- Points of Agreement/Conflict: {discussion_words} words (IMPORTANT: This is the core of the podcast where the most valuable insights and engaging discussions emerge)
-- Conclusion/Summary: {conclusion_words} words
-
-⚠️ CRITICAL REQUIREMENT: The sum of all segment word counts MUST EQUAL EXACTLY {calculated_total_words} words. This directly impacts the podcast duration. Segment durations will be calculated based on these word counts, where 150 words equals approximately 1 minute of audio.
-
-For each segment, you must specify:
-- A unique `segment_id` (e.g., "seg_01_intro", "seg_02_theme1_johndoe").
-- A concise `segment_title`.
-- A `speaker_id` indicating the primary speaker or focus for that segment. This MUST be one of the Available Persona IDs (e.g., "persona_john_doe") or one of the Generic Speaker IDs ("Host", "Narrator").
-- A detailed `content_cue` describing the topics, key points, questions, and discussion flow for that segment.
-- A `target_word_count` for the segment's dialogue. This is the number of words you expect will be in the dialogue for this segment.
-- An `estimated_duration_seconds` for the segment, calculated as (target_word_count / 150 * 60). This means each word takes 0.4 seconds (60 / 150) on average.
-
-Guiding Principles for Outline Content:
-
-Educational Priority: The primary goal is to make complex information accessible and understandable. Persona discussions and debates should illuminate the topic.
-Authentic Persona Representation: When a persona's `speaker_id` is used, their contributions (guided by the `content_cue`) should align with their researched views.
-Natural and Engaging Flow: The podcast should feel conversational and engaging throughout.
-Prioritize Points of Agreement/Conflict: The most engaging and illuminating parts of the podcast often come from the segments where different viewpoints interact, either finding common ground or respectfully disagreeing. These segments should be given substantial word count allocation (40-50% of total) to allow for thorough exploration of different perspectives.
-Length Adherence: The sum of all segment 'target_word_count' values MUST EXACTLY EQUAL {calculated_total_words} words. This is a non-negotiable constraint. Distribute content appropriately across segments to meet this total word count.
-⚠️ CRITICALLY IMPORTANT: DETAILED CONTENT CUES ⚠️
-Each segment's content_cue MUST be EXTREMELY comprehensive (MINIMUM 300 WORDS, NO EXCEPTIONS) and specific, including: 
-   - Key talking points in detail
-   - Questions or controversies to be addressed
-   - Specific facts, figures, and statistics to include
-   - Important insights, theories, beliefs or arguments
-   - Dialog flow and transitions
-   - References to source material where relevant
-   Content cues shorter than 300 words will be rejected as insufficient. The content_cue serves as a detailed blueprint for the segment and MUST be thorough enough that another writer could create the same segment based solely on your cue.
-
-Output Format:
-
-⚠️ CRITICALLY IMPORTANT ⚠️
-You MUST include BOTH the "target_word_count" AND "estimated_duration_seconds" fields for EACH segment. This is a non-negotiable requirement.
-
-VERY IMPORTANT: You MUST output your response as a single, valid JSON object. Do NOT use markdown formatting around the JSON.
-The JSON object must conform to the following structure:
-{{
-  "title_suggestion": "string (Suggested title for the podcast episode)",
-  "summary_suggestion": "string (Suggested brief summary for the podcast episode)",
-  "segments": [ // THIS MUST BE A LIST OF SEGMENT OBJECTS
-    {{
-      "segment_id": "string (Unique ID for this segment, e.g., seg_01_intro)",
-      "segment_title": "string (Title for this segment, e.g., Introduction to Topic X)",
-      "speaker_id": "string (Identifier for the primary speaker/focus, e.g., 'Host', 'persona_john_doe')",
-      "content_cue": "string (MUST be MINIMUM 300 WORDS - NO EXCEPTIONS with detailed talking points, questions, specific facts, dialog flow, and source references)",
-      "target_word_count": integer (Target number of words for this segment's dialogue),
-      "estimated_duration_seconds": integer (Calculated as target_word_count / 150 * 60)
-    }},
-    {{
-      "segment_id": "string (e.g., seg_02_deepdive)",
-      "segment_title": "string (e.g., Exploring Viewpoint A)",
-      "speaker_id": "string (e.g., 'persona_jane_smith')",
-      "content_cue": "string (MUST be MINIMUM 300 WORDS - NO EXCEPTIONS with detailed talking points, questions, specific facts, dialog flow, and source references)",
-      "target_word_count": integer (Target number of words for this segment),
-      "estimated_duration_seconds": integer (Calculated from target_word_count)
-    }}
-    // ... more segments as needed ...
-  ]
-}}
-
-Ensure all string fields are properly escaped within the JSON. The 'segments' array should contain multiple segment objects, each detailing a part of the podcast.
-The `speaker_id` in each segment MUST be chosen from the persona IDs provided in the 'Persona Research Documents' (use their 'person_id' field) or be 'Host' or 'Narrator'.
-"""
+            prd_outline_prompt_template = PODCAST_OUTLINE_TEMPLATE
             logger.debug(f"PRD Outline Template Before Formatting:\n{prd_outline_prompt_template}")
-            logger.debug(f"Outline Formatting Args - input_formatted_source_analyses_str (type {type(input_formatted_source_analyses_str)}): {input_formatted_source_analyses_str[:200]}...")
-            logger.debug(f"Outline Formatting Args - input_formatted_persona_research_str (type {type(input_formatted_persona_research_str)}): {input_formatted_persona_research_str[:200]}...")
-            logger.debug(f"Outline Formatting Args - input_desired_podcast_length_str (type {type(desired_podcast_length_str)}): {desired_podcast_length_str}")
-            logger.debug(f"Outline Formatting Args - input_num_prominent_persons (type {type(num_prominent_persons)}): {num_prominent_persons}")
-            logger.debug(f"Outline Formatting Args - input_formatted_names_prominent_persons_str (type {type(formatted_names_prominent_persons_str)}): {formatted_names_prominent_persons_str}")
+            
             # Create a format dict with all the variables needed in the template
             format_dict = {
                 "input_formatted_source_analyses_str": input_formatted_source_analyses_str,
@@ -1298,7 +1102,6 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
                 "calculated_total_seconds": calculated_total_seconds,
                 "calculated_total_words": calculated_total_words,
                 "intro_words": intro_words,
-                "overview_words": overview_words,
                 "theme1_words": theme1_words,
                 "theme2_words": theme2_words,
                 "discussion_words": discussion_words,
@@ -1308,7 +1111,7 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
             # Format the prompt template with all variables
             final_prompt = prd_outline_prompt_template.format(**format_dict)
             logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
-
+            
             # Use extended timeout (360s) for podcast outline generation as it's a complex prompt
             raw_response_text = await self.generate_text_async(final_prompt, timeout_seconds=360)
             
@@ -1491,75 +1294,52 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
                 available_speakers_parts.append(f"- Narrator (ID: Narrator)")
         available_speakers_prompt_str = "\n".join(available_speakers_parts)
         
-        # Create the prompt template
-        segment_prompt = f"""
-LLM Prompt: Podcast Segment Dialogue Generation
-
-Role: You are an expert podcast dialogue writer. Your task is to create natural, engaging dialogue for a specific segment of a podcast.
-
-Podcast Information:
-- Title: {podcast_title}
-- Overall Theme: {podcast_outline.theme_description if hasattr(podcast_outline, 'theme_description') else 'Not specified'}
-
-Current Segment Details:
-{segment_context}
-
-{available_speakers_prompt_str}
-
-Instructions:
-1. Write dialogue ONLY for this specific segment. The dialogue should directly address the content described in the segment's content cue.
-2. The primary speaker for this segment should be {invented_name} (who is speaker ID: {speaker_id_from_segment}, representing the views of {real_name_of_speaker}). Ensure their dialogue reflects their role.
-3. Include appropriate responses or questions from other speakers as needed for natural conversation flow.
-4. The dialogue should be approximately {segment.target_word_count if segment.target_word_count is not None else int(segment.estimated_duration_seconds / 60 * 150)} words in length.
-5. Ensure the dialogue has a clear beginning and end appropriate for this segment's position in the overall podcast.
-"""
-
-        # Add persona-specific guidance if relevant
+        # Build persona guidance string
+        persona_guidance = ""
         if relevant_persona_research:
-            segment_prompt += f"""
-
-Persona Information for {invented_name} (Speaker ID: {speaker_id_from_segment}):
+            persona_guidance = f"""Persona Information for {invented_name} (Speaker ID: {speaker_id_from_segment}):
 - Representing Views Of: {relevant_persona_research.name}
 - Detailed Profile: {relevant_persona_research.detailed_profile}
 
-Important: Ensure the dialogue for {invented_name} (Speaker ID: {speaker_id_from_segment}) authentically reflects the viewpoints and speaking style described in the detailed profile.
-"""
+Important: Ensure the dialogue for {invented_name} (Speaker ID: {speaker_id_from_segment}) authentically reflects the viewpoints and speaking style described in the detailed profile."""
 
-        # Add source guidance
+        # Build source guidance string
+        source_guidance = ""
         if source_analyses:
             source_titles = [sa.source_title for sa in source_analyses if hasattr(sa, 'source_title') and sa.source_title]
             if source_titles:
                 sources_str = "\n- ".join(source_titles)
-                segment_prompt += f"""
-
-Relevant Sources:
+                source_guidance = f"""Relevant Sources:
 - {sources_str}
 
-Reference these sources appropriately in the dialogue. Be factual and accurate to the source material.
-"""
+Reference these sources appropriately in the dialogue. Be factual and accurate to the source material."""
 
-        # Add output format instructions
-        segment_prompt += """
-
-Output Format:
-Provide the dialogue as a JSON array of dialogue turn objects. Each object should have:
-- "turn_id": A sequential number starting from the provided current_turn_id
-- "speaker_id": The ID of the speaker (e.g., "Host", "john-doe", "narrator"). This MUST be the actual person_id or generic role ID.
-- "text": The spoken dialogue text
-- "source_mentions": An array of source reference strings (can be empty if no direct citations)
-
-Example format:
-[{"turn_id": 1, "speaker_id": "Host", "text": "Welcome to our discussion on...", "source_mentions": []},
- {"turn_id": 2, "speaker_id": "john-doe", "text": "I believe that...", "source_mentions": ["Article: The Future of AI"]}]
-"""
-
-        # Add any user-provided custom instructions if present
+        # Build user custom prompt string
+        user_custom_prompt = ""
         if user_provided_custom_prompt:
-            segment_prompt += f"""
+            user_custom_prompt = f"""Additional User Instructions:
+{user_provided_custom_prompt}"""
 
-Additional User Instructions:
-{user_provided_custom_prompt}
-"""
+        # Calculate target word count
+        target_word_count = segment.target_word_count if segment.target_word_count is not None else int(segment.estimated_duration_seconds / 60 * 150)
+        
+        # Theme description
+        theme_description = podcast_outline.theme_description if hasattr(podcast_outline, 'theme_description') else 'Not specified'
+
+        # Format the template with all variables
+        segment_prompt = SEGMENT_DIALOGUE_TEMPLATE.format(
+            podcast_title=podcast_title,
+            theme_description=theme_description,
+            segment_context=segment_context,
+            available_speakers_prompt_str=available_speakers_prompt_str,
+            invented_name=invented_name,
+            speaker_id_from_segment=speaker_id_from_segment,
+            real_name_of_speaker=real_name_of_speaker,
+            target_word_count=target_word_count,
+            persona_guidance=persona_guidance,
+            source_guidance=source_guidance,
+            user_custom_prompt=user_custom_prompt
+        )
 
         return segment_prompt
 

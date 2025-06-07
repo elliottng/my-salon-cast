@@ -1,5 +1,5 @@
 {
-  "last_updated": "2025-06-05T11:32:16.277794",
+  "last_updated": "2025-06-06T14:56:18.790371",
   "voices": {
     "Male": [
       {
@@ -7,160 +7,140 @@
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Achird",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.88,
-        "pitch": -0.36
+        "speaking_rate": 0.88
       },
       {
         "voice_id": "en-US-Chirp3-HD-Algenib",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.91,
-        "pitch": -0.12
+        "speaking_rate": 0.91
       },
       {
         "voice_id": "en-US-Chirp3-HD-Algieba",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.94,
-        "pitch": 0.12
+        "speaking_rate": 0.94
       },
       {
         "voice_id": "en-US-Chirp3-HD-Alnilam",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.97,
-        "pitch": 0.36
+        "speaking_rate": 0.97
       },
       {
         "voice_id": "en-US-Chirp3-HD-Charon",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.0,
-        "pitch": 0.6
+        "speaking_rate": 1.0
       },
       {
         "voice_id": "en-US-Chirp3-HD-Enceladus",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.03,
-        "pitch": -0.48
+        "speaking_rate": 1.03
       },
       {
         "voice_id": "en-US-Chirp3-HD-Fenrir",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.06,
-        "pitch": -0.24
+        "speaking_rate": 1.06
       },
       {
         "voice_id": "en-US-Chirp3-HD-Iapetus",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.09,
-        "pitch": 0.0
+        "speaking_rate": 1.09
       },
       {
         "voice_id": "en-US-Chirp3-HD-Orus",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.12,
-        "pitch": 0.24
+        "speaking_rate": 1.12
       },
       {
         "voice_id": "en-US-Chirp3-HD-Puck",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.15,
-        "pitch": 0.48
+        "speaking_rate": 1.15
       },
       {
         "voice_id": "en-US-Chirp3-HD-Rasalgethi",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp-HD-D",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp3-HD-Achird",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp3-HD-Algenib",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp3-HD-Algieba",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp-HD-D",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp3-HD-Achird",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp3-HD-Algenib",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp3-HD-Algieba",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.6
+        "speaking_rate": 0.85
       }
     ],
     "Female": [
@@ -169,160 +149,140 @@
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp-HD-O",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.88,
-        "pitch": 0.04
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Achernar",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.91,
-        "pitch": 0.28
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Aoede",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.94,
-        "pitch": 0.52
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Autonoe",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.97,
-        "pitch": 0.76
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Callirrhoe",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.0,
-        "pitch": 1.0
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Despina",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.03,
-        "pitch": -0.08
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Erinome",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.06,
-        "pitch": 0.16
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Gacrux",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.09,
-        "pitch": 0.4
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Kore",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.12,
-        "pitch": 0.64
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Laomedeia",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.15,
-        "pitch": 0.88
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Leda",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp-HD-F",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp-HD-O",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp3-HD-Achernar",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp3-HD-Aoede",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp-HD-F",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp-HD-O",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp3-HD-Achernar",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp3-HD-Aoede",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.2
+        "speaking_rate": 0.85
       }
     ],
     "Neutral": [
@@ -331,160 +291,140 @@
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Achird",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.88,
-        "pitch": -0.18
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Algenib",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.91,
-        "pitch": -0.06
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Algieba",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.94,
-        "pitch": 0.06
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Alnilam",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.97,
-        "pitch": 0.18
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Charon",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.0,
-        "pitch": 0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp-HD-F",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.03,
-        "pitch": -0.24
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp-HD-O",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.06,
-        "pitch": -0.12
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Achernar",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.12,
-        "pitch": 0.12
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Aoede",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 1.15,
-        "pitch": 0.24
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Autonoe",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-US-Chirp3-HD-Callirrhoe",
         "language_codes": [
           "en-US"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp-HD-D",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp3-HD-Achird",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp-HD-F",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-GB-Chirp-HD-O",
         "language_codes": [
           "en-GB"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp-HD-D",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp3-HD-Achird",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp-HD-F",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       },
       {
         "voice_id": "en-AU-Chirp-HD-O",
         "language_codes": [
           "en-AU"
         ],
-        "speaking_rate": 0.85,
-        "pitch": -0.3
+        "speaking_rate": 0.85
       }
     ]
   }

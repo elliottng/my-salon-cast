@@ -177,7 +177,7 @@ async def generate_podcast_async(
     source_urls: List[str] = None,
     source_pdf_path: str = None,
     prominent_persons: List[str] = None,
-    podcast_length: str = "7 minutes",
+    podcast_length: str = "10 minutes",
     dialogue_style: str = "conversation",
     custom_prompt: str = None,
     podcast_name: str = None,
@@ -750,20 +750,30 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
         if not status_info.result_episode:
             raise ToolError(f"Podcast episode not available for task: {task_id}")
         
-        # Build research file path based on task directory
+        # Build research file path based on available persona research paths
         research_file_path = None
         
-        # If we have a task directory and person ID, we can try to find the persona research file
-        task_directory = status_info.result_episode.task_output_directory
-        if task_directory:
-            # First check if it's a cloud URL pattern
-            if task_directory.startswith(("gs://", "http://", "https://")):
-                # For cloud URLs, we need to append the persona research path
-                research_file_path = f"{task_directory.rstrip('/')}/persona_research_{person_id}.json"
-            else:
-                # For local paths, construct the full path
-                import os
-                research_file_path = os.path.join(task_directory, f"persona_research_{person_id}.json")
+        # Check if we have persona research paths available
+        if status_info.result_episode and hasattr(status_info.result_episode, 'llm_persona_research_paths') and status_info.result_episode.llm_persona_research_paths:
+            # Look for the persona research file for this specific person_id
+            import os
+            for path in status_info.result_episode.llm_persona_research_paths:
+                # Check if this path is for the requested person_id
+                if f"persona_research_{person_id}.json" in path:
+                    research_file_path = path
+                    break
+            
+            # If no specific path was found but we have research paths, try to infer the directory
+            if not research_file_path and status_info.result_episode.llm_persona_research_paths:
+                # Get the directory from the first research path
+                sample_path = status_info.result_episode.llm_persona_research_paths[0]
+                # Extract the directory part
+                if '/' in sample_path:
+                    dir_path = os.path.dirname(sample_path)
+                    research_file_path = os.path.join(dir_path, f"persona_research_{person_id}.json")
+                else:
+                    # If we can't infer a directory, just use the person_id pattern
+                    research_file_path = f"persona_research_{person_id}.json"
         
         # Check if the file exists for the specified person_id
         if research_file_path:

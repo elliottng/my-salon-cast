@@ -309,7 +309,7 @@ class PodcastGeneratorService:
 
     def _select_host_voice(self, gender: str, used_voice_ids: set[str]) -> Tuple[str, Dict[str, float]]:
         """Select a host voice profile from the TTS cache avoiding conflicts."""
-        default_profile = {"voice_id": "en-US-Neural2-A", "speaking_rate": 1.0}
+        default_profile = {"voice_id": "en-US-Chirp3-HD-Achird", "speaking_rate": 1.0}
         if not self.tts_service:
             logger.warning("TTS service unavailable, using fallback host voice")
             return default_profile["voice_id"], {
