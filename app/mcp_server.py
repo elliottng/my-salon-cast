@@ -784,6 +784,12 @@ async def get_persona_research_resource(task_id: str, person_id: str) -> dict:
             else:
                 # File doesn't exist - let's list available person IDs
                 available_persons = []
+                # Extract task directory from research file path
+                task_directory = None
+                if research_file_path:
+                    import os
+                    task_directory = os.path.dirname(research_file_path)
+                
                 if task_directory and os.path.exists(task_directory):
                     for filename in os.listdir(task_directory):
                         if filename.startswith("persona_research_") and filename.endswith(".json"):
