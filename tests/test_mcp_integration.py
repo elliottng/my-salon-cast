@@ -39,12 +39,11 @@ from app.mcp_server import (
 
 # Test configuration
 TEST_URLS = [
-    "https://www.whitehouse.gov/articles/2025/06/mythbuster-the-one-big-beautiful-bill-cuts-spending-deficit-and-thats-a-fact/",
-    "https://www.ronjohnson.senate.gov/2025/5/the-ugly-truth-about-the-big-beautiful-bill",
-    "https://en.wikipedia.org/wiki/One_Big_Beautiful_Bill_Act"
+    "https://ai-2027.com/",
+    "https://en.wikipedia.org/wiki/Artificial_general_intelligence"
 ]
 
-TEST_PERSONAS = ["Elon Musk", "Donald Trump","Chamath Palihapitiya"]
+TEST_PERSONAS = ["Yuval Noah Harari", "Dario Amodei","Sam Altman"]
 
 # Generate unique suffix for this test run
 test_run_suffix = str(int(time.time()))
@@ -91,7 +90,7 @@ async def step1_prompt_guided_setup(ctx: IntegrationTestContext) -> bool:
         ctx.prompt_result = create_podcast_from_url(
             urls=TEST_URLS,
             personas=personas_str,
-            length="14 minutes"
+            length="16 minutes"
         )
         
         print(f"\n🎯 Generated Prompt Guidance:")
