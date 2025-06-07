@@ -828,10 +828,41 @@ Your output MUST be a single, valid JSON object only, with no additional text be
         segment_ids = [s.segment_id for s in segments]
         if len(segment_ids) != len(set(segment_ids)):
             logger.warning("Duplicate segment IDs found. Assigning new unique IDs.")
+            
+        # 3. Ensure all segments have valid durations and word counts
+        for segment in segments:
+            if segment.estimated_duration_seconds is None or segment.estimated_duration_seconds <= 0:
+                # Default to 30 seconds if missing or invalid
+                logger.warning(f"Segment '{segment.segment_id}' had invalid duration. Setting default 30s.")
+                segment.estimated_duration_seconds = 30
+                
+            if segment.target_word_count is None or segment.target_word_count <= 0:
+                # Calculate word count based on duration (150 words per minute)
+                logger.warning(f"Segment '{segment.segment_id}' had invalid word count. Calculating from duration.")
+                segment.target_word_count = int(segment.estimated_duration_seconds / 60 * 150)
         
-        # For the simplified single segment approach, we just return the outline as-is
-        # The original validation logic has been removed for clarity.
-        # See comments below for reference on what was previously done.
+        # 4. Enforce the total duration by scaling segments proportionally
+        current_total_duration = sum(segment.estimated_duration_seconds for segment in segments)
+        logger.info(f"Podcast outline: LLM specified {current_total_duration}s duration, desired is {total_duration_seconds}s")
+        
+        # Only scale if significantly different (more than 10% difference)
+        if abs(current_total_duration - total_duration_seconds) > (total_duration_seconds * 0.1):
+            # Scale all segments proportionally
+            scale_factor = total_duration_seconds / current_total_duration if current_total_duration > 0 else 1.0
+            logger.info(f"Scaling podcast segment durations by factor of {scale_factor:.2f}")
+            
+            # Scale each segment's duration and target word count
+            for segment in segments:
+                original_duration = segment.estimated_duration_seconds
+                segment.estimated_duration_seconds = max(15, int(original_duration * scale_factor))  # Minimum 15s segments
+                # Update target word count based on the new duration
+                segment.target_word_count = int(segment.estimated_duration_seconds / 60 * 150)
+                logger.debug(f"Segment '{segment.segment_id}': {original_duration}s → {segment.estimated_duration_seconds}s, {segment.target_word_count} words")
+        
+        # Validate we've now hit the target duration
+        new_total_duration = sum(segment.estimated_duration_seconds for segment in segments)
+        logger.info(f"Adjusted podcast duration: {new_total_duration}s (target: {total_duration_seconds}s)")
+        
         return podcast_outline
         
     # The following method contains commented out code that was part of the original
@@ -1114,6 +1145,14 @@ Your output MUST be a single, valid JSON object only, with no additional text be
             calculated_total_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
             # Calculate target word count based on 150 words per minute
             calculated_total_words = int(calculated_total_seconds / 60 * 150)
+            
+            # Pre-calculate word counts for each segment (fixed percentages)
+            intro_words = int(calculated_total_words * 0.05)
+            overview_words = int(calculated_total_words * 0.10)
+            theme1_words = int(calculated_total_words * 0.10)
+            theme2_words = int(calculated_total_words * 0.10)
+            discussion_words = int(calculated_total_words * 0.50)
+            conclusion_words = int(calculated_total_words * 0.15)
 
             # Format Persona Details Map for the prompt
             formatted_persona_details_str_parts = ["Persona Details (Mappings: Persona ID -> Invented Name, Real Name, Gender):"]
@@ -1153,9 +1192,7 @@ Source Analysis Documents:
 Persona Research Documents:
 {input_formatted_persona_research_str}
 
-Desired Podcast Length: {input_desired_podcast_length_str}
-Total Podcast Duration (seconds): {calculated_total_seconds}
-Target Total Word Count: {calculated_total_words} words (based on 150 words per minute)
+⚠️ IMPORTANT ⚠️- TARGET TOTAL WORD COUNT: {calculated_total_words} words (This is a hard requirement based on the requested podcast duration of {input_desired_podcast_length_str})
 Number of Prominent Persons Specified: {input_num_prominent_persons}
 Names of Prominent People Specified: {input_formatted_names_prominent_persons_str}
 Available Persona IDs (from Persona Research Documents, if any): {input_formatted_available_persona_ids_str}
@@ -1170,13 +1207,19 @@ Create a detailed, multi-segment outline for the entire podcast. This outline wi
 
 Outline Structure Guidelines:
 
-Your outline must break the podcast into several distinct segments. Each segment should contribute to the overall flow and goals. Consider segments for:
-- Introduction/Opening Hook (approximately 10% of total word count)
-- Topic Overview & Speaker Introductions: The 'Host' must introduce any personas speaking in a segment using their 'Invented Name' and clarifying which 'Real Name' they represent. For example: 'Host: Now, let's hear from Jarvis, an expert representing John Doe on this topic.' This should happen when a persona is first introduced or takes a significant speaking turn in a new context.
-- Deep Dive into Theme 1 (Potentially featuring specific personas) (approximately 10-15% of total word count)
-- Deep Dive into Theme 2 (Potentially featuring other personas) (approximately 10-15% of total word count)
-- Points of Agreement/Conflict (IMPORTANT: allocate approximately 30-50% of total word count to this segment, as this is where the most valuable insights and engaging discussions emerge)
-- Conclusion/Summary (approximately 10% of total word count)
+Your outline must break the podcast into several distinct segments. Each segment should contribute to the overall flow and goals. Create segments with EXACTLY these word count targets:
+
+- Introduction/Opening Hook: {intro_words} words
+- Topic Overview & Speaker Introductions: {overview_words} words
+  • The 'Host' must introduce any personas speaking in a segment using their 'Invented Name' and clarifying which 'Real Name' they represent.
+  • For example: 'Host: Now, let's hear from Jarvis, an expert representing John Doe on this topic.'
+  • This should happen when a persona is first introduced or takes a significant speaking turn in a new context.
+- Deep Dive into Theme 1: {theme1_words} words (Potentially featuring specific personas)
+- Deep Dive into Theme 2: {theme2_words} words (Potentially featuring other personas)
+- Points of Agreement/Conflict: {discussion_words} words (IMPORTANT: This is the core of the podcast where the most valuable insights and engaging discussions emerge)
+- Conclusion/Summary: {conclusion_words} words
+
+⚠️ CRITICAL REQUIREMENT: The sum of all segment word counts MUST EQUAL EXACTLY {calculated_total_words} words. This directly impacts the podcast duration. Segment durations will be calculated based on these word counts, where 150 words equals approximately 1 minute of audio.
 
 For each segment, you must specify:
 - A unique `segment_id` (e.g., "seg_01_intro", "seg_02_theme1_johndoe").
@@ -1243,17 +1286,27 @@ The `speaker_id` in each segment MUST be chosen from the persona IDs provided in
             logger.debug(f"Outline Formatting Args - input_desired_podcast_length_str (type {type(desired_podcast_length_str)}): {desired_podcast_length_str}")
             logger.debug(f"Outline Formatting Args - input_num_prominent_persons (type {type(num_prominent_persons)}): {num_prominent_persons}")
             logger.debug(f"Outline Formatting Args - input_formatted_names_prominent_persons_str (type {type(formatted_names_prominent_persons_str)}): {formatted_names_prominent_persons_str}")
-            final_prompt = prd_outline_prompt_template.format(
-                input_formatted_source_analyses_str=input_formatted_source_analyses_str,
-                input_formatted_persona_research_str=input_formatted_persona_research_str,
-                input_desired_podcast_length_str=desired_podcast_length_str,
-                input_num_prominent_persons=num_prominent_persons,
-                input_formatted_names_prominent_persons_str=formatted_names_prominent_persons_str,
-                input_formatted_available_persona_ids_str=formatted_available_persona_ids_str,
-                input_formatted_persona_details_str=input_formatted_persona_details_str,
-                calculated_total_seconds=calculated_total_seconds,
-                calculated_total_words=calculated_total_words
-            )
+            # Create a format dict with all the variables needed in the template
+            format_dict = {
+                "input_formatted_source_analyses_str": input_formatted_source_analyses_str,
+                "input_formatted_persona_research_str": input_formatted_persona_research_str,
+                "input_desired_podcast_length_str": desired_podcast_length_str,
+                "input_num_prominent_persons": num_prominent_persons,
+                "input_formatted_names_prominent_persons_str": formatted_names_prominent_persons_str,
+                "input_formatted_available_persona_ids_str": formatted_available_persona_ids_str,
+                "input_formatted_persona_details_str": input_formatted_persona_details_str,
+                "calculated_total_seconds": calculated_total_seconds,
+                "calculated_total_words": calculated_total_words,
+                "intro_words": intro_words,
+                "overview_words": overview_words,
+                "theme1_words": theme1_words,
+                "theme2_words": theme2_words,
+                "discussion_words": discussion_words,
+                "conclusion_words": conclusion_words
+            }
+            
+            # Format the prompt template with all variables
+            final_prompt = prd_outline_prompt_template.format(**format_dict)
             logger.debug(f"Final prompt for outline generation: {final_prompt[:500]}...")
 
             # Use extended timeout (360s) for podcast outline generation as it's a complex prompt

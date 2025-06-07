@@ -164,6 +164,7 @@ class PodcastEpisode(BaseModel):
     # Path or Cloud URL to podcast outline JSON file (supports both local paths and GCS URLs)
     llm_podcast_outline_path: Optional[str] = None
     llm_dialogue_turns_path: Optional[str] = None
+    llm_transcript_path: Optional[str] = None  # Path to transcript text file
     dialogue_turn_audio_paths: Optional[List[str]] = None  # Individual audio segment paths
     
     def is_cloud_path(self, path: str) -> bool:
