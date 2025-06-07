@@ -25,7 +25,12 @@ from .storage_utils import ensure_directory_exists
 # Now we can import from app directly
 from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastStatus, PodcastRequest
 from app.common_exceptions import LLMProcessingError, ExtractionError
-from app.content_extractor import extract_content_from_url, extract_text_from_pdf_path
+from app.content_extractor import (
+    extract_content_from_url, 
+    extract_text_from_pdf_path, 
+    extract_transcript_from_youtube,
+    ExtractionError
+)
 from app.llm_service import GeminiService
 from app.tts_service import GoogleCloudTtsService
 from app.status_manager import get_status_manager
@@ -33,6 +38,7 @@ from app.task_runner import get_task_runner
 from app.storage import CloudStorageManager
 from app.config import setup_environment
 from app.http_utils import send_webhook_with_retry, build_webhook_payload
+from app.validations import is_valid_youtube_url
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -495,7 +501,14 @@ class PodcastGeneratorService:
             if request_data.source_urls:
                 for url in request_data.source_urls:
                     try:
-                        text = await extract_content_from_url(str(url))
+                        # Check if this is a YouTube URL and handle accordingly
+                        if is_valid_youtube_url(str(url)):
+                            logger.info(f"Detected YouTube URL, extracting transcript: {url}")
+                            text = await extract_transcript_from_youtube(str(url))
+                        else:
+                            logger.info(f"Processing general URL: {url}")
+                            text = await extract_content_from_url(str(url))
+                        
                         if text:
                             extracted_texts.append(text)
                             source_attributions.append(url)

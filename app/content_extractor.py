@@ -171,20 +171,23 @@ async def extract_transcript_from_youtube(url: str) -> str:
 
     def _fetch_and_process_transcript_sync(vid_id: str) -> str:
         try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(vid_id)
+            # Try with language preference first (more reliable)
+            transcript_list = YouTubeTranscriptApi.get_transcript(vid_id, languages=['en', 'en-US', 'en-GB'])
             full_transcript = " ".join([item['text'] for item in transcript_list])
             return full_transcript
-        except TranscriptsDisabled:
-            raise ExtractionError(f"Transcripts are disabled for video ID {vid_id}.")
-        except NoTranscriptFound:
-            raise ExtractionError(f"No transcript found for video ID {vid_id} (could be auto-generated only, or none available).")
-        except VideoUnavailable:
-            raise ExtractionError(f"Video ID {vid_id} is unavailable.")
+        except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable) as e:
+            # These are expected YouTube API exceptions
+            raise ExtractionError(f"YouTube transcript unavailable for video ID {vid_id}: {e}")
         except Exception as e:
-            # Catch any other exceptions from the library or processing
-            err_msg = f"Error fetching transcript for video ID {vid_id}: {e}"
-            print(err_msg)
-            raise ExtractionError(err_msg)
+            # Try fallback method without language specification
+            try:
+                transcript_list = YouTubeTranscriptApi.get_transcript(vid_id)
+                full_transcript = " ".join([item['text'] for item in transcript_list])
+                return full_transcript
+            except Exception as fallback_e:
+                err_msg = f"Error fetching transcript for video ID {vid_id}: {e} (fallback also failed: {fallback_e})"
+                print(err_msg)
+                raise ExtractionError(err_msg)
 
     try:
         # Run the synchronous blocking call in a separate thread
