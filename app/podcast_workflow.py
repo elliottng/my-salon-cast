@@ -467,6 +467,7 @@ class PodcastGeneratorService:
         llm_podcast_outline_filepath: Optional[str] = None
         llm_dialogue_script_filepath: Optional[str] = None # Path for the full dialogue script
         llm_dialogue_turns_filepath: Optional[str] = None
+        llm_transcript_filepath: Optional[str] = None
         individual_turn_audio_paths: List[str] = [] # NEW: To hold paths to individual dialogue turn audio files
 
         source_analyses_content: List[str] = []
@@ -1084,6 +1085,12 @@ class PodcastGeneratorService:
                         podcast_transcript = "\n".join(transcript_parts)
                         logger.info("Transcript constructed from dialogue turns.")
                         
+                        # Save transcript to file
+                        llm_transcript_filepath = os.path.join(tmpdir_path, "transcript.txt")
+                        with open(llm_transcript_filepath, 'w', encoding='utf-8') as f:
+                            f.write(podcast_transcript)
+                        logger.info(f"Transcript saved to {llm_transcript_filepath}")
+                        
                         status_manager.add_progress_log(
                             task_id,
                             "generating_dialogue",
@@ -1390,6 +1397,7 @@ class PodcastGeneratorService:
                 llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
                 llm_podcast_outline_path=llm_podcast_outline_filepath,
                 llm_dialogue_turns_path=llm_dialogue_turns_filepath,
+                llm_transcript_path=llm_transcript_filepath,
                 dialogue_turn_audio_paths=individual_turn_audio_paths
             )
             logger.info(f"STEP_COMPLETED_TRY_BLOCK: PodcastEpisode object created. Title: {podcast_episode.title}, Audio: {podcast_episode.audio_filepath}, Warnings: {len(podcast_episode.warnings)}")

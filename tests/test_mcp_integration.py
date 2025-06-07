@@ -39,11 +39,12 @@ from app.mcp_server import (
 
 # Test configuration
 TEST_URLS = [
-    "https://en.wikipedia.org/wiki/Artificial_intelligence",
-    "https://en.wikipedia.org/wiki/Machine_learning"
+    "https://www.whitehouse.gov/articles/2025/06/mythbuster-the-one-big-beautiful-bill-cuts-spending-deficit-and-thats-a-fact/",
+    "https://www.ronjohnson.senate.gov/2025/5/the-ugly-truth-about-the-big-beautiful-bill",
+    "https://en.wikipedia.org/wiki/One_Big_Beautiful_Bill_Act"
 ]
 
-TEST_PERSONAS = ["Alan Turing", "Ada Lovelace"]
+TEST_PERSONAS = ["Elon Musk", "Donald Trump","Chamath Palihapitiya"]
 
 # Generate unique suffix for this test run
 test_run_suffix = str(int(time.time()))
@@ -77,7 +78,7 @@ async def step1_prompt_guided_setup(ctx: IntegrationTestContext) -> bool:
     """Step 1: Use prompt to guide setup with 2 URLs and 2 prominent people."""
     print("🔸 Step 1: Prompt-Guided Setup")
     print("=" * 60)
-    
+    5-7
     try:
         # Use the prompt with our test data
         urls_str = ", ".join(TEST_URLS)
@@ -90,7 +91,7 @@ async def step1_prompt_guided_setup(ctx: IntegrationTestContext) -> bool:
         ctx.prompt_result = create_podcast_from_url(
             urls=TEST_URLS,
             personas=personas_str,
-            length="10 minutes"
+            length="14 minutes"
         )
         
         print(f"\n🎯 Generated Prompt Guidance:")
@@ -136,7 +137,7 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
             ctx=mock_ctx,
             source_urls=TEST_URLS,
             prominent_persons=TEST_PERSONAS,
-            podcast_length="5-7 minutes"
+            podcast_length="14 minutes"
         )
         
         print(f"\n📋 Generation Result:")
@@ -384,6 +385,20 @@ async def step8_get_final_content(ctx: IntegrationTestContext) -> bool:
         print(f"🎯 Getting final content for completed task: {ctx.task_id}")
         print("-" * 50)
         
+        # Create directories for storing generated files if they don't exist
+        import os
+        project_root = os.path.join(os.path.dirname(__file__), "..")
+        generated_podcasts_dir = os.path.join(project_root, "generated_podcasts")
+        generated_transcripts_dir = os.path.join(project_root, "generated_transcripts")
+        
+        os.makedirs(generated_podcasts_dir, exist_ok=True)
+        os.makedirs(generated_transcripts_dir, exist_ok=True)
+        
+        # Generate a timestamped filename prefix for this test
+        import time
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        file_prefix = f"{timestamp}_test_{test_run_suffix}"
+        
         # Get transcript
         print(f"\n📜 Fetching transcript...")
         try:
@@ -403,6 +418,15 @@ async def step8_get_final_content(ctx: IntegrationTestContext) -> bool:
                 for line in lines:
                     if line.strip():
                         print(f"      {line[:80]}...")
+                
+                # Save transcript to the generated_transcripts directory
+                transcript_filepath = os.path.join(generated_transcripts_dir, f"{file_prefix}_transcript.txt")
+                try:
+                    with open(transcript_filepath, 'w', encoding='utf-8') as f:
+                        f.write(transcript_content)
+                    print(f"   ✅ Transcript saved to: {transcript_filepath}")
+                except Exception as e:
+                    print(f"   ⚠️  Failed to save transcript: {e}")
             else:
                 print(f"   ⚠️  No transcript content found")
                 
@@ -417,12 +441,45 @@ async def step8_get_final_content(ctx: IntegrationTestContext) -> bool:
             ctx.audio_data = audio_result
             
             print(f"🔊 Audio Resource Result:")
-            if audio_result.get('audio_exists'):
-                print(f"   ✅ Has audio file: {audio_result.get('audio_file_path', 'N/A')}")
+            audio_exists = audio_result.get('audio_exists')
+            audio_filepath = audio_result.get('audio_filepath')
+            
+            if audio_exists and audio_filepath and os.path.exists(audio_filepath):
+                print(f"   ✅ Has audio file: {audio_filepath}")
                 print(f"   📊 Size: {audio_result.get('file_size', 'N/A')} bytes")
                 print(f"   ⏱️  Duration: {audio_result.get('duration_seconds', 'N/A')} seconds")
+                
+                # Save audio to the generated_podcasts directory
+                podcast_filepath = os.path.join(generated_podcasts_dir, f"{file_prefix}_podcast.mp3")
+                
+                try:
+                    import shutil
+                    shutil.copy2(audio_filepath, podcast_filepath)
+                    print(f"   ✅ Podcast audio saved to: {podcast_filepath}")
+                    ctx.saved_audio_path = podcast_filepath
+                    
+                    # Note: Individual audio segments are kept in temp folders for debugging but not copied to generated_podcasts
+                    print(f"   📝 Individual audio segments available in temp folder (not copied to generated_podcasts)")
+                    
+                except Exception as e:
+                    print(f"   ⚠️  Failed to save audio: {e}")
+                    # Fallback: just set the original path
+                    podcast_filepath = os.path.join(generated_podcasts_dir, f"{file_prefix}_podcast.mp3")
+                    
             else:
-                print(f"   ⚠️  No audio file found")
+                # Try to find the audio file with a more general search
+                try:
+                    import glob
+                    potential_files = glob.glob(f"/tmp/podcast_job_*/final_podcast.mp3")
+                    if potential_files:
+                        latest_file = max(potential_files, key=os.path.getmtime)
+                        podcast_filepath = os.path.join(generated_podcasts_dir, f"{file_prefix}_podcast.mp3")
+                        shutil.copy2(latest_file, podcast_filepath)
+                        print(f"   ✅ Found and saved podcast audio to: {podcast_filepath}")
+                    else:
+                        print(f"   ⚠️  No audio file found")
+                except Exception as e:
+                    print(f"   ⚠️  Failed to find and save audio: {e}")
                 
         except Exception as e:
             print(f"❌ Failed to get audio: {e}")
