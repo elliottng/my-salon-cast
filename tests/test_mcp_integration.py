@@ -39,10 +39,11 @@ from app.mcp_server import (
 
 # Test configuration
 TEST_URLS = [
-    "https://www.youtube.com/watch?v=3N3TnaViyjk&t=22s"
+    "https://www.whitehouse.gov/articles/2025/06/mythbuster-the-one-big-beautiful-bill-cuts-spending-deficit-and-thats-a-fact/",
+    "https://en.wikipedia.org/wiki/One_Big_Beautiful_Bill_Act"
 ]
 
-TEST_PERSONAS = ["Brad Gerstner", "Bill Gurley",""]
+TEST_PERSONAS = ["Elon Musk", "Scott Bessent","Peter Navarro"]
 
 # Generate unique suffix for this test run
 test_run_suffix = str(int(time.time()))
@@ -135,7 +136,7 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
             ctx=mock_ctx,
             source_urls=TEST_URLS,
             prominent_persons=TEST_PERSONAS,
-            podcast_length="14 minutes"
+            podcast_length="3 minutes"
         )
         
         print(f"\n📋 Generation Result:")

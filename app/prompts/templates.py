@@ -40,7 +40,7 @@ This must be a single string containing a rich, free-form textual analysis of th
 - Quote Sparingly but Effectively: Include short, direct quotes from the source if they are particularly potent pieces of evidence.
 
 Example JSON output:
-{
+{{
   "summary_points": [
     "The Battle of Jutland (31 May – 1 June 1916) resulted in greater British losses (14 ships, 6,094 casualties) compared to German losses (11 ships, 2,551 casualties), leading Germany to claim tactical victory despite failing to break the British naval blockade.",
     "Admiral Jellicoe's cautious strategy prioritized preserving the Grand Fleet's superiority over seeking decisive engagement, reflecting Britain's need to maintain naval dominance for imperial communications and blockade enforcement.",
@@ -48,6 +48,7 @@ Example JSON output:
     "Despite tactical setbacks, the strategic outcome favored Britain as the German High Seas Fleet never again challenged British naval supremacy, remaining largely confined to port for the war's remainder."
   ],
   "detailed_analysis": "The Battle of Jutland presents a fascinating study in the distinction between tactical and strategic victory, offering rich material for debate about military success metrics and long-term versus short-term outcomes. Three central themes emerge from the source material that could structure an engaging podcast discussion.\\n\\nFirst, the 'Victory Paradox' provides compelling debate fodder. Germany's ability to inflict heavier losses—sinking more ships and killing more sailors—gave them legitimate grounds to claim tactical success. A debater arguing for German victory can point to the stark casualty figures and superior gunnery performance. However, those arguing for British strategic victory can emphasize that naval battles aren't won by scorekeeping alone. The source reveals that Germany failed in its primary objective: breaking the blockade that was slowly strangling the German economy. This tension between immediate battle results and long-term strategic outcomes offers natural conversation dynamics.\\n\\nSecond, the 'Leadership Dilemma' theme explores contrasting command philosophies. Admiral Jellicoe's cautious approach, which the source indicates was driven by Churchill's warning that he was 'the only man who could lose the war in an afternoon,' provides rich material for discussing risk management in warfare. Defenders of Jellicoe can argue his preservation of fleet superiority was strategically sound, while critics can point to missed opportunities for decisive victory. The German aggressive tactics under Scheer, including the famous 'death ride' of the battlecruisers, offer a contrasting philosophy ripe for debate.\\n\\nThird, the 'Technological Reckoning' revealed by the battle provides technical yet accessible discussion points. The source's details about British battlecruiser vulnerabilities and unsafe cordite handling practices that led to spectacular explosions can be contrasted with German superior armor design and safety procedures. This allows for broader discussions about innovation, preparedness, and the human cost of technical failures.\\n\\nThe source material reveals potential biases toward British strategic thinking while acknowledging German tactical superiority. This balanced perspective provides debaters on both sides with credible evidence. The human drama—from individual ship stories to command decisions under pressure—offers emotional hooks to enliven what could otherwise be dry tactical discussion.\\n\\nFor podcast purposes, the battle serves as an excellent microcosm of larger WWI themes: attrition versus decision, technology versus tradition, and the gap between public perception and strategic reality. The ambiguous outcome ensures neither side has an overwhelming advantage in debate, creating natural tension and engagement opportunities."
+}}
 
 Analyze this text:
 ---
@@ -128,7 +129,7 @@ Please provide your research as a JSON object with the following structure:
   - How they engage with opponents or contrasting viewpoints
 
   Format all five parts as a single cohesive document with clear section headings."
-}}
+}}}}
 
 Important guidelines:
 1. Parts 1, 2, and 5 should draw primarily from general historical knowledge about {person_name}, not from the source text.
@@ -225,29 +226,29 @@ You MUST include BOTH the "target_word_count" AND "estimated_duration_seconds" f
 
 VERY IMPORTANT: You MUST output your response as a single, valid JSON object. Do NOT use markdown formatting around the JSON.
 The JSON object must conform to the following structure:
-{{
+{{{{
   "title_suggestion": "string (Suggested title for the podcast episode)",
   "summary_suggestion": "string (Suggested brief summary for the podcast episode)",
   "segments": [ // THIS MUST BE A LIST OF SEGMENT OBJECTS
-    {{
+    {{{{
       "segment_id": "string (Unique ID for this segment, e.g., seg_01_intro)",
       "segment_title": "string (Title for this segment, e.g., Introduction to Topic X)",
       "speaker_id": "string (Identifier for the primary speaker/focus, e.g., 'Host', 'persona_john_doe')",
       "content_cue": "string (MUST be MINIMUM 300 WORDS - NO EXCEPTIONS with detailed talking points, questions, specific facts, dialog flow, and source references)",
       "target_word_count": integer (Target number of words for this segment's dialogue),
       "estimated_duration_seconds": integer (Calculated as target_word_count / 150 * 60)
-    }},
-    {{
+    }}}}
+    {{{{
       "segment_id": "string (e.g., seg_02_deepdive)",
       "segment_title": "string (e.g., Exploring Viewpoint A)",
       "speaker_id": "string (e.g., 'persona_jane_smith')",
       "content_cue": "string (MUST be MINIMUM 300 WORDS - NO EXCEPTIONS with detailed talking points, questions, specific facts, dialog flow, and source references)",
-      "target_word_count": integer (Target number of words for this segment),
+      "target_word_count": integer (Target number of words for this segment)",
       "estimated_duration_seconds": integer (Calculated from target_word_count)
-    }}
+    }}}}
     // ... more segments as needed ...
   ]
-}}
+}}}}
 
 Ensure all string fields are properly escaped within the JSON. The 'segments' array should contain multiple segment objects, each detailing a part of the podcast.
 The `speaker_id` in each segment MUST be chosen from the persona IDs provided in the 'Persona Research Documents' (use their 'person_id' field) or be 'Host' or 'Narrator'.
