@@ -13,6 +13,8 @@ The Model Context Protocol (MCP) allows Claude Desktop to connect to external se
 - **Access Resources**: View podcast episodes, persona research, and outlines
 - **Browse Content**: Explore generated content through Claude Desktop
 
+📋 **Quick Reference**: See [MCP_QUICK_REFERENCE.md](./MCP_QUICK_REFERENCE.md) for a complete list of available tools and commands.
+
 ## Quick Start
 
 ### Option 1: Claude.ai Website (Remote MCP)

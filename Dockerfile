@@ -1,7 +1,7 @@
 # MySalonCast MCP Server - Production Dockerfile
-# Optimized for Cloud Run deployment with health checks and graceful shutdown
+# Modernized with uv for fast, reliable dependency management
 
-FROM python:3.11-slim
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 
 # Set working directory
 WORKDIR /app
@@ -12,14 +12,37 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better Docker layer caching
-COPY requirements_clean.txt .
+# Enable bytecode compilation for faster startup
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements_clean.txt
+# Install dependencies first (better Docker layer caching)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-editable
 
-# Copy application code
-COPY app/ ./app/
+# Copy the project into the image
+COPY . /app
+
+# Install the project itself
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable
+
+# Production stage
+FROM python:3.11-slim AS production
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies for audio processing and GCP services
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the virtual environment from builder stage
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
 # Create necessary directories
 RUN mkdir -p /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
@@ -28,6 +51,7 @@ RUN mkdir -p /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Health check for Cloud Run
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
@@ -37,9 +61,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # Create a non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
-USER appuser
+RUN groupadd -r app && useradd -r -g app app
+RUN chown -R app:app /app /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
+USER app
 
-# Start the MCP server with proper signal handling
+# Start the MCP server directly (not through uv)
 CMD ["python", "-m", "app.mcp_server"]
