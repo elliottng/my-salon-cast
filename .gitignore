@@ -13,6 +13,7 @@ gcp-credentials.json
 env.yaml
 
 # Python
+.venv/
 venv/
 __pycache__/
 *.pyc
@@ -60,3 +61,7 @@ security-design.md
 docs/security/
 *security*.md
 deployment-env.yaml
+
+# IDE
+.zed/
+.vscode/
