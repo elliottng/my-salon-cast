@@ -2,12 +2,15 @@
 
 import google.generativeai as genai
 import os
-import json
+import sys
+import time
 import re
+import json
+import random
+from datetime import datetime
+from typing import List, Dict, Optional, Union, Any
 import logging
 import functools
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Union, Tuple
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, Future
 import atexit
@@ -419,10 +422,10 @@ class GeminiService:
             if self.use_pydantic_ai and self.pydantic_agent:
                 logger.info("Using Pydantic AI for structured SourceAnalysis output")
                 # When using Pydantic AI, we can pass the result_type for structured output
-                return await self.generate_text_async(prompt, timeout_seconds=60, result_type=SourceAnalysis)
+                return await self.generate_text_async(prompt, timeout_seconds=180, result_type=SourceAnalysis)
             else:
                 # Legacy path: get JSON string and parse it
-                response = await self.generate_text_async(prompt, timeout_seconds=60)
+                response = await self.generate_text_async(prompt, timeout_seconds=180)
                 logger.info(f"Received response of length: {len(response) if response else 0}")
                 
                 # Clean the response and attempt to parse as JSON
@@ -620,7 +623,6 @@ class GeminiService:
                 logger.info(f"Using LLM-generated invented name for {person_name}: '{invented_name}'")
             else:
                 # Fallback: assign name based on gender if LLM didn't provide one
-                import random
                 if gender == 'Male':
                     invented_name = random.choice(male_names)
                 elif gender == 'Female':
@@ -640,23 +642,37 @@ class GeminiService:
                     logger.info(f"Using cached voice profile from TTS service for {gender} gender: {tts_voice_id}")
                 else:
                     logger.warning(f"No voice profiles available for {gender} gender in TTS service cache")
-                    # Create a fallback voice profile
-                    voice_profile = {
-                        'voice_id': None,  # Will use gender-based selection
-                        'speaking_rate': 1.0
+                    # Create a fallback voice profile using Chirp3-HD backup voices
+                    chirp3_backup_voices = {
+                        'Male': ['en-US-Chirp3-HD-Achird', 'en-GB-Chirp3-HD-Algenib', 'en-AU-Chirp3-HD-Algieba'],
+                        'Female': ['en-US-Chirp3-HD-Achernar', 'en-GB-Chirp3-HD-Aoede', 'en-AU-Chirp3-HD-Autonoe'],
+                        'Neutral': ['en-US-Chirp3-HD-Achird', 'en-GB-Chirp3-HD-Achernar', 'en-AU-Chirp3-HD-Algenib']
                     }
-                    tts_voice_id = None
+                    backup_voice = random.choice(chirp3_backup_voices.get(gender, chirp3_backup_voices['Neutral']))
+                    voice_profile = {
+                        'voice_id': backup_voice,
+                        'speaking_rate': random.uniform(0.85, 1.15)
+                    }
+                    tts_voice_id = backup_voice
+                    logger.info(f"Using Chirp3-HD backup voice for {gender} gender: {tts_voice_id}")
             else:
                 logger.warning("TTS service not available, using gender-based voice selection only")
-                # Create a fallback voice profile
-                voice_profile = {
-                    'voice_id': None,  # Will use gender-based selection
-                    'speaking_rate': 1.0
+                # Create a fallback voice profile using Chirp3-HD backup voices
+                chirp3_backup_voices = {
+                    'Male': ['en-US-Chirp3-HD-Achird', 'en-GB-Chirp3-HD-Algenib', 'en-AU-Chirp3-HD-Algieba'],
+                    'Female': ['en-US-Chirp3-HD-Achernar', 'en-GB-Chirp3-HD-Aoede', 'en-AU-Chirp3-HD-Autonoe'],
+                    'Neutral': ['en-US-Chirp3-HD-Achird', 'en-GB-Chirp3-HD-Achernar', 'en-AU-Chirp3-HD-Algenib']
                 }
-                tts_voice_id = None
-                
-            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id if tts_voice_id else 'based on gender'}, speaking_rate={voice_profile['speaking_rate']}")
+                backup_voice = random.choice(chirp3_backup_voices.get(gender, chirp3_backup_voices['Neutral']))
+                voice_profile = {
+                    'voice_id': backup_voice,
+                    'speaking_rate': random.uniform(0.85, 1.15)
+                }
+                tts_voice_id = backup_voice
+                logger.info(f"Using Chirp3-HD backup voice for {gender} gender: {tts_voice_id}")
             
+            logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id if tts_voice_id else 'based on gender'}, speaking_rate={voice_profile['speaking_rate']}")
+
             # Store the full voice profile parameters for future use
             voice_params = {}
             # Copy all parameters from the voice profile
@@ -956,9 +972,9 @@ class GeminiService:
         Create a fallback outline with standard intro, body, conclusion structure
         when the LLM doesn't provide valid segments.
         """
-        intro_duration = int(total_duration_seconds * 0.15)  # 15%
-        body_duration = int(total_duration_seconds * 0.7)   # 70%
-        conclusion_duration = total_duration_seconds - intro_duration - body_duration  # 15%
+        intro_duration = int(total_duration_seconds * 0.15)
+        body_duration = int(total_duration_seconds * 0.7)
+        conclusion_duration = total_duration_seconds - intro_duration - body_duration
         
         segments = [
             OutlineSegment(
