@@ -336,84 +336,50 @@ class GoogleCloudTtsService:
             # Simplified parameter range - only speaking rates (no pitch support)
             speaking_rates = [round(0.85 + i * 0.03, 2) for i in range(11)]
 
-            language_distribution = {'en-US': 36, 'en-GB': 12, 'en-AU': 12}
-            gender_limits = {
-                'Male': {k: v // 3 for k, v in language_distribution.items()},
-                'Female': {k: v // 3 for k, v in language_distribution.items()},
-                'Neutral': {k: v // 3 for k, v in language_distribution.items()},
-            }
+            # Relaxed language distribution - prefer US but accept GB/AU to get more Chirp3-HD voices
+            # Total target: 60 voices (20 per gender)
+            target_voices_per_gender = 20
 
             def sort_voices(voices):
+                # Filter to only include Chirp3-HD voices and exclude Neural/Standard/older Chirp
+                filtered_voices = [
+                    v for v in voices 
+                    if 'Chirp3-HD' in v.name
+                ]
                 return sorted(
-                    voices,
+                    filtered_voices,
                     key=lambda v: (
-                        'Chirp3-HD' not in v.name and 'Chirp-HD' not in v.name,
+                        'en-US' not in v.language_codes,  # Prefer en-US first
+                        'en-GB' not in v.language_codes,  # Then en-GB
+                        'en-AU' not in v.language_codes,  # Then en-AU  
                         v.name
                     )
                 )
 
-            voices_by_gender_lang = {
-                'Male': {lc: [] for lc in language_distribution},
-                'Female': {lc: [] for lc in language_distribution}
-            }
-
-            for v in male_voices:
-                for lc in language_distribution:
-                    if lc in v.language_codes:
-                        voices_by_gender_lang['Male'][lc].append(v)
-
-            for v in female_voices:
-                for lc in language_distribution:
-                    if lc in v.language_codes:
-                        voices_by_gender_lang['Female'][lc].append(v)
-
-            for gender in voices_by_gender_lang:
-                for lc in voices_by_gender_lang[gender]:
-                    voices_by_gender_lang[gender][lc] = sort_voices(voices_by_gender_lang[gender][lc])
-
-            used_speaking_rates = set()
-            rate_index = 0
-
-            def next_speaking_rate():
-                nonlocal rate_index
-                for _ in range(len(speaking_rates)):
-                    rate = speaking_rates[rate_index % len(speaking_rates)]
-                    rate_index += 1
-                    if rate not in used_speaking_rates:
-                        used_speaking_rates.add(rate)
-                        return rate
-                # If all rates are used, cycle through them again
-                return speaking_rates[rate_index % len(speaking_rates)]
-
-            selected_voice_objs = {g: {lc: [] for lc in language_distribution} for g in ['Male', 'Female']}
+            selected_voice_objs = {g: [] for g in ['Male', 'Female']}
 
             for gender in ['Male', 'Female']:
-                for lc, limit in gender_limits[gender].items():
-                    count = 0
-                    for voice in voices_by_gender_lang[gender][lc]:
-                        if count >= limit:
-                            break
-                        speaking_rate = next_speaking_rate()
-                        result[gender].append({
-                            'voice_id': voice.name,
-                            'language_codes': list(voice.language_codes),
-                            'speaking_rate': speaking_rate
-                        })
-                        selected_voice_objs[gender][lc].append(voice)
-                        count += 1
-
-            neutral_limits = gender_limits['Neutral']
-            for lc, limit in neutral_limits.items():
-                half = limit // 2
-                male_pool = selected_voice_objs['Male'][lc][:half]
-                female_pool = selected_voice_objs['Female'][lc][:half]
-                for voice in male_pool + female_pool:
-                    speaking_rate = next_speaking_rate()
-                    result['Neutral'].append({
+                count = 0
+                for voice in sort_voices(male_voices if gender == 'Male' else female_voices):
+                    if count >= target_voices_per_gender:
+                        break
+                    speaking_rate = speaking_rates[count % len(speaking_rates)]
+                    result[gender].append({
                         'voice_id': voice.name,
                         'language_codes': list(voice.language_codes),
                         'speaking_rate': speaking_rate
                     })
+                    selected_voice_objs[gender].append(voice)
+                    count += 1
+
+            neutral_voices = selected_voice_objs['Male'] + selected_voice_objs['Female']
+            for voice in neutral_voices:
+                speaking_rate = speaking_rates[len(result['Neutral']) % len(speaking_rates)]
+                result['Neutral'].append({
+                    'voice_id': voice.name,
+                    'language_codes': list(voice.language_codes),
+                    'speaking_rate': speaking_rate
+                })
         
         
             # Save the cache to file with timestamp

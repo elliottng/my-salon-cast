@@ -136,7 +136,7 @@ async def step2_podcast_generation(ctx: IntegrationTestContext) -> bool:
             ctx=mock_ctx,
             source_urls=TEST_URLS,
             prominent_persons=TEST_PERSONAS,
-            podcast_length="3 minutes"
+            podcast_length="15 minutes"
         )
         
         print(f"\n📋 Generation Result:")
