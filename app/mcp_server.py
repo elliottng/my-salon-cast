@@ -1325,9 +1325,17 @@ async def mcp_root(request):
                 "workflow_management": MANIFEST_DESCRIPTIONS["feature_workflow_management"]
             },
             "authentication": {
-                "type": "oauth2",
+                "type": "hybrid",
+                "methods": ["oauth2", "bearer"],
                 "required": True,
-                "scopes": ["mcp.read", "mcp.write"]
+                "oauth2": {
+                    "scopes": ["mcp.read", "mcp.write"],
+                    "flows": ["authorization_code", "client_credentials"]
+                },
+                "bearer": {
+                    "description": "API key authentication for server-to-server integration",
+                    "scopes": ["mcp.read", "mcp.write", "admin"]
+                }
             }
         }
         
