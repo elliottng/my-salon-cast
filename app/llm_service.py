@@ -223,10 +223,7 @@ class GeminiService:
         except asyncio.TimeoutError as e:
             logger.error(f"Pydantic AI call timed out after {timeout_seconds} seconds")
             logger.info("EXIT: generate_text_async with timeout")
-            # For backward compatibility, return error JSON for timeout
-            error_json = '{"error": "Gemini API timeout", "details": "API call timed out after ' + str(timeout_seconds) + ' seconds"}'
-            logger.error(f"Returning error JSON: {error_json}")
-            return error_json
+            raise TimeoutError(f"Gemini API timeout: API call timed out after {timeout_seconds} seconds") from e
             
         except ValidationError as e:
             logger.error(f"Pydantic validation error: {e}", exc_info=True)
@@ -237,8 +234,8 @@ class GeminiService:
         except UserError as e:
             logger.error(f"Pydantic AI user error: {e}", exc_info=True)
             logger.info("EXIT: generate_text_async with user error")
-            # Map to ValueError for backward compatibility
-            raise ValueError(str(e)) from e
+            # Re-raise UserError as it provides more specific error information than ValueError
+            raise
             
         except ModelRetry as e:
             logger.error(f"Pydantic AI model retry exhausted: {e}", exc_info=True)
@@ -566,80 +563,6 @@ class GeminiService:
         
         return podcast_outline
         
-    # The following method contains commented out code that was part of the original
-    # validation logic. Retained for reference or future reuse if needed.
-    def _original_validate_and_adjust_segments_logic(self):
-        """
-        Original validation logic notes (retained for backward compatibility or future use):    
-        If no duration provided for all segments, allocate based on ideal proportions:    
-            - Intro: ~10-15% 
-            - Body: ~70-80%
-            - Conclusion: ~10-15%
-        """
-        # This method is not called anywhere - it's just a placeholder for the old code
-        pass
-        
-        # Categorize segments example from old logic:
-        # for segment in segments:
-            # Example of old code:
-            # if "intro" in segment.segment_id.lower() or "introduction" in segment.segment_title.lower():
-            #     intro_segments.append(segment)
-            # elif "conclu" in segment.segment_id.lower() or "conclusion" in segment.segment_title.lower() \
-            #     or "outro" in segment.segment_id.lower() or "summary" in segment.segment_title.lower():
-            #     conclusion_segments.append(segment)
-            # else:
-            #     body_segments.append(segment)
-            # 
-            # # If categorization failed, make a best guess based on position
-            # if not intro_segments and not conclusion_segments and len(segments) >= 3:
-            #     intro_segments = [segments[0]]
-            #     conclusion_segments = [segments[-1]]
-            #     body_segments = segments[1:-1]
-            # elif not intro_segments and not conclusion_segments and len(segments) == 2:
-            #     intro_segments = [segments[0]]
-            #     conclusion_segments = [segments[1]]
-            #     body_segments = []
-            # elif not body_segments:
-            # # Create at least one body segment if none exist
-            # body_segments = [OutlineSegment(
-            #     segment_id="body_1",
-            #     segment_title="Main Discussion",
-            #     speaker_id="Host",
-            #     content_cue="Discuss the main points from the source material.",
-            #     estimated_duration_seconds=0
-            # )]
-            #
-            # # Calculate ideal durations based on proportions
-            # intro_duration = int(total_duration_seconds * 0.15)  # 15%
-            # conclusion_duration = int(total_duration_seconds * 0.15)  # 15%
-            # body_duration = total_duration_seconds - intro_duration - conclusion_duration  # 70%
-            # 
-            # # Distribute durations within each category
-            # if intro_segments:
-            #     per_intro_segment = intro_duration // len(intro_segments)
-            #     for segment in intro_segments:
-            #         segment.estimated_duration_seconds = per_intro_segment
-            # 
-            # if body_segments:
-            #     per_body_segment = body_duration // len(body_segments)
-            #     for segment in body_segments:
-            #         segment.estimated_duration_seconds = per_body_segment
-            # 
-            # if conclusion_segments:
-            #     per_conclusion_segment = conclusion_duration // len(conclusion_segments)
-            #     for segment in conclusion_segments:
-            #         segment.estimated_duration_seconds = per_conclusion_segment
-            # 
-            # # Recombine segments in proper order
-            # all_segments = intro_segments + body_segments + conclusion_segments
-        
-            # # Create updated outline with the same title/summary but adjusted segments
-            # return PodcastOutline(
-            #     title_suggestion=segments[0].segment_title if segments else "Generated Podcast",
-            #     summary_suggestion="A podcast discussing the provided content.",
-            #     segments=all_segments
-            # )
-    
     def _restructure_outline_segments(self, podcast_outline: PodcastOutline, total_duration_seconds: int) -> PodcastOutline:
         """
         Restructure outline to ensure it has intro, body, and conclusion segments
