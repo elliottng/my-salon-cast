@@ -1,10 +1,7 @@
 # Remove Sync Wrapper, Non-Pydantic AI Path & Separate REST API
 ## Pre-Implementation Checklist
 
-- [ ] Create feature branch: `remove-sync-legacy-rest`
-- [ ] Backup current working state
-- [ ] Ensure all current tests pass
-- [ ] Document any essential REST endpoints that need migration
+
 
 ## Phase 1: Remove Non-Pydantic AI Path ⭐ (Start Here - Lowest Risk)
 ### Files to Modify
@@ -32,50 +29,30 @@
 - [ ] Commit Phase 1: "Remove non-Pydantic AI legacy paths"
 - [ ] Tag: `phase1-non-pydantic-removed`
 
-## Phase 2: Delete Separate REST API ⭐ (Independent of MCP)
-### Files to Delete
+## Phase 2: Remove unneeded REST API functionality⭐
 
-- [ ] Delete `app/main.py` - entire file
-- [ ] Delete `app/validations.py` (verify not used by MCP first)
+### Overview
+Remove 11 redundant REST API endpoints from app/main.py to create a minimal API surface optimized for OpenAI function calling.
+**Goal**: Reduce from 15 endpoints to 4 essential endpoints
 
-### Files to Modify
+### Implementation Tasks
 
-- [ ] `pyproject.toml` - remove REST-only dependencies
-- [ ] Tests that import from `app.main`
-- [ ] Documentation
+#### Remove These 11 Endpoints
+- [ ] Delete `process_url_endpoint()` function
+- [ ] Delete `process_youtube_endpoint()` function  
+- [ ] Delete `generate_podcast_elements_endpoint()` function
+- [ ] Delete `get_segment_audio()` function
+- [ ] Delete `delete_task_status()` function
+- [ ] Delete `cancel_task()` function
+- [ ] Delete `get_queue_status()` function
+- [ ] Delete `list_task_statuses()` function
+- [ ] Delete `root()` function
+- [ ] Delete `get_health()` function
+- [ ] Remove all corresponding `@app.post()`, `@app.get()`, `@app.delete()` decorators
 
-### Tasks
-
-- [ ] Check dependencies: Run `uv tree` to see current dependencies
-- [ ] Identify REST-only packages: Look for packages only imported in `app/main.py`
-- [ ] Remove unused dependencies: `uv remove <package-name>` for each REST-only dep
-- [ ] Find tests using REST API: `find tests/ -name "*.py" -exec grep -l "app.main" {} \;`
-- [ ] Delete or update REST-specific tests
-- [ ] Optional: Migrate essential endpoints to `app/mcp_server.py` if needed
-
-#### UV Commands
-```bash
-# Check current dependencies
-uv tree
-
-# Remove REST-only dependencies (identify first)
-# uv remove <package-name>
-
-# Verify dependency tree after removal
-uv tree
-```
-
-### Validation
-
-- [ ] MCP server starts: `uv run python app/mcp_server.py`
-- [ ] All MCP functionality works
-- [ ] No import errors
-- [ ] Single server deployment successful
-
-### Git Checkpoint
-
-- [ ] Commit Phase 2: "Remove separate REST API and unused dependencies"
-- [ ] Tag: `phase2-rest-api-removed`
+#### Clean Up Imports
+- [ ] Remove unused imports after endpoint deletion
+- [ ] Remove unused models (`StatusListResponse` if not used elsewhere)
 
 ## Phase 3: Remove Sync Wrapper ⚠️ (Medium Risk - Task Runner Changes)
 ### Files to Modify
