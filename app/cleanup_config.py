@@ -26,67 +26,67 @@ class CleanupPolicy(str, Enum):
 
 class CleanupConfig(BaseModel):
     """Configuration model for cleanup policies."""
-    
+
     # Global default policy
     default_policy: CleanupPolicy = Field(
         default=CleanupPolicy.MANUAL,
         description="Default cleanup policy for all tasks"
     )
-    
+
     # Time-based settings
     auto_cleanup_hours: int = Field(
         default=24,
         description="Hours after completion before auto cleanup (for AUTO_AFTER_HOURS policy)"
     )
-    
+
     auto_cleanup_days: int = Field(
         default=7,
         description="Days after completion before auto cleanup (for AUTO_AFTER_DAYS policy)"
     )
-    
+
     # File type preferences
     retain_audio_files: bool = Field(
         default=True,
         description="Whether to retain final audio files during cleanup"
     )
-    
+
     retain_transcripts: bool = Field(
         default=True,
         description="Whether to retain transcript files during cleanup"
     )
-    
+
     retain_llm_outputs: bool = Field(
         default=False,
         description="Whether to retain LLM intermediate output files"
     )
-    
+
     retain_audio_segments: bool = Field(
         default=False,
         description="Whether to retain individual audio segment files"
     )
-    
+
     # Size limits
     max_temp_size_mb: int = Field(
         default=500,
         description="Maximum total size of temp files per task in MB"
     )
-    
+
     max_total_storage_gb: int = Field(
         default=5,
         description="Maximum total storage for all task files in GB"
     )
-    
+
     # Advanced options
     cleanup_on_startup: bool = Field(
         default=False,
         description="Whether to cleanup orphaned temp directories on server startup"
     )
-    
+
     enable_background_cleanup: bool = Field(
         default=True,
         description="Whether to enable background cleanup scheduler"
     )
-    
+
     background_cleanup_interval_minutes: int = Field(
         default=60,
         description="Interval in minutes between background cleanup checks"
@@ -95,16 +95,16 @@ class CleanupConfig(BaseModel):
 
 class CleanupManager:
     """Manages cleanup policies and configuration for MySalonCast."""
-    
+
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = config_path or os.path.join(
-            os.path.dirname(__file__), 
-            "..", 
-            "cleanup_config.json"
+            os.path.dirname(__file__),
+            "config",
+            "cleanup.json"
         )
         self._config: Optional[CleanupConfig] = None
         self._load_config()
-    
+
     def _load_config(self) -> None:
         """Load cleanup configuration from file or create default."""
         try:
@@ -120,31 +120,31 @@ class CleanupManager:
         except Exception as e:
             logger.error(f"Error loading cleanup config: {e}")
             self._config = CleanupConfig()
-    
+
     def _save_config(self) -> None:
         """Save current configuration to file."""
         try:
             # Ensure directory exists
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-            
+
             with open(self.config_path, 'w') as f:
                 json.dump(self._config.model_dump(), f, indent=2)
             logger.info(f"Saved cleanup config to {self.config_path}")
         except Exception as e:
             logger.error(f"Error saving cleanup config: {e}")
-    
+
     @property
     def config(self) -> CleanupConfig:
         """Get current cleanup configuration."""
         if self._config is None:
             self._load_config()
         return self._config
-    
+
     def update_config(self, **kwargs) -> CleanupConfig:
         """Update configuration with new values."""
         current_data = self.config.model_dump()
         current_data.update(kwargs)
-        
+
         try:
             self._config = CleanupConfig(**current_data)
             self._save_config()
@@ -153,21 +153,21 @@ class CleanupManager:
         except Exception as e:
             logger.error(f"Error updating cleanup config: {e}")
             raise ValueError(f"Invalid configuration update: {e}")
-    
+
     def get_policy_for_task(self, task_id: str) -> CleanupPolicy:
         """Get the cleanup policy for a specific task."""
         # In the future, this could support per-task policies
         # For now, return the default policy
         return self.config.default_policy
-    
+
     def should_cleanup_now(self, task_id: str, completion_time: float) -> bool:
         """Determine if a task should be cleaned up now based on policy."""
         import time
-        
+
         policy = self.get_policy_for_task(task_id)
         current_time = time.time()
         time_since_completion = current_time - completion_time
-        
+
         if policy == CleanupPolicy.MANUAL:
             return False
         elif policy == CleanupPolicy.AUTO_ON_COMPLETE:
@@ -183,14 +183,14 @@ class CleanupManager:
             return True
         elif policy == CleanupPolicy.RETAIN_ALL:
             return False
-        
+
         return False
-    
+
     def get_cleanup_rules(self, task_id: str) -> Dict[str, bool]:
         """Get cleanup rules for what files to remove for a task."""
         policy = self.get_policy_for_task(task_id)
         config = self.config
-        
+
         if policy == CleanupPolicy.RETAIN_ALL:
             return {
                 "audio_files": False,

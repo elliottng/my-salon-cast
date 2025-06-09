@@ -20,7 +20,7 @@ Choose your preferred method:
 git clone <repo-url>
 cd my-salon-cast
 uv sync
-cp .env.staging.template .env  # Edit with your values
+# Configure your .env file with required values
 uv run python -m app.mcp_server
 ```
 
@@ -28,7 +28,7 @@ uv run python -m app.mcp_server
 ```bash
 git clone <repo-url>
 cd my-salon-cast
-cp .env.staging.template .env  # Edit with your values
+# Configure your .env file with required values
 docker build -t my-salon-cast .
 docker run -p 8000:8000 --env-file .env my-salon-cast
 ```
@@ -40,10 +40,10 @@ The server will be available at `http://localhost:8000`
 - Python 3.11+
 - uv or Docker
 - Google Cloud SDK (for deployment)
-- **Environment Variables**: Copy `.env.staging.template` to `.env` and configure:
+- **Environment Variables**: Configure your environment variables:
   - `GEMINI_API_KEY` (required for podcast generation)
   - `PROJECT_ID` (your GCP project ID)
-  - Additional variables documented in template
+  - See `.env` file for current configuration
 
 ## 🏗️ Architecture
 
@@ -82,7 +82,7 @@ gcloud builds submit --config cloudbuild.yaml \
 # Same command with _ENV=production
 ```
 
-**📖 Detailed Deployment**: See [OAUTH_DEPLOYMENT_SUMMARY.md](./OAUTH_DEPLOYMENT_SUMMARY.md) for complete deployment guide.
+**📖 Detailed Deployment**: See [OAUTH_DEPLOYMENT_SUMMARY.md](./archive/OAUTH_DEPLOYMENT_SUMMARY.md) for complete deployment guide.
 
 ## 🧪 Testing
 
@@ -99,14 +99,16 @@ uv run pytest tests/test_generate_text_async.py
 
 ## 📚 Documentation
 
-- **[Setup Guide](./SETUP.md)** - Detailed development setup and configuration
 - **[Architecture](./ARCHITECTURE.md)** - Technical architecture and system design
-- **[API Documentation](./api_documentation_v1.md)** - REST API reference
-- **[MCP Setup Guide](./MCP_SETUP_GUIDE.md)** - Claude Desktop integration
-- **[OAuth Deployment](./OAUTH_DEPLOYMENT_SUMMARY.md)** - Authentication and deployment
-- **[CORS Configuration](./CORS_CONFIGURATION.md)** - Cross-origin setup
+- **[Authentication](./AUTHENTICATION.md)** - Authentication setup and configuration
 - **[Testing](./TESTING.md)** - Test suite documentation
-- **[Production Readiness](./production_readiness_checklist.md)** - Production deployment checklist
+
+### Archived Documentation
+- **[API Documentation](./archive/api_documentation_v1.md)** - REST API reference
+- **[MCP Setup Guide](./archive/MCP_SETUP_GUIDE.md)** - Claude Desktop integration
+- **[OAuth Deployment](./archive/OAUTH_DEPLOYMENT_SUMMARY.md)** - Authentication and deployment
+- **[CORS Configuration](./archive/CORS_CONFIGURATION.md)** - Cross-origin setup
+- **[Production Readiness](./archive/production_readiness_checklist.md)** - Production deployment checklist
 
 ## 🌐 Production URLs
 
@@ -127,7 +129,7 @@ Both environments support MCP connections from Claude.ai, OAuth 2.0 authenticati
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature-name`
-3. Follow the [Setup Guide](./SETUP.md) for local development
+3. Follow the local development setup instructions above
 4. Add tests and ensure they pass: `uv run pytest`
 5. Submit a pull request
 
