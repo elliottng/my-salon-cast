@@ -32,13 +32,13 @@ Create a working integration layer that leverages MySalonCast's existing sophist
 ### Quick Setup (15 minutes)
 
 - [ ] Create single Python file: `openai_functions.py`
-- [ ] Install dependencies: `pip install openai requests python-dotenv`
+- [ ] Install dependencies using UV: `uv add openai requests python-dotenv`
 - [ ] Set environment variables: `OPENAI_API_KEY`, `MYSALONCAST_API_URL`, `MYSALONCAST_API_KEY`
 - [ ] Add basic configuration validation
 
-### MySalonCast API Client (30 minutes)
+### OpenAI Functions Adapter (30 minutes)
 
-- [ ] Create `MySalonCastClient` class with session management
+- [ ] Create `OpenAIFunctionsAdapter` class with session management
 - [ ] Implement `generate_podcast_async()` method calling `POST /generate/podcast_async/`
 - [ ] Implement `upload_pdf()` method calling `POST /process/pdf/`
 - [ ] Implement `get_task_status()` method calling `GET /status/{task_id}`
@@ -59,7 +59,7 @@ Create a working integration layer that leverages MySalonCast's existing sophist
 - [ ] Create progress polling utility using existing `/status/{task_id}` endpoint
 - [ ] Parse `PodcastStatus` response for progress percentage and status
 - [ ] Map MySalonCast status stages to user-friendly messages
-- [ ] Format progress updates for Responses API consumption
+- [ ] Format progress updates for OpenAI Responses API consumption
 - [ ] Add completion detection and result extraction
 
 ### Progress Message Mapping (15 minutes)
@@ -126,9 +126,9 @@ Create a working integration layer that leverages MySalonCast's existing sophist
 
 ### Single File Organization (~300 lines)
 ```
-openai_functions.py
+openai_functions_adapter.py
 ├── Configuration and environment setup
-├── MySalonCastClient class
+├── OpenAIFunctionsAdapter class
 ├── Function handler implementations
 ├── Progress tracking utilities
 ├── Response formatting functions
@@ -171,4 +171,4 @@ openai_functions.py
 **Total implementation time:** ~4 hours  
 **Key focus:** Clean function interface for OpenAI Responses API integration with MySalonCast
 
-This creates a bridge layer that allows any application using OpenAI's Responses API to access MySalonCast's podcast generation capabilities with sophisticated progress tracking.
+This creates a bridge adapter layer that allows any application using OpenAI's Responses API to access MySalonCast's podcast generation capabilities with sophisticated progress tracking.
