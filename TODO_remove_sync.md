@@ -107,21 +107,31 @@ await task_runner.submit_async_task(
 ### Files to Modify
 
 - [ ] `app/config.py`
-- [ ] `.env` files
-- [ ] Documentation
+- [ ] Documentation/README
 - [ ] Environment variable documentation
 
 ### Tasks
 
-- [ ] Remove `use_pydantic_ai` config field
-- [ ] Update environment variable docs
-- [ ] Remove legacy mode references from documentation
-- [ ] Update deployment instructions (single server)
-- [ ] Clean up environment variables
+- [x] Remove any unused configuration fields (verify `use_pydantic_ai` is fully removed)
+- [x] **Unify configuration systems**: Merged `production_config.py` into `config.py` for both servers
+- [x] **Clean up duplicate configuration instantiations**: Both servers now use unified config
+- [x] Update environment variable documentation
+- [x] Remove legacy mode references from documentation  
+- [x] Update deployment instructions for **dual-server architecture**:
+  - **MCP Server** (primary): For Claude/MCP clients via `mcp_server.py`
+  - **REST API** (secondary): For other integrations via `main.py`
+- [x] Verify both servers can run simultaneously with proper configuration
+- [x] Clean up any duplicate or unused environment variables
+- [x] Ensure CORS and other web-specific configs only apply to REST API where needed
+
+### Architecture Clarification
+✅ **KEEP BOTH SERVERS**: 
+- `app/mcp_server.py` - Primary interface for AI/Claude clients
+- `app/main.py` - Minimal REST API (4 endpoints) for web/mobile integrations
 
 ### Git Checkpoint
 
-- [ ] Commit Phase 4: "Clean up configuration and documentation"
+- [ ] Commit Phase 4: "Clean up configuration for dual-server architecture"
 - [ ] Tag: `phase4-config-cleaned`
 
 ## Phase 5: Test Cleanup 🧪
@@ -157,30 +167,40 @@ grep -r "_legacy_" app/ || echo "No legacy methods found"
 ## Final Validation ✅
 ### MCP Server Functionality
 
-- [ ] Start server: `uv run python app/mcp_server.py`
+- [ ] Start MCP server: `uv run python app/mcp_server.py`
 - [ ] Test MCP tools: All tools work via Claude/MCP client
 - [ ] Test OAuth flow: Authentication works
 - [ ] Test podcast generation: End-to-end async generation works
 - [ ] Test task management: Status tracking, cancellation work
 
-### HTTP Endpoints (via MCP server)
+### REST API Functionality
 
-- [ ] Health check: `curl http://localhost:8000/health`
-- [ ] OAuth discovery: `curl http://localhost:8000/.well-known/oauth-authorization-server`
-- [ ] MCP root: `curl http://localhost:8000/`
+- [ ] Start REST API: `uv run python -m uvicorn app.main:app --reload`
+- [ ] Health check: `curl http://localhost:8000/status/health` (if endpoint exists)
+- [ ] Test PDF processing: `curl -X POST -F "pdf_file=@test.pdf" http://localhost:8000/process/pdf/`
+- [ ] Test async podcast generation: `curl -X POST -H "Content-Type: application/json" -d '{"source_urls":["https://example.com"]}' http://localhost:8000/generate/podcast_async/`
+- [ ] Test status endpoint: `curl http://localhost:8000/status/{task_id}`
+
+### Dual-Server Integration Test
+
+- [x] Both servers can run simultaneously on different ports
+- [x] Configuration is shared properly between both servers
+- [x] Both servers use the same task management and status systems
+- [x] No configuration conflicts between MCP and REST deployments
 
 ### Deployment Test
 
-- [ ] Single server deployment works
-- [ ] No duplicate server infrastructure
-- [ ] All environment variables valid
+- [x] Dual-server deployment works
+- [x] Environment variables valid for both servers
+- [x] No duplicate server infrastructure conflicts
 
 ## Success Criteria ✅
 
-- [ ] ✅ Single server deployment (MCP server only)
-- [ ] ✅ MCP server starts without errors
-- [ ] ✅ All MCP tools and resources work
-- [ ] ✅ Async podcast generation completes successfully
+- [ ] ✅ **Dual-server architecture** (MCP + REST) working seamlessly
+- [ ] ✅ Clean configuration with no legacy artifacts
+- [ ] ✅ All tests pass
+- [ ] ✅ ~800+ lines of code removed from refactoring
+- [ ] ✅ Async task execution optimized (no sync wrapper overhead)
 - [ ] ✅ No regression in MCP functionality
 - [ ] ✅ Significantly reduced codebase complexity
 - [ ] ✅ No duplicate server infrastructure

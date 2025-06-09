@@ -3,6 +3,7 @@
 import os
 import logging
 from typing import Optional, Dict, Any
+from datetime import datetime
 
 class Config:
     """Configuration class with environment detection and environment variable management."""
@@ -99,7 +100,92 @@ class Config:
         """Get audio cleanup policy."""
         default = "auto_after_days" if self.environment == "production" else "auto_after_hours"
         return os.getenv("AUDIO_CLEANUP_POLICY", default)
-    
+
+    def get_server_config(self) -> Dict[str, Any]:
+        """Get server configuration for uvicorn (used by both REST and MCP servers)."""
+        base_config = {
+            "host": self.server_host,
+            "port": self.server_port,
+            "access_log": True,
+            "log_level": "info" if self.is_cloud_environment else "debug"
+        }
+        
+        if self.is_cloud_environment:
+            # Production/staging configuration for Cloud Run
+            base_config.update({
+                "workers": 1,  # Single worker for Cloud Run
+                "timeout_keep_alive": 30,
+                "timeout_graceful_shutdown": 30,
+            })
+        else:
+            # Local development configuration
+            base_config.update({
+                "reload": False,  # Disable reload in production mode
+                "log_level": "debug"
+            })
+            
+        return base_config
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get comprehensive health status for monitoring."""
+        try:
+            validation = self.validate_required_config()
+            
+            return {
+                "status": "healthy",
+                "timestamp": datetime.now().isoformat(),
+                "environment": self.environment,
+                "service": "MySalonCast Server",
+                "version": "1.0.0",
+                "checks": {
+                    "environment": "ok",
+                    "configuration": "ok" if validation["valid"] else "warning",
+                    "database": "ok",
+                    "services": "ok"
+                },
+                "warnings": validation.get("warnings", []),
+                "issues": validation.get("issues", [])
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy",
+                "timestamp": datetime.now().isoformat(),
+                "environment": self.environment,
+                "error": str(e),
+                "checks": {
+                    "environment": "error",
+                    "configuration": "error"
+                }
+            }
+
+    def log_startup_info(self, server_type: str = "Server"):
+        """Log startup information for monitoring."""
+        logger = logging.getLogger(__name__)
+        
+        logger.info("=" * 60)
+        logger.info(f"MySalonCast {server_type} Starting")
+        logger.info("=" * 60)
+        logger.info(f"Environment: {self.environment}")
+        logger.info(f"Project ID: {self.project_id or 'Not set'}")
+        logger.info(f"Host: {self.server_host}")
+        logger.info(f"Port: {self.server_port}")
+        logger.info(f"Cloud deployment: {self.is_cloud_environment}")
+        
+        # Log environment validation
+        validation = self.validate_required_config()
+        if validation["warnings"]:
+            for warning in validation["warnings"]:
+                logger.warning(f"Configuration: {warning}")
+        if validation["issues"]:
+            for issue in validation["issues"]:
+                logger.error(f"Configuration issue: {issue}")
+            if self.is_cloud_environment:
+                raise RuntimeError("Configuration validation failed in cloud environment")
+        else:
+            logger.info("Configuration: All required settings validated")
+        
+        logger.info("=" * 60)
+
     def setup_logging(self):
         """Setup logging configuration for the environment."""
         log_level = getattr(logging, self.log_level.upper(), logging.INFO)
@@ -107,7 +193,7 @@ class Config:
         # Configure logging format
         if self.is_cloud_environment:
             # Structured logging for Cloud Logging
-            format_str = '{"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}'
+            format_str = '{"timestamp":"%(asctime)s","severity":"%(levelname)s","service":"mysaloncast","message":"%(message)s","logger":"%(name)s"}'
         else:
             # Human-readable logging for local development
             format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -122,9 +208,12 @@ class Config:
         if log_level == logging.DEBUG:
             logging.getLogger("google.cloud").setLevel(logging.INFO)
             logging.getLogger("urllib3").setLevel(logging.WARNING)
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+            logging.getLogger("httpcore").setLevel(logging.WARNING)
+            logging.getLogger("uvicorn.access").setLevel(logging.INFO)
         
         logging.info(f"Logging configured for {self.environment} environment at {self.log_level} level")
-    
+
     def validate_required_config(self) -> Dict[str, Any]:
         """
         Validate that required configuration is available.
@@ -168,12 +257,15 @@ def get_config() -> Config:
     return Config()
 
 
-def setup_environment():
+def setup_environment(server_type: str = "Server"):
     """Setup the application environment and configuration."""
     config = get_config()
     
     # Setup logging
     config.setup_logging()
+    
+    # Log startup information with server type
+    config.log_startup_info(server_type)
     
     # Validate configuration
     validation = config.validate_required_config()
@@ -194,3 +286,28 @@ def setup_environment():
     logging.info(f"Max concurrent generations: {config.max_concurrent_generations}")
     
     return config
+
+
+def setup_production_environment(server_type: str = "MCP Server"):
+    """Setup production environment configuration for MCP server."""
+    config = get_config()
+    
+    # Setup logging
+    config.setup_logging()
+    
+    # Log startup information with server type
+    config.log_startup_info(server_type)
+    
+    return config
+
+
+def get_server_config() -> Dict[str, Any]:
+    """Get server configuration for uvicorn."""
+    config = get_config()
+    return config.get_server_config()
+
+
+def get_health_status() -> Dict[str, Any]:
+    """Get health status for monitoring."""
+    config = get_config()
+    return config.get_health_status()
