@@ -117,9 +117,9 @@ class GeminiService:
             raise LLMNotInitializedError("API key for Gemini service is required. Set GEMINI_API_KEY environment variable or pass it directly.")
         
         genai.configure(api_key=api_key)
-        # Using gemini-1.5-pro-latest as per discussion.
+        # Using gemini-2.0-flash-exp as per upgrade to Gemini 2.0 Flash.
         # Consider making the model name configurable if needed in the future.
-        self.model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
         
         # Store TTS service for voice profile lookup
         self.tts_service = tts_service
@@ -132,7 +132,7 @@ class GeminiService:
         if self.use_pydantic_ai:
             logger.info("Initializing Pydantic AI agent for Gemini service")
             # Create Pydantic AI model with standard approach
-            pydantic_model = GeminiModel('gemini-1.5-pro')
+            pydantic_model = GeminiModel('gemini-2.0-flash-exp')
             # Create a generic agent that can handle both string and structured outputs
             self.pydantic_agent = Agent(
                 model=pydantic_model,
