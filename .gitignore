@@ -10,7 +10,6 @@ gcp-credentials.json
 
 # Environment variables
 .env
-env.yaml
 
 # Python
 .venv/
@@ -62,6 +61,11 @@ docs/security/
 *security*.md
 deployment-env.yaml
 
-# IDE
+# IDE settings
 .zed/
 .vscode/
+
+# AI Working Docs
+DRAFT_COMMITMSG.md
+DRAFT_*
+working/

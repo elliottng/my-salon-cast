@@ -8,7 +8,7 @@ PROMPT_DESCRIPTIONS = {
 
 🎯 WHEN TO USE:
 - "Create a podcast from this URL"
-- "I want [personas] to discuss this article" 
+- "I want [personas] to discuss this article"
 - "Make a podcast about [topic] with [people]"
 
 🔄 WORKFLOW:
@@ -56,7 +56,7 @@ Ideal for educators and researchers understanding historical figure representati
 
 📊 ANALYSIS TYPES:
 - outline: Structure and organization analysis
-- transcript: Full dialogue and content review  
+- transcript: Full dialogue and content review
 - personas: Character research and authenticity
 - summary: Overview with key metadata insights
 
@@ -104,37 +104,37 @@ RETURNS: task_id for monitoring with get_task_status()
     """,
     "get_task_status": """
     Get the status of an async podcast generation task.
-    
+
     Returns current status, progress percentage, and result when complete.
-    
+
     Args:
         task_id: The task ID returned by generate_podcast_async
-        
+
     Returns:
         Dict with status information and episode data when complete
     """,
     "cleanup_task_files": """
     Clean up files associated with a podcast generation task.
-    
+
     Removes temporary files, audio segments, and LLM output files for the specified task
     based on the configured cleanup policy or optional override.
 
     Args:
         task_id: The ID of the podcast generation task to clean up.
         policy_override: Override default cleanup policy for this operation.
-                         Options: "manual", "auto_on_complete", "auto_after_hours", 
+                         Options: "manual", "auto_on_complete", "auto_after_hours",
                                   "auto_after_days", "retain_audio_only", "retain_all".
-                                  
+
     Returns:
         A dictionary with cleanup status, files removed, and errors if any.
         Example: {"status": "success", "files_removed": 10, "errors": []}
     """,
     "configure_cleanup_policy": """
     Configure cleanup policies for MySalonCast file management.
-    
+
     Updates the global cleanup configuration settings that control how and when
     temporary files are cleaned up after podcast generation.
-    
+
     Args:
         default_policy: Default cleanup policy for new tasks.
         auto_cleanup_on_complete: Enable/disable auto cleanup when task completes.
@@ -146,32 +146,32 @@ RETURNS: task_id for monitoring with get_task_status()
         retain_audio_segments: Retain individual TTS audio segments.
         max_temp_size_mb: Maximum total size for temporary files.
         enable_background_cleanup: Enable/disable periodic background cleanup.
-        
+
     Returns:
         A dictionary confirming the updated cleanup configuration.
     """,
     "get_service_health": """
     Get health and performance metrics for MySalonCast services.
-    
+
     Returns current status and performance metrics for TTS service, task runner,
     and other critical components to help monitor service health in production.
-    
+
     Args:
         include_details: Whether to include detailed performance metrics
-    
+
     Returns:
         Dict with service health status and performance metrics
     """,
     "test_tts_service": """
     Test TTS service functionality and update health metrics.
-    
+
     This tool is specifically for testing and validating TTS health monitoring.
     It triggers TTS operations within the MCP server process to update metrics.
-    
+
     Args:
         text: Text to synthesize for testing.
         output_filename: Optional filename for the test audio output.
-    
+
     Returns:
         Dict with TTS operation result and basic metrics
     """,
@@ -183,7 +183,7 @@ RESOURCE_DESCRIPTIONS = {
 
 WHEN TO USE:
 ✅ "Show me detailed status for task abc123"
-✅ "What's the current progress?"  
+✅ "What's the current progress?"
 ✅ "Give me technical details about the job"
 
 CONTAINS:
@@ -199,7 +199,7 @@ DIFFERENCE FROM get_task_status() TOOL:
 EXAMPLE RESPONSE:
 {
     "task_id": "abc123",
-    "status": "generating_dialogue", 
+    "status": "generating_dialogue",
     "progress_percentage": 65.0,
     "current_step": "Creating conversation between Einstein and Tesla",
     "start_time": "2024-01-15T10:30:00Z",
@@ -415,21 +415,21 @@ USE CASES:
     """,
     "get_cleanup_config_resource": """
     Get current cleanup configuration and policy settings.
-    
+
     Returns the current cleanup policy configuration including default policies,
     retention settings, size limits, and background cleanup options.
     """,
 }
 
 MANIFEST_DESCRIPTIONS = {
-    "SERVER_NAME": "MySalonCast MCP Server",
-    "SERVER_DESCRIPTION": "AI-powered podcast generation platform with comprehensive content creation tools",
-    "SERVER_VERSION": "1.0.0",
-    "PROTOCOL_VERSION": "2024-11-05",
-    "FEATURE_PODCAST_GENERATION": "Generate high-quality podcasts from various content sources",
-    "FEATURE_CONTENT_ANALYSIS": "Analyze and extract insights from text, URLs, and documents",
-    "FEATURE_PERSONA_RESEARCH": "Research and create detailed persona profiles",
-    "FEATURE_VOICE_SYNTHESIS": "Multi-voice TTS with Google Cloud Text-to-Speech",
-    "FEATURE_CLOUD_STORAGE": "Secure cloud storage for podcast assets",
-    "FEATURE_WORKFLOW_MANAGEMENT": "End-to-end podcast creation workflow",
+    "server_name": "MySalonCast MCP Server",
+    "server_description": "AI-powered podcast generation platform with comprehensive content creation tools",
+    "server_version": "0.1.0",
+    "protocol_version": "2024-11-05",
+    "feature_podcast_generation": "Generate high-quality podcasts from various content sources",
+    "feature_content_analysis": "Analyze and extract insights from text, URLs, and documents",
+    "feature_persona_research": "Research and create detailed persona profiles",
+    "feature_voice_synthesis": "Multi-voice TTS with Google Cloud Text-to-Speech",
+    "feature_cloud_storage": "Secure cloud storage for podcast assets",
+    "feature_workflow_management": "End-to-end podcast creation workflow",
 }
