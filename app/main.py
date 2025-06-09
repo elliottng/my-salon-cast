@@ -12,8 +12,8 @@ from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.config import setup_environment, get_config
 
-# Setup environment and get configuration
-config = setup_environment()
+# Setup configuration and environment
+config = setup_environment("REST API")
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="MySalonCast API")

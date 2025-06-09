@@ -21,7 +21,7 @@ git clone <repo-url>
 cd my-salon-cast
 uv sync
 # Configure your .env file with required values
-uv run python -m app.mcp_server
+uv run python app/mcp_server.py
 ```
 
 **Option 2: Docker**
@@ -47,23 +47,53 @@ The server will be available at `http://localhost:8000`
 
 ## 🏗️ Architecture
 
-MySalonCast is a **Model Context Protocol (MCP) server** with the following key components:
+MySalonCast uses a **dual-server architecture** to provide flexible integration options:
 
+### Server Architecture
+- **MCP Server** (`app/mcp_server.py`): Primary interface for Claude/AI clients via Model Context Protocol
+- **REST API** (`app/main.py`): Minimal HTTP API (4 endpoints) for web/mobile integrations
+- **Shared Services**: Both servers share the same podcast generation pipeline and configuration
+
+### Core Components
 - **FastMCP Server**: Powers Claude integration with OAuth 2.0
 - **Podcast Generation Pipeline**: Multi-step AI-powered audio creation
 - **Google Cloud Integration**: TTS, Gemini LLM, and Cloud Storage
-- **RESTful API**: Traditional HTTP endpoints alongside MCP interface
+- **Unified Configuration**: Single config system for both servers
 
 ```
-Claude.ai ──── MCP Protocol ──── MySalonCast Server ──── Podcast Pipeline
-                                        │
-                                        ├── Google Cloud TTS
-                                        ├── Google Gemini LLM
-                                        ├── Cloud Storage (GCS)
-                                        └── Local SQLite Database
+Claude.ai ──── MCP Protocol ──── MCP Server ──── Podcast Pipeline
+                                      │               │
+Web/Mobile ─── HTTP/REST ────── REST API ─────────────┘
+                                      │
+                                 Shared Services:
+                                 ├── Google Cloud TTS
+                                 ├── Google Gemini LLM
+                                 ├── Cloud Storage (GCS)
+                                 └── Local SQLite Database
 ```
 
-**📖 Detailed Architecture**: See [ARCHITECTURE.md](./ARCHITECTURE.md) for comprehensive technical details.
+### Local Development
+
+**MCP Server (Primary - for Claude integration):**
+```bash
+uv run python app/mcp_server.py
+# Available at: http://localhost:8000
+```
+
+**REST API (Secondary - for other integrations):**
+```bash
+uv run python -m uvicorn app.main:app --reload
+# Available at: http://localhost:8000
+```
+
+**Both servers simultaneously (different ports):**
+```bash
+# Terminal 1: MCP Server
+PORT=8001 uv run python app/mcp_server.py
+
+# Terminal 2: REST API  
+PORT=8002 uv run python -m uvicorn app.main:app --reload --port 8002
+```
 
 ## 🚀 Deployment
 

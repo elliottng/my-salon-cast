@@ -7,7 +7,7 @@ from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.tts_service import GoogleCloudTtsService
 from app.llm_service import GeminiService
-from app.production_config import setup_production_environment, get_server_config, get_health_status
+from app.config import setup_production_environment, get_config, get_server_config, get_health_status
 from fastmcp.prompts.prompt import Message
 from pydantic import Field
 from typing import Literal, Optional, List
@@ -28,7 +28,7 @@ from app.mcp_descriptions import (
     RESOURCE_DESCRIPTIONS,
     MANIFEST_DESCRIPTIONS
 )
-from .mcp_utils import (
+from app.mcp_utils import (
     validate_task_id, validate_person_id, download_and_parse_json, 
     build_resource_response, get_task_status_or_error, 
     build_job_status_response, build_job_logs_response, build_job_warnings_response,
@@ -38,6 +38,7 @@ from .mcp_utils import (
 from app.logging_utils import log_mcp_tool_call, log_mcp_resource_access
 
 # Setup production environment and logging
+config = get_config()
 production_config = setup_production_environment()
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,6 @@ app = mcp.http_app(transport="sse")
 
 # Add CORS middleware first (before OAuth middleware)
 from fastapi.middleware.cors import CORSMiddleware
-from app.config import Config
-config = Config()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.cors_origins,
