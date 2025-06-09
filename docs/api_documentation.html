@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MySalonCast API Documentation</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .doc-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-left: 4px solid #667eea;
+        }
+        .endpoint-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .method {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9em;
+            margin-right: 10px;
+        }
+        .method.get { background: #d4edda; color: #155724; }
+        .method.post { background: #d1ecf1; color: #0c5460; }
+        .path {
+            font-family: 'Courier New', monospace;
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.95em;
+        }
+        .url-list {
+            background: #e8f5e8;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .url-list h3 {
+            margin-top: 0;
+            color: #155724;
+        }
+        .url-item {
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .feature-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            text-align: center;
+        }
+        .feature-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .command-box {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        .highlight {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>MySalonCast API Documentation</h1>
+        <p>Machine-readable OpenAPI schema and interactive documentation for the AI-powered podcast generation platform</p>
+    </div>
+
+    <div class="doc-section">
+        <h2>🚀 Quick Access to OpenAPI Documentation</h2>
+        
+        <div class="url-list">
+            <h3>Interactive Documentation URLs:</h3>
+            <div class="url-item">
+                <strong>Swagger UI:</strong> http://localhost:8002/docs
+            </div>
+            <div class="url-item">
+                <strong>ReDoc:</strong> http://localhost:8002/redoc
+            </div>
+            <div class="url-item">
+                <strong>Raw OpenAPI JSON:</strong> http://localhost:8002/openapi.json
+            </div>
+        </div>
+
+        <div class="highlight">
+            <strong>💡 Pro Tip:</strong> The Swagger UI at <code>/docs</code> lets you test API endpoints directly in your browser!
+        </div>
+    </div>
+
+    <div class="doc-section">
+        <h2>📋 API Endpoints Overview</h2>
+        
+        <div class="endpoint-card">
+            <div><span class="method post">POST</span><span class="path">/process/pdf/</span></div>
+            <p><strong>Extract Text from PDF</strong> - Upload and extract text content from PDF documents</p>
+            <p><em>Tag: content</em></p>
+        </div>
+
+        <div class="endpoint-card">
+            <div><span class="method post">POST</span><span class="path">/generate/podcast_async/</span></div>
+            <p><strong>Start Podcast Generation</strong> - Begin AI-powered podcast creation from content sources</p>
+            <p><em>Tag: generation</em></p>
+        </div>
+
+        <div class="endpoint-card">
+            <div><span class="method get">GET</span><span class="path">/podcast/{podcast_id}/audio</span></div>
+            <p><strong>Stream Podcast Audio</strong> - Access completed podcast with web player</p>
+            <p><em>Tag: playback</em></p>
+        </div>
+
+        <div class="endpoint-card">
+            <div><span class="method get">GET</span><span class="path">/status/{task_id}</span></div>
+            <p><strong>Get Task Status</strong> - Monitor podcast generation progress and results</p>
+            <p><em>Tag: status</em></p>
+        </div>
+    </div>
+
+    <div class="doc-section">
+        <h2>🛠️ Exporting OpenAPI Schema</h2>
+        
+        <p>Use the included export script to generate machine-readable OpenAPI documentation:</p>
+        
+        <div class="command-box">
+# Export to default file (openapi.json)
+uv run python scripts/export_openapi.py
+
+# Export to custom location
+uv run python scripts/export_openapi.py --output docs/api_schema.json
+
+# Export from different server
+uv run python scripts/export_openapi.py --url https://api.mysaloncast.com
+        </div>
+
+        <p>The exported JSON file can be used with:</p>
+        <ul>
+            <li><strong>API Client Generators</strong> - Generate SDKs for Python, JavaScript, Java, etc.</li>
+            <li><strong>Documentation Tools</strong> - Create custom API documentation websites</li>
+            <li><strong>Testing Tools</strong> - Validate API responses and generate test cases</li>
+            <li><strong>API Gateways</strong> - Import into AWS API Gateway, Azure API Management, etc.</li>
+        </ul>
+    </div>
+
+    <div class="doc-section">
+        <h2>🎯 Key Features</h2>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <div class="feature-icon">📄</div>
+                <h3>OpenAPI 3.1.0</h3>
+                <p>Latest OpenAPI specification with JSON Schema support</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🏷️</div>
+                <h3>Organized Tags</h3>
+                <p>Endpoints grouped by functionality (content, generation, playback, status)</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📖</div>
+                <h3>Rich Documentation</h3>
+                <p>Comprehensive descriptions, examples, and usage guidance</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔧</div>
+                <h3>Interactive Testing</h3>
+                <p>Test endpoints directly in Swagger UI with live server</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="doc-section">
+        <h2>📚 Additional Resources</h2>
+        
+        <ul>
+            <li><strong>OpenAPI Specification:</strong> <a href="https://spec.openapis.org/oas/v3.1.0" target="_blank">https://spec.openapis.org/oas/v3.1.0</a></li>
+            <li><strong>FastAPI Documentation:</strong> <a href="https://fastapi.tiangolo.com" target="_blank">https://fastapi.tiangolo.com</a></li>
+            <li><strong>OpenAPI Generator:</strong> <a href="https://openapi-generator.tech" target="_blank">https://openapi-generator.tech</a></li>
+            <li><strong>Swagger Tools:</strong> <a href="https://swagger.io/tools" target="_blank">https://swagger.io/tools</a></li>
+        </ul>
+    </div>
+</body>
+</html>
