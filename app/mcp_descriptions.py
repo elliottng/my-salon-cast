@@ -16,7 +16,6 @@ PROMPT_DESCRIPTIONS = {
 2. Monitor progress with get_task_status()
 3. Access results via podcast resources
 4. Analyze personas via research resources
-5. Optional cleanup with cleanup_task_files()
 
 📋 FEATURES:
 - Multiple URLs and persona combinations
@@ -112,68 +111,6 @@ RETURNS: task_id for monitoring with get_task_status()
 
     Returns:
         Dict with status information and episode data when complete
-    """,
-    "cleanup_task_files": """
-    Clean up files associated with a podcast generation task.
-
-    Removes temporary files, audio segments, and LLM output files for the specified task
-    based on the configured cleanup policy or optional override.
-
-    Args:
-        task_id: The ID of the podcast generation task to clean up.
-        policy_override: Override default cleanup policy for this operation.
-                         Options: "manual", "auto_on_complete", "auto_after_hours",
-                                  "auto_after_days", "retain_audio_only", "retain_all".
-
-    Returns:
-        A dictionary with cleanup status, files removed, and errors if any.
-        Example: {"status": "success", "files_removed": 10, "errors": []}
-    """,
-    "configure_cleanup_policy": """
-    Configure cleanup policies for MySalonCast file management.
-
-    Updates the global cleanup configuration settings that control how and when
-    temporary files are cleaned up after podcast generation.
-
-    Args:
-        default_policy: Default cleanup policy for new tasks.
-        auto_cleanup_on_complete: Enable/disable auto cleanup when task completes.
-        auto_cleanup_after_hours: Hours after completion to auto cleanup.
-        auto_cleanup_after_days: Days after completion to auto cleanup.
-        retain_audio_files: Retain final audio files.
-        retain_transcripts: Retain final transcript files.
-        retain_llm_outputs: Retain LLM output files (outlines, research).
-        retain_audio_segments: Retain individual TTS audio segments.
-        max_temp_size_mb: Maximum total size for temporary files.
-        enable_background_cleanup: Enable/disable periodic background cleanup.
-
-    Returns:
-        A dictionary confirming the updated cleanup configuration.
-    """,
-    "get_service_health": """
-    Get health and performance metrics for MySalonCast services.
-
-    Returns current status and performance metrics for TTS service, task runner,
-    and other critical components to help monitor service health in production.
-
-    Args:
-        include_details: Whether to include detailed performance metrics
-
-    Returns:
-        Dict with service health status and performance metrics
-    """,
-    "test_tts_service": """
-    Test TTS service functionality and update health metrics.
-
-    This tool is specifically for testing and validating TTS health monitoring.
-    It triggers TTS operations within the MCP server process to update metrics.
-
-    Args:
-        text: Text to synthesize for testing.
-        output_filename: Optional filename for the test audio output.
-
-    Returns:
-        Dict with TTS operation result and basic metrics
     """,
 }
 
@@ -324,33 +261,6 @@ USE CASES:
 
 ⚠️ PREREQUISITE: Audio generation is the final step - verify status="completed" first.""",
 
-    "get_podcast_metadata_resource": """Get comprehensive metadata for a completed podcast episode.
-
-📊 COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
-
-WHEN TO USE:
-- "Tell me about my podcast" (after completion)
-- "What's the episode information?"
-- "What personas were used?"
-- "What sources were used?"
-
-CONTAINS:
-- Episode title and description
-- Creation and completion timestamps
-- Source attributions (URLs/documents used)
-- Persona information and person_ids
-- Duration and technical details
-
-PERSONA DISCOVERY: Use person_ids from metadata with research://{task_id}/{person_id}
-
-USE CASES:
-- Episode information for publishing
-- Source verification and attribution
-- Persona discovery for research access
-- Quality and performance assessment
-
-⚠️ PREREQUISITE: Check get_task_status() for completion before accessing metadata.""",
-
     "get_podcast_outline_resource": """Get the structural outline and segment organization of a completed podcast.
 
 🗂️ COMPLETION-REQUIRED RESOURCE - Only available after status="completed"
@@ -408,17 +318,6 @@ USE CASES:
 - Content validation of persona representation
 
 ⚠️ PREREQUISITE: Use exact person_id from metadata after verifying completion.""",
-
-    "get_cleanup_status_resource": """
-    Get cleanup status and options for task files.
-    Provides information about temporary files and cleanup policies.
-    """,
-    "get_cleanup_config_resource": """
-    Get current cleanup configuration and policy settings.
-
-    Returns the current cleanup policy configuration including default policies,
-    retention settings, size limits, and background cleanup options.
-    """,
 }
 
 MANIFEST_DESCRIPTIONS = {

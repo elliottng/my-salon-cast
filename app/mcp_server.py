@@ -5,7 +5,6 @@ from app.podcast_workflow import PodcastGeneratorService
 from app.podcast_models import PodcastRequest, PodcastEpisode
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
-from app.cleanup_config import cleanup_manager, get_cleanup_manager, CleanupPolicy
 from app.tts_service import GoogleCloudTtsService
 from app.llm_service import GeminiService
 from app.production_config import setup_production_environment, get_server_config, get_health_status
@@ -21,8 +20,6 @@ import base64
 import mimetypes
 from pathlib import Path
 import logging
-import glob
-import shutil
 import json
 import asyncio
 from app.mcp_descriptions import (
@@ -36,9 +33,7 @@ from .mcp_utils import (
     build_resource_response, get_task_status_or_error, 
     build_job_status_response, build_job_logs_response, build_job_warnings_response,
     handle_resource_error, collect_file_info,
-    build_podcast_transcript_response, build_podcast_audio_response, build_podcast_metadata_response,
-    collect_directory_info, collect_multiple_files_info, collect_and_delete_file_info,
-    collect_llm_files_info, collect_and_delete_llm_files
+    build_podcast_transcript_response, build_podcast_audio_response
 )
 from app.logging_utils import log_mcp_tool_call, log_mcp_resource_access
 
@@ -50,7 +45,6 @@ logger = logging.getLogger(__name__)
 podcast_service = PodcastGeneratorService()
 status_manager = get_status_manager()
 task_runner = get_task_runner()
-cleanup_manager = get_cleanup_manager()
 logger.info("Services initialized for MCP.")
 
 # Initialize the FastMCP server with correct API
@@ -222,386 +216,34 @@ async def generate_podcast_async(
 # Get status of async task
 @mcp.tool(description=TOOL_DESCRIPTIONS["get_task_status"])
 async def get_task_status(ctx, task_id: str) -> dict:
-    # Use standardized logging
-    request_id, client_info = log_mcp_tool_call("get_task_status", ctx, f"for task: {task_id}")
+    # Enhanced logging with MCP context 
+    request_id = getattr(ctx, 'request_id', 'unknown')
+    logger.info(f"[{request_id}] MCP Tool 'get_task_status' called for task_id: {task_id}")
     
-    # Basic input validation
     if not task_id or not task_id.strip():
         raise ToolError("task_id is required")
     
     try:
-        status_manager = get_status_manager()
+        # Get current status from StatusManager
         status_info = status_manager.get_status(task_id)
         
-        if status_info:
+        if not status_info:
+            logger.warning(f"[{request_id}] Task {task_id} not found")
             return {
-                "success": True,
-                "task_id": task_id,
-                "status": status_info.status,
-                "progress_percentage": status_info.progress_percentage,
-                "result": status_info.result_episode.model_dump() if status_info.result_episode else None
+                "task_id": task_id, 
+                "status": "not_found",
+                "message": f"Task {task_id} not found"
             }
-        else:
-            raise ToolError(f"Task {task_id} not found")
+        
+        logger.info(f"[{request_id}] Retrieved status for task {task_id}: {status_info.status}")
+        return {"status": "success", "data": status_info}
+        
     except Exception as e:
-        raise ToolError("Failed to retrieve task status", str(e))
-
-# Phase 4.3b: File Cleanup Management Tool
-
-@mcp.tool(description=TOOL_DESCRIPTIONS["cleanup_task_files"])
-async def cleanup_task_files(
-    ctx,  # MCP context for request correlation
-    task_id: str = Field(..., description="Task ID to clean up files for"),
-    force_cleanup: bool = Field(False, description="Force cleanup even if task is not completed"),
-    cleanup_temp_dirs: bool = Field(True, description="Whether to clean up temporary directories")
-) -> dict:
-    # Use standardized logging
-    request_id, client_info = log_mcp_tool_call("cleanup_task_files", ctx, f"for task_id: {task_id}")
-    
-    # Basic input validation
-    if not task_id or not task_id.strip():
-        raise ToolError("task_id is required")
-    
-    if len(task_id) < 10 or len(task_id) > 100:
-        raise ToolError("Invalid task_id format")
-    
-    # Validate task and ownership
-    status_info = _validate_task_ownership(task_id)
-    
-    if not force_cleanup and status_info.status not in ["completed", "failed", "cancelled"]:
-        raise ToolError(f"Task {task_id} is not completed. Use force_cleanup=true to clean up anyway.")
-    
-    logger.info(f"[{request_id}] Starting cleanup for task {task_id} (force={force_cleanup})")
-    
-    cleaned_files = []
-    total_size_cleaned = 0
-    errors = []
-    
-    try:
-        episode = status_info.result_episode
-        
-        if episode:
-            # Clean up main audio file
-            if episode.audio_filepath:
-                main_audio_cleaned = collect_and_delete_file_info(episode.audio_filepath, "main_audio")
-                cleaned_files.append(main_audio_cleaned)
-                if main_audio_cleaned.get("deleted"):
-                    total_size_cleaned += main_audio_cleaned["size"]
-                    logger.info(f"[{request_id}] Cleaned main audio file: {episode.audio_filepath}")
-                elif main_audio_cleaned.get("delete_error"):
-                    errors.append(f"Failed to clean main audio file: {main_audio_cleaned['delete_error']}")
-            
-            # Clean up audio segments
-            if episode.dialogue_turn_audio_paths:
-                for i, segment_path in enumerate(episode.dialogue_turn_audio_paths):
-                    if segment_path:
-                        segment_cleaned = collect_and_delete_file_info(segment_path, "audio_segment", segment_index=i)
-                        cleaned_files.append(segment_cleaned)
-                        if segment_cleaned.get("deleted"):
-                            total_size_cleaned += segment_cleaned["size"]
-                            logger.info(f"[{request_id}] Cleaned audio segment {i}: {segment_path}")
-                        elif segment_cleaned.get("delete_error"):
-                            errors.append(f"Failed to clean audio segment {i}: {segment_cleaned['delete_error']}")
-            
-            # Clean up LLM files using utility
-            llm_files_cleaned = collect_and_delete_llm_files(episode)
-            cleaned_files.extend(llm_files_cleaned)
-            for llm_file in llm_files_cleaned:
-                if llm_file.get("deleted"):
-                    total_size_cleaned += llm_file["size"]
-                    logger.info(f"[{request_id}] Cleaned LLM file: {llm_file['path']}")
-                elif llm_file.get("delete_error"):
-                    errors.append(f"Failed to clean LLM file {llm_file['type']}: {llm_file['delete_error']}")
-        
-        # Clean up temporary directories if requested
-        temp_dirs_cleaned = []
-        if cleanup_temp_dirs:
-            import glob
-            temp_pattern = os.path.join(tempfile.gettempdir(), "podcast_job_*")
-            for temp_dir in glob.glob(temp_pattern):
-                if task_id[:8] in temp_dir and os.path.isdir(temp_dir):
-                    try:
-                        # Get directory info before deletion
-                        dir_info = collect_directory_info(temp_dir)
-                        shutil.rmtree(temp_dir)
-                        temp_dirs_cleaned.append({
-                            "path": temp_dir,
-                            "size": dir_info["size"],
-                            "file_count": dir_info["file_count"],
-                            "deleted": True
-                        })
-                        total_size_cleaned += dir_info["size"]
-                        logger.info(f"[{request_id}] Cleaned temporary directory: {temp_dir}")
-                    except Exception as e:
-                        temp_dirs_cleaned.append({
-                            "path": temp_dir,
-                            "size": 0,
-                            "file_count": 0,
-                            "deleted": False,
-                            "error": str(e)
-                        })
-                        errors.append(f"Failed to clean temp directory: {str(e)}")
-        
-        logger.info(f"[{request_id}] Cleanup completed for task {task_id}. Files: {len(cleaned_files)}, Size: {total_size_cleaned} bytes")
-        
+        logger.error(f"[{request_id}] Error getting task status: {e}")
         return {
-            "success": True,
             "task_id": task_id,
-            "files_cleaned": len(cleaned_files),
-            "temp_directories_cleaned": len(temp_dirs_cleaned),
-            "total_size_cleaned": total_size_cleaned,
-            "cleaned_files": cleaned_files,
-            "temp_directories": temp_dirs_cleaned,
-            "errors": errors,
-            "cleanup_timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"[{request_id}] Cleanup failed for task {task_id}: {str(e)}")
-        raise ToolError(f"Failed to clean up task files: {str(e)}")
-
-@mcp.resource("files://{task_id}/cleanup", description=RESOURCE_DESCRIPTIONS["get_cleanup_status_resource"])
-async def get_cleanup_status_resource(task_id: str) -> dict:
-    log_mcp_resource_access("get_cleanup_status_resource", task_id=task_id)
-    
-    # Validate inputs using utility
-    validate_task_id(task_id)
-    
-    try:
-        task_json = download_and_parse_json(task_id, "cleanup")
-        
-        if task_json is None:
-            handle_resource_error(Exception("Task not found or not completed"), task_id, "get cleanup status")
-        
-        episode = get_task_status_or_error(task_json)
-        
-        # Collect file information using utilities
-        files_info = []
-        total_size = 0
-        
-        # Main audio file
-        if episode.audio_filepath:
-            main_audio_info = collect_file_info(episode.audio_filepath, "main_audio")
-            files_info.append(main_audio_info)
-            total_size += main_audio_info["size"]
-        
-        # Audio segments
-        if episode.dialogue_turn_audio_paths:
-            segment_files = collect_multiple_files_info(
-                episode.dialogue_turn_audio_paths, 
-                "audio_segment", 
-                add_index=True
-            )
-            files_info.extend(segment_files)
-            total_size += sum(f["size"] for f in segment_files)
-        
-        # LLM output files
-        llm_files = collect_llm_files_info(episode)
-        files_info.extend(llm_files)
-        total_size += sum(f["size"] for f in llm_files)
-        
-        # Temporary directories
-        temp_dirs_info = []
-        import glob
-        temp_pattern = os.path.join(tempfile.gettempdir(), "podcast_job_*")
-        for temp_dir in glob.glob(temp_pattern):
-            if task_id[:8] in temp_dir:
-                temp_dir_info = collect_directory_info(temp_dir)
-                temp_dirs_info.append(temp_dir_info)
-                total_size += temp_dir_info["size"]
-        
-        # Prepare response using utility
-        return build_resource_response(
-            "success",
-            {
-                "task_id": task_id,
-                "files_to_cleanup": files_info,
-                "temp_directories": temp_dirs_info,
-                "total_size": total_size,
-                "file_count": len(files_info),
-                "temp_dir_count": len(temp_dirs_info),
-                "cleanup_available": True,
-                "warnings": []
-            }
-        )
-        
-    except Exception as e:
-        return handle_resource_error(e, task_id, "get cleanup status")
-
-@mcp.resource("config://cleanup", description=RESOURCE_DESCRIPTIONS["get_cleanup_config_resource"])
-async def get_cleanup_config_resource() -> dict:
-    log_mcp_resource_access("get_cleanup_config_resource")
-    
-    config = cleanup_manager.config
-    
-    return {
-        "cleanup_policies": {
-            "current_default": config.default_policy,
-            "available_policies": [p.value for p in CleanupPolicy],
-            "policy_descriptions": {
-                "manual": "No automatic cleanup, require explicit cleanup_task_files calls",
-                "auto_on_complete": "Cleanup immediately when task completes",
-                "auto_after_hours": "Cleanup after specified hours since completion",
-                "auto_after_days": "Cleanup after specified days since completion", 
-                "retain_audio_only": "Keep only final audio, remove temp files",
-                "retain_all": "Never cleanup (for development/testing)"
-            }
-        },
-        "timing_settings": {
-            "auto_cleanup_hours": config.auto_cleanup_hours,
-            "auto_cleanup_days": config.auto_cleanup_days
-        },
-        "retention_settings": {
-            "retain_audio_files": config.retain_audio_files,
-            "retain_transcripts": config.retain_transcripts,
-            "retain_llm_outputs": config.retain_llm_outputs,
-            "retain_audio_segments": config.retain_audio_segments
-        },
-        "size_limits": {
-            "max_temp_size_mb": config.max_temp_size_mb,
-            "max_total_storage_gb": config.max_total_storage_gb
-        },
-        "background_cleanup": {
-            "enabled": config.enable_background_cleanup,
-            "cleanup_on_startup": config.cleanup_on_startup,
-            "interval_minutes": config.background_cleanup_interval_minutes
-        },
-        "configuration": {
-            "config_file": cleanup_manager.config_path,
-            "last_modified": os.path.getmtime(cleanup_manager.config_path) if os.path.exists(cleanup_manager.config_path) else None
-        }
-    }
-
-# =============================================================================
-# HEALTH AND MONITORING TOOLS
-# =============================================================================
-
-@mcp.tool(description=TOOL_DESCRIPTIONS["get_service_health"])
-async def get_service_health(ctx, include_details: bool = True) -> dict:
-    # Enhanced logging with MCP context
-    request_id = getattr(ctx, 'request_id', 'unknown')
-    logger.info(f"[{request_id}] MCP Tool 'get_service_health' called")
-    
-    try:
-        # Get TTS service metrics
-        tts_metrics = GoogleCloudTtsService.get_current_metrics()
-        
-        # Get task runner status
-        task_runner_status = {
-            "active_tasks": len(task_runner.active_tasks) if hasattr(task_runner, 'active_tasks') else 0,
-            "total_completed": getattr(task_runner, 'total_completed', 0)
-        }
-        
-        # Get status manager info
-        status_count = len(status_manager.statuses) if hasattr(status_manager, 'statuses') else 0
-        
-        # Overall health assessment
-        tts_healthy = tts_metrics.get("executor_status") == "healthy"
-        overall_health = "healthy" if tts_healthy else "degraded"
-        
-        health_data = {
-            "overall_health": overall_health,
-            "timestamp": datetime.now().isoformat(),
-            "services": {
-                "tts_service": tts_metrics,
-                "task_runner": task_runner_status,
-                "status_manager": {
-                    "tracked_tasks": status_count
-                }
-            },
-            "recommendations": []
-        }
-        
-        # Add performance recommendations
-        if tts_metrics.get("worker_utilization_pct", 0) > 80:
-            health_data["recommendations"].append("High TTS worker utilization - consider scaling")
-        
-        if tts_metrics.get("queue_size", 0) > 20:
-            health_data["recommendations"].append("Large TTS queue - audio generation may be delayed")
-        
-        if tts_metrics.get("success_rate_pct", 100) < 95:
-            health_data["recommendations"].append("Low TTS success rate - check Google Cloud TTS API status")
-        
-        return {
-            "success": True,
-            "health_data": health_data
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting service health: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": f"Failed to retrieve service health: {str(e)}",
-            "health_data": {
-                "overall_health": "error",
-                "services": {},
-                "recommendations": ["Service health monitoring is experiencing issues"]
-            }
-        }
-
-@mcp.tool(description=TOOL_DESCRIPTIONS["test_tts_service"])
-async def test_tts_service(ctx, text: str = "Health monitoring test", output_filename: Optional[str] = None) -> dict:
-    import tempfile
-    import os
-    
-    # Enhanced logging with MCP context
-    request_id = getattr(ctx, 'request_id', 'unknown')
-    
-    logger.info(f"[{request_id}] MCP Tool 'test_tts_service' called")
-    logger.info(f"[{request_id}] Testing TTS with text: '{text[:50]}...'")
-    
-    try:
-        # Create output path
-        if output_filename:
-            output_path = os.path.join(tempfile.gettempdir(), output_filename)
-        else:
-            temp_fd, output_path = tempfile.mkstemp(suffix='.wav', prefix='tts_health_test_')
-            os.close(temp_fd)  # Close the file descriptor, keep the path
-        
-        # Get TTS metrics before operation
-        initial_metrics = GoogleCloudTtsService.get_current_metrics()
-        initial_jobs = initial_metrics.get('total_jobs_completed', 0)
-        
-        logger.info(f"[{request_id}] TTS metrics before operation: {initial_jobs} jobs completed")
-        
-        # Trigger TTS operation within MCP server process
-        tts_service = GoogleCloudTtsService()
-        await tts_service.text_to_audio_async(text, output_path)
-        
-        # Get TTS metrics after operation  
-        final_metrics = GoogleCloudTtsService.get_current_metrics()
-        final_jobs = final_metrics.get('total_jobs_completed', 0)
-        
-        logger.info(f"[{request_id}] TTS metrics after operation: {final_jobs} jobs completed")
-        logger.info(f"[{request_id}] TTS test completed successfully: {output_path}")
-        
-        # Check if file was created
-        file_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
-        
-        return {
-            "success": True,
-            "message": "TTS service test completed successfully",
-            "output_path": output_path,
-            "file_size_bytes": file_size,
-            "metrics": {
-                "jobs_before": initial_jobs,
-                "jobs_after": final_jobs,
-                "jobs_incremented": final_jobs - initial_jobs,
-                "executor_status": final_metrics.get('executor_status', 'unknown'),
-                "success_rate": final_metrics.get('success_rate_pct', 0)
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"[{request_id}] TTS service test failed: {e}")
-        return {
-            "success": False,
-            "error": f"TTS service test failed: {str(e)}",
-            "metrics": {
-                "jobs_before": initial_jobs if 'initial_jobs' in locals() else 0,
-                "jobs_after": 0,
-                "jobs_incremented": 0
-            }
+            "status": "error", 
+            "error": f"Failed to get task status: {str(e)}"
         }
 
 # =============================================================================
@@ -669,16 +311,6 @@ async def get_podcast_audio_resource(task_id: str) -> dict:
         return build_podcast_audio_response(task_id, status_info.result_episode)
     except Exception as e:
         handle_resource_error(e, task_id, "retrieve podcast audio")
-
-@mcp.resource("podcast://{task_id}/metadata", description=RESOURCE_DESCRIPTIONS["get_podcast_metadata_resource"])
-async def get_podcast_metadata_resource(task_id: str) -> dict:
-    logger.info(f"Resource 'podcast metadata' accessed for task_id: {task_id}")
-    
-    try:
-        status_info = await get_task_status_or_error(status_manager, task_id, require_episode=True)
-        return build_podcast_metadata_response(task_id, status_info.result_episode)
-    except Exception as e:
-        handle_resource_error(e, task_id, "retrieve podcast metadata")
 
 @mcp.resource("outline://{task_id}", description=RESOURCE_DESCRIPTIONS["get_podcast_outline_resource"])
 async def get_podcast_outline_resource(task_id: str) -> dict:
