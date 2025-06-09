@@ -16,24 +16,17 @@ from pydantic import ValidationError
 import aiohttp
 from .database import PodcastStatusDB
 from .common_exceptions import PodcastGenerationError
-from .status_manager import get_status_manager, PodcastStatus
+from .status_manager import get_status_manager
 from .storage_utils import ensure_directory_exists
-
-# Add the project root to the Python path so we can import modules correctly
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-# Now we can import from app directly
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastStatus, PodcastRequest
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastRequest
 from app.common_exceptions import LLMProcessingError, ExtractionError
 from app.content_extractor import (
     extract_content_from_url, 
     extract_text_from_pdf_path, 
-    extract_transcript_from_youtube,
-    ExtractionError
+    extract_transcript_from_youtube
 )
 from app.llm_service import GeminiService
 from app.tts_service import GoogleCloudTtsService
-from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.storage import CloudStorageManager
 from app.config import setup_environment
@@ -161,12 +154,14 @@ class PodcastGeneratorService:
         """
         status_manager = get_status_manager()
         
+        # Initialize variables that will be used in finally block
+        import threading
+        current_thread = threading.current_thread()
+        
         try:
             logger.info(f"Starting background podcast generation for task {task_id}")
             
             # Set the task_id in a thread-local variable so we can check for cancellation
-            import threading
-            current_thread = threading.current_thread()
             current_thread.task_id = task_id
             
             # Call the existing _generate_podcast_internal with async_mode=False
@@ -1528,10 +1523,10 @@ async def main_workflow_test():
     sample_request = PodcastRequest(
         source_urls=[
             "https://www.whitehouse.gov/articles/2025/05/fact-one-big-beautiful-bill-cuts-spending-fuels-growth/",
-            "https://thehill.com/opinion/finance/5320248-the-bond-market-is-missing-the-real-big-beautiful-story/"
+            "https://thehill.com/opinion/finance/5320248-the-bond-market-is-missing-the-real-big-beautiful-story/",
             "https://www.ronjohnson.senate.gov/2025/5/the-ugly-truth-about-the-big-beautiful-bill"
         ],
-        prominent_persons=["Jason Calacanis","David O. Sacks","Chemath Palihapitiya""David Friedberg"],
+        prominent_persons=["Jason Calacanis", "David O. Sacks", "Chamath Palihapitiya", "David Friedberg"],
         desired_podcast_length_str="15 minutes"
     )
     

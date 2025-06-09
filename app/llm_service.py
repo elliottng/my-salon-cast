@@ -386,7 +386,7 @@ class GeminiService:
                 
             # Process gender and assign appropriate invented name and TTS voice ID
             # First normalize to lowercase for validation
-            raw_gender = parsed_json.get('gender', '').lower()
+            raw_gender = (parsed_json.get('gender') or '').lower()
                 
             # Then capitalize for TTS service compatibility
             if not raw_gender or raw_gender not in ['male', 'female', 'neutral']:
@@ -479,13 +479,13 @@ class GeminiService:
             return persona_research_data
             
         except json.JSONDecodeError as e:
-            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {parsed_json[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
+            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {str(parsed_json)[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
             raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
         except ValidationError as e: 
-            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {parsed_json[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
+            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {str(parsed_json)[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
             raise ValueError(f"LLM response for persona '{person_name}' did not match expected PersonaResearch structure.") from e
         except Exception as e: # Catches errors from generate_text_async, or other unexpected issues like TypeError if json_response_str was None and json.loads tried it.
-            logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {parsed_json[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
+            logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {str(parsed_json)[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
             raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
 
     def _parse_duration_to_seconds(self, duration_str: str) -> int:

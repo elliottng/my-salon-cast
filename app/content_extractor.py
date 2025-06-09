@@ -9,10 +9,7 @@ import re # For YouTube video ID extraction
 import asyncio # For running blocking calls in a separate thread
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import os
-
-class ExtractionError(Exception):
-    """Custom exception for content extraction errors."""
-    pass
+from .common_exceptions import ExtractionError
 
 # Regex to extract YouTube video ID from various URL formats
 # Captures the 11-character video ID
