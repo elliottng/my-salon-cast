@@ -54,14 +54,7 @@ class PodcastGeneratorService:
             logger.error(f"Failed to initialize configuration: {e}")
             self.config = None
             
-        # Initialize services
-        try:
-            self.llm_service = GeminiService()
-            logger.info("LLM Service initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize LLM Service: {e}")
-            self.llm_service = None
-
+        # Initialize TTS service first
         try:
             self.tts_service = GoogleCloudTtsService()
             logger.info("TTS Service initialized successfully.")
@@ -69,13 +62,21 @@ class PodcastGeneratorService:
             logger.error(f"Failed to initialize TTS Service: {e}")
             self.tts_service = None
 
+        # Initialize LLM service with TTS service dependency injection
+        try:
+            self.llm_service = GeminiService(tts_service=self.tts_service)
+            logger.info("LLM Service initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM Service: {e}")
+            self.llm_service = None
+
         try:
             self.cloud_storage_manager = CloudStorageManager()
             logger.info("Cloud Storage Manager initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize Cloud Storage Manager: {e}")
             self.cloud_storage_manager = None
-
+            
     async def _stitch_audio_segments_async(self, audio_file_paths: List[str], output_dir: str) -> Optional[str]:
         """
         Stitch multiple audio segments into a single audio file.
