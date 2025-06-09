@@ -167,33 +167,12 @@ class GeminiService:
         Raises:
             TimeoutError: If the API call exceeds the timeout_seconds
             ValueError: If the prompt is empty
+            ValidationError: If structured output validation fails
             RuntimeError: For other unexpected errors
         """
         logger.info("ENTRY: generate_text_async method called")
         logger.info(f"Prompt length: {len(prompt) if prompt else 0} characters with {timeout_seconds}s timeout")
         logger.info(f"Result type: {result_type}")
-        
-        return await self._pydantic_generate_text_async(prompt, timeout_seconds, result_type)
-
-    async def _pydantic_generate_text_async(self, prompt: str, timeout_seconds: int = 180, result_type: Optional[type] = None) -> Union[str, Any]:
-        """
-        Pydantic AI implementation: Asynchronously generates text or structured output.
-        
-        Args:
-            prompt: The prompt to send to the model
-            timeout_seconds: Maximum time to wait for the API call in seconds
-            result_type: Optional type for structured output
-            
-        Returns:
-            The generated text response (string) or structured output if result_type is provided
-            
-        Raises:
-            TimeoutError: If the API call exceeds the timeout_seconds
-            ValueError: If the prompt is empty
-            ValidationError: If structured output validation fails
-            RuntimeError: For other unexpected errors
-        """
-        logger.info("ENTRY: _pydantic_generate_text_async method called")
         
         if not prompt:
             logger.error("Prompt cannot be empty.")
@@ -230,7 +209,7 @@ class GeminiService:
                 # Logfire is instrumented globally, just run the agent
                 result = await agent.run(prompt, **run_kwargs)
                 logger.info(f"Pydantic AI call completed successfully, result type: {type(result.data)}")
-                logger.info("EXIT: _pydantic_generate_text_async completed successfully with structured output")
+                logger.info("EXIT: generate_text_async completed successfully with structured output")
                 return result.data
             else:
                 logger.info("Running Pydantic AI agent for string output")
@@ -238,12 +217,12 @@ class GeminiService:
                 # Logfire is instrumented globally, just run the agent
                 result = await self.pydantic_agent.run(prompt, **run_kwargs)
                 logger.info(f"Pydantic AI call completed successfully, response length: {len(result.data) if result.data else 0}")
-                logger.info("EXIT: _pydantic_generate_text_async completed successfully with string output")
+                logger.info("EXIT: generate_text_async completed successfully with string output")
                 return result.data
                     
         except asyncio.TimeoutError as e:
             logger.error(f"Pydantic AI call timed out after {timeout_seconds} seconds")
-            logger.info("EXIT: _pydantic_generate_text_async with timeout")
+            logger.info("EXIT: generate_text_async with timeout")
             # For backward compatibility, return error JSON for timeout
             error_json = '{"error": "Gemini API timeout", "details": "API call timed out after ' + str(timeout_seconds) + ' seconds"}'
             logger.error(f"Returning error JSON: {error_json}")
@@ -251,19 +230,19 @@ class GeminiService:
             
         except ValidationError as e:
             logger.error(f"Pydantic validation error: {e}", exc_info=True)
-            logger.info("EXIT: _pydantic_generate_text_async with validation error")
+            logger.info("EXIT: generate_text_async with validation error")
             # Re-raise ValidationError as it's already handled by callers
             raise
             
         except UserError as e:
             logger.error(f"Pydantic AI user error: {e}", exc_info=True)
-            logger.info("EXIT: _pydantic_generate_text_async with user error")
+            logger.info("EXIT: generate_text_async with user error")
             # Map to ValueError for backward compatibility
             raise ValueError(str(e)) from e
             
         except ModelRetry as e:
             logger.error(f"Pydantic AI model retry exhausted: {e}", exc_info=True)
-            logger.info("EXIT: _pydantic_generate_text_async with retry exhausted")
+            logger.info("EXIT: generate_text_async with retry exhausted")
             # Map to appropriate exception based on the underlying cause
             if "rate limit" in str(e).lower() or "quota" in str(e).lower():
                 raise ResourceExhausted(str(e)) from e
@@ -281,16 +260,10 @@ class GeminiService:
             elif "timeout" in error_message or "deadline" in error_message:
                 logger.error(f"Timeout/deadline error: {e}", exc_info=True)
                 raise DeadlineExceeded(str(e)) from e
-            elif "unavailable" in error_message or "503" in error_message:
-                logger.error(f"Service unavailable error: {e}", exc_info=True)
-                raise ServiceUnavailable(str(e)) from e
-            elif "internal" in error_message or "500" in error_message:
-                logger.error(f"Internal server error: {e}", exc_info=True)
-                raise InternalServerError(str(e)) from e
             else:
                 # General catch-all for any other errors
-                logger.error(f"Unexpected error in _pydantic_generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
-                logger.info("EXIT: _pydantic_generate_text_async with exception")
+                logger.error(f"Unexpected error in generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
+                logger.info("EXIT: generate_text_async with exception")
                 raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
 
     async def analyze_source_text_async(self, source_text: str, analysis_instructions: str = None) -> SourceAnalysis:
@@ -1098,11 +1071,11 @@ class GeminiService:
                     # If it's a JSON string (backward compatibility)
                     elif isinstance(pr_item, str):
                         pr_data = json.loads(pr_item)
-                        if pr_data.get('person_id') == speaker_id_from_segment:
+                        if 'person_id' in pr_data:
                             relevant_persona_research = PersonaResearch(**pr_data)
                             break
                 except json.JSONDecodeError:
-                    logger.warning(f"Could not parse PersonaResearch JSON string in _build_segment_dialogue_prompt: {pr_item[:100] if isinstance(pr_item, str) else 'Not a string'}...")
+                    logger.warning(f"Could not parse PersonaResearch JSON string in _build_segment_dialogue_prompt: {pr_item[:100]}...")
                 except Exception as e:
                     logger.warning(f"Error processing persona research: {e}")
                     continue
