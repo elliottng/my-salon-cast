@@ -30,10 +30,9 @@ async def test_simple_pydantic():
     # Initialize service
     service = GeminiService()
     print(f"✅ GeminiService initialized")
-    print(f"📋 use_pydantic_ai = {service.use_pydantic_ai}")
     print(f"🤖 pydantic_agent = {service.pydantic_agent is not None}")
     
-    if service.use_pydantic_ai and service.pydantic_agent:
+    if service.pydantic_agent:
         print("🚀 Testing simple text generation...")
         try:
             result = await service.generate_text_async("Say hello in one word", timeout_seconds=30)
@@ -41,7 +40,7 @@ async def test_simple_pydantic():
         except Exception as e:
             print(f"❌ Failed: {e}")
     else:
-        print("ℹ️  PydanticAI not enabled, skipping test")
+        print("❌ PydanticAI agent not initialized properly")
 
 if __name__ == "__main__":
     import asyncio

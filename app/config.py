@@ -100,12 +100,6 @@ class Config:
         default = "auto_after_days" if self.environment == "production" else "auto_after_hours"
         return os.getenv("AUDIO_CLEANUP_POLICY", default)
     
-    @property
-    def use_pydantic_ai(self) -> bool:
-        """Get whether to use Pydantic AI for LLM interactions."""
-        env_value = os.getenv("USE_PYDANTIC_AI", "false").lower()
-        return env_value in ["true", "1", "yes"]
-    
     def setup_logging(self):
         """Setup logging configuration for the environment."""
         log_level = getattr(logging, self.log_level.upper(), logging.INFO)

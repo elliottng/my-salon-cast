@@ -124,139 +124,42 @@ class GeminiService:
         # Store TTS service for voice profile lookup
         self.tts_service = tts_service
         
-        # Initialize Pydantic AI agent if feature flag is enabled
-        config = get_config()
-        self.use_pydantic_ai = config.use_pydantic_ai
-        self.pydantic_agent = None
-        
-        if self.use_pydantic_ai:
-            logger.info("Initializing Pydantic AI agent for Gemini service")
-            # Create Pydantic AI model with standard approach
-            pydantic_model = GeminiModel('gemini-2.0-flash-exp')
-            # Create a generic agent that can handle both string and structured outputs
-            self.pydantic_agent = Agent(
-                model=pydantic_model,
-                system_prompt=""  # Empty system prompt for default behavior
-            )
-            # Configure Logfire if credentials are available (either in project dir or env)
-            logfire_configured = (
-                os.path.exists('.logfire/logfire_credentials.json') or 
-                os.environ.get('LOGFIRE_TOKEN') is not None
-            )
-            
-            if logfire_configured:
-                try:
-                    logfire.configure()
-                    # Instrument all Pydantic AI agents globally
-                    logfire.instrument_pydantic_ai()
-                    logger.info("Logfire observability configured successfully")
-                except Exception as e:
-                    logger.warning(f"Failed to configure Logfire: {e}")
-            else:
-                logger.info("Logfire credentials not found, skipping observability setup")
-            logger.info("Pydantic AI agent initialized successfully")
-
-    @retry(
-        stop=stop_after_attempt(3),  # Retry up to 3 times (total of 4 attempts)
-        wait=wait_exponential(multiplier=1, min=2, max=10),  # Wait 2s, then 4s, then 8s
-        retry=retry_if_exception_type((
-            DeadlineExceeded,       # e.g., 504 Gateway Timeout
-            ServiceUnavailable,     # e.g., 503 Service Unavailable
-            ResourceExhausted,      # e.g., 429 Rate Limiting / Quota issues
-            InternalServerError     # e.g., 500 Internal Server Error
-        )),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Retrying API call to Gemini due to {retry_state.outcome.exception().__class__.__name__} "
-            f"(Reason: {retry_state.outcome.exception()}). Attempt #{retry_state.attempt_number}"
+        # Initialize Pydantic AI agent (always enabled after Phase 1 refactoring)
+        logger.info("Initializing Pydantic AI agent for Gemini service")
+        # Create Pydantic AI model with standard approach
+        pydantic_model = GeminiModel('gemini-2.0-flash-exp')
+        # Create a generic agent that can handle both string and structured outputs
+        self.pydantic_agent = Agent(
+            model=pydantic_model,
+            system_prompt=""  # Empty system prompt for default behavior
         )
-    )
-    async def _legacy_generate_text_async(self, prompt: str, timeout_seconds: int = 180) -> str:
-        """
-        Legacy implementation: Asynchronously generates text based on the given prompt using the configured Gemini model.
+        # Configure Logfire if credentials are available (either in project dir or env)
+        logfire_configured = (
+            os.path.exists('.logfire/logfire_credentials.json') or 
+            os.environ.get('LOGFIRE_TOKEN') is not None
+        )
         
-        Args:
-            prompt: The prompt to send to the model
-            timeout_seconds: Maximum time to wait for the API call in seconds (default: 30)
-            
-        Returns:
-            The generated text response
-            
-        Raises:
-            TimeoutError: If the API call exceeds the timeout_seconds
-            ValueError: If the prompt is empty
-            RuntimeError: For other unexpected errors
-        """
-        logger.info("ENTRY: _legacy_generate_text_async method called")
-        logger.info(f"Prompt length: {len(prompt) if prompt else 0} characters with {timeout_seconds}s timeout")
-        
-        if not prompt:
-            logger.error("Prompt cannot be empty.")
-            raise ValueError("Prompt cannot be empty.")
-            
-        try:
-            # Use asyncio.wrap_future to wrap the executor's future
-            logger.info(f"Calling Gemini model generate_content with {timeout_seconds}s timeout")
-            
-            # Create a task with the dedicated LLM executor
-            future: Future = self._get_llm_executor().submit(self.model.generate_content, prompt)
-            
-            # Wait for the task with a timeout using asyncio.wrap_future
+        if logfire_configured:
             try:
-                response = await asyncio.wait_for(asyncio.wrap_future(future), timeout=timeout_seconds)
-                logger.info(f"API call completed successfully within {timeout_seconds}s timeout")
-            except asyncio.TimeoutError:
-                logger.error(f"API call timed out after {timeout_seconds} seconds")
-                future.cancel()
-                # Try to get the task result, but don't wait - just to see if there's an exception
-                try:
-                    future.result()
-                except Exception as task_ex:
-                    logger.error(f"Task had exception: {task_ex}")
-                error_json = '{"error": "Gemini API timeout", "details": "API call timed out after ' + str(timeout_seconds) + ' seconds"}'
-                logger.error(f"Returning error JSON: {error_json}")
-                return error_json
-            
-            # Check for response.parts for potentially multi-part responses
-            if response.parts:
-                logger.info(f"Response has {len(response.parts)} parts")
-                # Ensure all parts are concatenated, checking if they have a 'text' attribute
-                result = "".join(part.text for part in response.parts if hasattr(part, 'text'))
-                logger.info(f"Concatenated response text length: {len(result)} characters")
-                logger.info("EXIT: _legacy_generate_text_async completed successfully with multi-part response")
-                return result
-            # Fallback if response.text is directly available (older API versions or simpler responses)
-            elif hasattr(response, 'text') and response.text:
-                logger.info(f"Response has single text attribute of length: {len(response.text)} characters")
-                logger.info("EXIT: _legacy_generate_text_async completed successfully with single-part response")
-                return response.text
-            else:
-                # This case might occur if the response is blocked, has no text content, or an unexpected structure
-                logger.warning("No text content found in response")
-                # Check for prompt feedback which might indicate blocking
-                if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-                    logger.warning(f"Response has prompt_feedback: {response.prompt_feedback}")
-                    logger.info("EXIT: _legacy_generate_text_async with prompt feedback issue")
-                    return f"Error: Could not generate text. Prompt feedback: {response.prompt_feedback}"
-                logger.warning("No text content or prompt feedback found in response")
-                logger.info("EXIT: _legacy_generate_text_async with empty/blocked response")
-                return "Error: No text content in Gemini response or response was blocked."
-
-        except Exception as e:
-            # This is a general catch-all for any other errors during the API call or response processing.
-            logger.error(f"Unexpected error in _legacy_generate_text_async: {e.__class__.__name__} - {e}", exc_info=True)
-            logger.info("EXIT: _legacy_generate_text_async with exception")
-            # Ensure an exception is raised so the caller knows something went wrong.
-            raise RuntimeError(f"Failed to generate text due to an unexpected error: {e}") from e
+                logfire.configure()
+                # Instrument all Pydantic AI agents globally
+                logfire.instrument_pydantic_ai()
+                logger.info("Logfire observability configured successfully")
+            except Exception as e:
+                logger.warning(f"Failed to configure Logfire: {e}")
+        else:
+            logger.info("Logfire credentials not found, skipping observability setup")
+        logger.info("Pydantic AI agent initialized successfully")
 
     async def generate_text_async(self, prompt: str, timeout_seconds: int = 180, result_type: Optional[type] = None) -> Union[str, Any]:
         """
         Asynchronously generates text based on the given prompt using the configured Gemini model.
-        When use_pydantic_ai is enabled, supports structured output via result_type parameter.
+        Uses Pydantic AI with support for structured output via result_type parameter.
         
         Args:
             prompt: The prompt to send to the model
             timeout_seconds: Maximum time to wait for the API call in seconds (default: 180)
-            result_type: Optional type for structured output (only used when use_pydantic_ai is True)
+            result_type: Optional type for structured output
             
         Returns:
             The generated text response (string) or structured output if result_type is provided
@@ -268,15 +171,10 @@ class GeminiService:
         """
         logger.info("ENTRY: generate_text_async method called")
         logger.info(f"Prompt length: {len(prompt) if prompt else 0} characters with {timeout_seconds}s timeout")
-        logger.info(f"Pydantic AI enabled: {self.use_pydantic_ai}, result_type: {result_type}")
+        logger.info(f"Result type: {result_type}")
         
-        if self.use_pydantic_ai and self.pydantic_agent:
-            return await self._pydantic_generate_text_async(prompt, timeout_seconds, result_type)
-        else:
-            if result_type is not None:
-                logger.warning("result_type parameter ignored when use_pydantic_ai is False")
-            return await self._legacy_generate_text_async(prompt, timeout_seconds)
-    
+        return await self._pydantic_generate_text_async(prompt, timeout_seconds, result_type)
+
     async def _pydantic_generate_text_async(self, prompt: str, timeout_seconds: int = 180, result_type: Optional[type] = None) -> Union[str, Any]:
         """
         Pydantic AI implementation: Asynchronously generates text or structured output.
@@ -418,45 +316,9 @@ class GeminiService:
             
             logger.info("Calling generate_text_async with text analysis prompt")
             
-            # Use structured output if Pydantic AI is enabled
-            if self.use_pydantic_ai and self.pydantic_agent:
-                logger.info("Using Pydantic AI for structured SourceAnalysis output")
-                # When using Pydantic AI, we can pass the result_type for structured output
-                return await self.generate_text_async(prompt, timeout_seconds=180, result_type=SourceAnalysis)
-            else:
-                # Legacy path: get JSON string and parse it
-                response = await self.generate_text_async(prompt, timeout_seconds=180)
-                logger.info(f"Received response of length: {len(response) if response else 0}")
-                
-                # Clean the response and attempt to parse as JSON
-                if response.startswith("{") and response.endswith("}"):
-                    # Response is already clean JSON
-                    logger.info("Response appears to be clean JSON")
-                    cleaned_response_str = response
-                else:
-                    logger.info("Cleaning response from potential markdown formatting")
-                    # It might be wrapped in markdown or have extraneous content
-                    cleaned_response_str = self._clean_json_string_from_markdown(response)
-                
-                logger.info(f"Attempting to parse JSON response of length: {len(cleaned_response_str)}")
-                
-                # Parse the response as SourceAnalysis
-                try:
-                    response_dict = json.loads(cleaned_response_str)
-                    logger.info("Successfully parsed JSON response")
-                    # Use Pydantic validation
-                    analysis = SourceAnalysis(**response_dict)
-                    logger.info(f"Successfully validated SourceAnalysis with {len(analysis.summary_points)} summary points")
-                    logger.info("EXIT: analyze_source_text_async completed successfully")
-                    return analysis
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON parsing error: {e}")
-                    logger.error(f"Problematic response (first 500 chars): {cleaned_response_str[:500]}")
-                    raise LLMProcessingError(f"Failed to parse LLM's JSON response for source analysis: {e}") from e
-                except ValidationError as e:
-                    logger.error(f"Pydantic validation error: {e}")
-                    logger.error(f"Response dict: {response_dict}")
-                    raise LLMProcessingError(f"LLM's response doesn't match expected SourceAnalysis structure: {e}") from e
+            # Use Pydantic AI for structured SourceAnalysis output
+            logger.info("Using Pydantic AI for structured SourceAnalysis output")
+            return await self.generate_text_async(prompt, timeout_seconds=180, result_type=SourceAnalysis)
             
         except ValueError as ve:
             logger.error(f"ValueError in analyze_source_text_async: {ve}")
@@ -542,68 +404,20 @@ class GeminiService:
             source_text=source_text
         )
         
-        json_response_str: str = None  # Initialize
+        logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
+        
         try:
-            logger.info(f"Generating persona research for '{person_name}' with prompt (first 200 chars): {prompt[:200]}...")
-            
-            # NEW: Use Pydantic AI structured output instead of manual JSON parsing
-            if self.use_pydantic_ai:
-                logger.info(f"Using Pydantic AI for structured PersonaResearch output for '{person_name}'")
-                persona_research = await self.generate_text_async(prompt, result_type=PersonaResearch, timeout_seconds=420)
-                # Convert to dict for the existing post-processing logic
-                parsed_json = persona_research.model_dump()
-                logger.info(f"Successfully received structured PersonaResearch for '{person_name}'")
-            else:
-                # LEGACY: Keep the existing JSON parsing logic for backward compatibility
-                json_response_str = await self.generate_text_async(prompt, timeout_seconds=420)
+            # Use Pydantic AI for structured PersonaResearch output
+            logger.info(f"Using Pydantic AI for structured PersonaResearch output for '{person_name}'")
+            persona_research = await self.generate_text_async(prompt, result_type=PersonaResearch, timeout_seconds=420)
+            # Convert to dict for the existing post-processing logic
+            parsed_json = persona_research.model_dump()
+            logger.info(f"Successfully received structured PersonaResearch for '{person_name}'")
                 
-                logger.debug(f"Raw LLM response for persona research of '{person_name}': {json_response_str}")
-
-                # Strip potential markdown backticks if present
-                if isinstance(json_response_str, str):
-                    # More robust stripping
-                    temp_str = json_response_str.strip() # Remove leading/trailing whitespace first
-                    if temp_str.startswith("```json") and temp_str.endswith("```"):
-                        # Find the first newline after ```json
-                        # The '7' comes from len("```json") + 1 for the newline, or just after ```json
-                        # Correct start index for content after "```json\n" or "```json "
-                        content_start_idx = temp_str.find('\n', 7) # Search after "```json"
-                        if content_start_idx == -1: # if no newline after ```json, maybe it's just ```json{...}```
-                            content_start_idx = 7 # len("```json")
-                        else:
-                            content_start_idx += 1 # move past the newline itself
-                        
-                        # Find the last occurrence of ``` to mark the end of the JSON content
-                        content_end_idx = temp_str.rfind("```")
-                        
-                        if content_start_idx < content_end_idx:
-                            json_content_candidate = temp_str[content_start_idx:content_end_idx]
-                            json_response_str = json_content_candidate.strip() # Clean the extracted content
-                        else: # Fallback if stripping logic is confused, try to use the original temp_str or log error
-                            logger.warning(f"Markdown stripping for '```json...```' might have failed for '{person_name}'. Using temp_str directly after outer strip.")
-                            json_response_str = temp_str # Or consider it an error
-
-                    elif temp_str.startswith("```") and temp_str.endswith("```"):
-                        json_content_candidate = temp_str[3:-3]
-                        json_response_str = json_content_candidate.strip()
-                    # If no markdown fences, or they were already stripped,
-                    # ensure json_response_str is still the potentially valid JSON string
-                    else:
-                        json_response_str = temp_str # Use the stripped version if no fences matched
-            
-                # Add a log to see what exactly is being passed to json.loads
-                logger.debug(f"String to be parsed by json.loads for '{person_name}': '{json_response_str}'")
-                cleaned_response_text = self._clean_json_string_from_markdown(json_response_str)
-                logger.debug(f"Cleaned persona research response: {cleaned_response_text[:200]}...")
-                
-                parsed_json = json.loads(cleaned_response_text)
-                parsed_json = self._clean_keys_recursive(parsed_json) # Clean keys before validation
-                logger.debug(f"Attempting to create PersonaResearch with (cleaned) keys: {list(parsed_json.keys()) if isinstance(parsed_json, dict) else 'Not a dict'}")
-            
             # Process gender and assign appropriate invented name and TTS voice ID
             # First normalize to lowercase for validation
             raw_gender = parsed_json.get('gender', '').lower()
-            
+                
             # Then capitalize for TTS service compatibility
             if not raw_gender or raw_gender not in ['male', 'female', 'neutral']:
                 logger.warning(f"Invalid or missing gender '{raw_gender}' for {person_name}, defaulting to 'Neutral'")
@@ -614,9 +428,9 @@ class GeminiService:
                 gender = 'Female'
             else:  # neutral
                 gender = 'Neutral'
-                
+                    
             logger.info(f"Normalized gender for {person_name}: '{raw_gender}' -> '{gender}'")
-            
+                
             # Respect LLM-generated invented_name, fallback if missing
             if 'invented_name' in parsed_json and parsed_json['invented_name'] and parsed_json['invented_name'].strip():
                 invented_name = parsed_json['invented_name'].strip()
@@ -630,7 +444,7 @@ class GeminiService:
                 else:  # Neutral
                     invented_name = random.choice(neutral_names)
                 logger.info(f"LLM did not provide invented name for {person_name}, assigned fallback: '{invented_name}'")
-            
+                
             # Get voice profile from TTS service if available
             voice_profile = None
             if self.tts_service:
@@ -670,7 +484,7 @@ class GeminiService:
                 }
                 tts_voice_id = backup_voice
                 logger.info(f"Using Chirp3-HD backup voice for {gender} gender: {tts_voice_id}")
-            
+                
             logger.info(f"Assigned {person_name}: gender={gender}, invented_name={invented_name}, voice={tts_voice_id if tts_voice_id else 'based on gender'}, speaking_rate={voice_profile['speaking_rate']}")
 
             # Store the full voice profile parameters for future use
@@ -680,7 +494,7 @@ class GeminiService:
                 for key, value in voice_profile.items():
                     if key != 'language_codes':  # Skip language_codes, we don't need it in the params
                         voice_params[key] = value
-            
+                
             # Update the parsed JSON with the additional fields
             parsed_json['invented_name'] = invented_name
             parsed_json['gender'] = gender  # Ensure normalized lowercase gender
@@ -688,36 +502,21 @@ class GeminiService:
             parsed_json['tts_voice_params'] = voice_params  # Store full voice parameters
             parsed_json['creation_date'] = datetime.now().isoformat()
             parsed_json['source_context'] = source_text[:500] + ('...' if len(source_text) > 500 else '')  # Add source context
-            
+                
             # Create the PersonaResearch object with all fields
             persona_research_data = PersonaResearch(**parsed_json)
             logger.info(f"Successfully created enhanced PersonaResearch for '{person_name}'")
             return persona_research_data
             
         except json.JSONDecodeError as e:
-            if not self.use_pydantic_ai:
-                output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
-                logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
-                raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
-            else:
-                logger.error(f"Unexpected JSONDecodeError in Pydantic AI path for '{person_name}': {e}", exc_info=True)
-                raise RuntimeError(f"An unexpected JSON parsing error occurred in Pydantic AI mode for persona '{person_name}'.") from e
+            logger.error(f"JSONDecodeError parsing persona research for '{person_name}': {e}. LLM Output: {parsed_json[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
+            raise ValueError(f"Failed to parse LLM response as JSON for persona '{person_name}'.") from e
         except ValidationError as e: 
-            if self.use_pydantic_ai:
-                logger.error(f"ValidationError in Pydantic AI structured output for '{person_name}': {e}", exc_info=True)
-                raise ValueError(f"LLM response for persona '{person_name}' did not match expected PersonaResearch structure.") from e
-            else:
-                output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
-                logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {output_for_log}", exc_info=True)
-                raise ValueError(f"LLM response for persona '{person_name}' did not match expected structure.") from e
+            logger.error(f"ValidationError validating persona research for '{person_name}': {e}. LLM Output: {parsed_json[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
+            raise ValueError(f"LLM response for persona '{person_name}' did not match expected PersonaResearch structure.") from e
         except Exception as e: # Catches errors from generate_text_async, or other unexpected issues like TypeError if json_response_str was None and json.loads tried it.
-            if self.use_pydantic_ai:
-                logger.error(f"Unexpected error during Pydantic AI persona research for '{person_name}': {e.__class__.__name__} - {e}", exc_info=True)
-                raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}' using Pydantic AI.") from e
-            else:
-                output_for_log = str(json_response_str)[:500] if isinstance(json_response_str, str) else "LLM output not available or not a string"
-                logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {output_for_log}", exc_info=True)
-                raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
+            logger.error(f"Unexpected error during persona research for '{person_name}': {e.__class__.__name__} - {e}. LLM Output was: {parsed_json[:500] if 'parsed_json' in locals() else 'Not available'}...", exc_info=True)
+            raise RuntimeError(f"An unexpected error occurred while researching persona '{person_name}'.") from e
 
     def _parse_duration_to_seconds(self, duration_str: str) -> int:
         """
@@ -1063,12 +862,20 @@ class GeminiService:
             if persona_research_docs:
                 for doc_json_str in persona_research_docs:
                     try:
-                        doc_data = json.loads(doc_json_str) # Assuming each doc is a JSON string of PersonaResearch
-                        if 'person_id' in doc_data:
-                            available_persona_ids_list.append(doc_data['person_id'])
+                        # If it's already a PersonaResearch object
+                        if isinstance(doc_json_str, PersonaResearch):
+                            if doc_json_str.person_id:
+                                available_persona_ids_list.append(doc_json_str.person_id)
+                        # If it's a JSON string (backward compatibility)
+                        elif isinstance(doc_json_str, str):
+                            pr_data = json.loads(doc_json_str) # Assuming each doc is a JSON string of PersonaResearch
+                            if 'person_id' in pr_data:
+                                available_persona_ids_list.append(pr_data['person_id'])
                     except json.JSONDecodeError:
                         logger.warning(f"Could not parse PersonaResearch JSON string: {doc_json_str[:100]}...")
-            formatted_available_persona_ids_str = ", ".join(available_persona_ids_list) if available_persona_ids_list else "None available"
+                    except Exception as e:
+                        logger.warning(f"Error processing persona research: {e}")
+                        continue
 
             # Calculate total seconds from desired podcast length string
             calculated_total_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
@@ -1113,7 +920,7 @@ class GeminiService:
                 "input_desired_podcast_length_str": desired_podcast_length_str,
                 "input_num_prominent_persons": num_prominent_persons,
                 "input_formatted_names_prominent_persons_str": formatted_names_prominent_persons_str,
-                "input_formatted_available_persona_ids_str": formatted_available_persona_ids_str,
+                "input_formatted_available_persona_ids_str": ", ".join(available_persona_ids_list) if available_persona_ids_list else "None available",
                 "input_formatted_persona_details_str": input_formatted_persona_details_str,
                 "calculated_total_seconds": calculated_total_seconds,
                 "calculated_total_words": calculated_total_words,
