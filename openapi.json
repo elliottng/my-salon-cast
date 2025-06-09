@@ -1,0 +1,684 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MySalonCast API",
+    "description": "\n    **MySalonCast** is an AI-powered podcast generation platform that creates engaging podcasts from your content sources.\n    \n    ## Features\n    \n    * **PDF Text Extraction** - Extract text content from PDF documents\n    * **Async Podcast Generation** - Generate podcasts with multiple personas and custom outlines\n    * **Status Tracking** - Real-time tracking of podcast generation progress\n    * **Audio Playback** - Stream generated podcasts directly in your browser\n    \n    ## Workflow\n    \n    1. **Submit Content** - Provide URLs, PDFs, or custom prompts\n    2. **Generate Podcast** - Our AI creates engaging dialogue between personas\n    3. **Track Progress** - Monitor generation through detailed status updates\n    4. **Listen & Download** - Access your completed podcast via audio endpoint\n    \n    ## Authentication\n    \n    This API currently operates without authentication for development purposes.\n    \n    For production deployments, appropriate authentication should be implemented.\n    ",
+    "contact": {
+      "name": "MySalonCast Support",
+      "email": "support@mysaloncast.com"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8002",
+      "description": "Development server"
+    },
+    {
+      "url": "https://api.mysaloncast.com",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/process/pdf/": {
+      "post": {
+        "tags": [
+          "content"
+        ],
+        "summary": "Extract Text from PDF",
+        "description": "**Extract text content from a PDF document**\n\nThis endpoint accepts a PDF file upload and extracts all readable text content.\nThe extracted text can then be used as source material for podcast generation.\n\n**Parameters:**\n- **pdf_file**: PDF document to process (max file size varies by server configuration)\n\n**Returns:**\n- **filename**: Original filename of the uploaded PDF\n- **message**: Status message indicating success or failure\n- **extracted_text_snippet**: First 500 characters of extracted text (for preview)\n- **total_extracted_characters**: Total number of characters extracted\n\n**Error Responses:**\n- **400 Bad Request**: Invalid PDF file or corrupted document\n- **500 Internal Server Error**: Text extraction failure",
+        "operationId": "process_pdf_endpoint_process_pdf__post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_process_pdf_endpoint_process_pdf__post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate/podcast_async/": {
+      "post": {
+        "tags": [
+          "generation"
+        ],
+        "summary": "Start Podcast Generation",
+        "description": "**Start asynchronous podcast generation**\n\nInitiates the AI-powered podcast generation process using your provided content sources.\nReturns immediately with a task ID for tracking progress.\n\n**Process Overview:**\n1. **Source Analysis** - AI analyzes your content sources\n2. **Persona Research** - Creates detailed persona profiles for dialogue participants  \n3. **Outline Generation** - Structures the podcast with engaging segments\n4. **Dialogue Creation** - Generates natural conversation between personas\n5. **Audio Synthesis** - Converts dialogue to high-quality speech\n6. **Final Assembly** - Combines all segments into polished podcast\n\n**Request Body:**\n- **source_urls**: List of web URLs to extract content from\n- **source_pdf_path**: Path to PDF file for content extraction\n- **prominent_persons**: List of personas to include in dialogue\n- **desired_podcast_length_str**: Target duration (e.g., \"15-20 minutes\")\n- **custom_prompt_for_outline**: Optional custom instructions for structure\n- **host_invented_name**: Optional custom name for podcast host\n- **host_gender**: Host gender preference (\"male\", \"female\", \"neutral\")\n- **custom_prompt_for_dialogue**: Optional custom dialogue instructions\n- **webhook_url**: Optional webhook for completion notifications\n\n**Returns:**\n- **task_id**: Unique identifier for tracking this generation task\n- **message**: Confirmation message\n- **status_url**: Endpoint URL for checking progress\n\n**Usage:**\nUse the returned task_id with the `/status/{task_id}` endpoint to monitor progress.",
+        "operationId": "generate_podcast_async_endpoint_generate_podcast_async__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PodcastRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/podcast/{podcast_id}/audio": {
+      "get": {
+        "tags": [
+          "playback"
+        ],
+        "summary": "Stream Podcast Audio",
+        "description": "**Stream or download completed podcast audio**\n\nProvides access to the final generated podcast audio file with an embedded web player.\nThe audio file can be streamed directly in the browser or downloaded for offline listening.\n\n**Parameters:**\n- **podcast_id**: Unique identifier of the completed podcast (same as task_id from generation)\n\n**Returns:**\n- **HTML Response**: Web page with embedded audio player and download link\n- **Audio Format**: MP3 format optimized for podcast consumption\n- **Quality**: High-quality speech synthesis with natural intonation\n\n**Features:**\n- **Browser Playback**: Embedded HTML5 audio player with controls\n- **Download Option**: Direct download link for offline access\n- **Responsive Design**: Works on desktop and mobile browsers\n\n**Error Responses:**\n- **404 Not Found**: Podcast audio file not available (generation may still be in progress)\n\n**Usage Tips:**\n- Ensure podcast generation is completed before accessing this endpoint\n- Check task status first using `/status/{task_id}` endpoint\n- Audio files are typically 10-50MB depending on podcast length",
+        "operationId": "get_podcast_audio_podcast__podcast_id__audio_get",
+        "parameters": [
+          {
+            "name": "podcast_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Podcast Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status/{task_id}": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Get Task Status",
+        "description": "**Get detailed status of podcast generation task**\n\nProvides comprehensive information about the current state of a podcast generation task,\nincluding progress percentage, current phase, available artifacts, and any errors.\n\n**Parameters:**\n- **task_id**: Unique identifier returned from the generation endpoint\n\n**Returns:**\n- **task_id**: Echo of the requested task identifier\n- **status**: Current phase (queued, analyzing_sources, generating_dialogue, etc.)\n- **status_description**: Human-readable description of current activity\n- **progress_percentage**: Overall completion percentage (0-100)\n- **created_at**: When the task was initially queued\n- **last_updated_at**: Most recent status update timestamp\n- **request_data**: Original generation request parameters\n- **result_episode**: Complete podcast data (when finished)\n- **error_message**: Summary of any errors encountered\n- **error_details**: Detailed error information for debugging\n- **logs**: Chronological list of key events and milestones\n- **artifacts**: Availability status of intermediate files (outline, transcript, etc.)\n\n**Status Values:**\n- **queued**: Task accepted and waiting to start\n- **preprocessing_sources**: Downloading and validating content sources\n- **analyzing_sources**: AI analysis of source material\n- **researching_personas**: Creating detailed persona profiles\n- **generating_outline**: Structuring podcast segments and flow\n- **generating_dialogue**: Creating natural conversation between personas\n- **generating_audio_segments**: Converting text to speech\n- **stitching_audio**: Combining segments into final audio file\n- **postprocessing_final_episode**: Final quality checks and packaging\n- **completed**: Podcast ready for playback\n- **failed**: Generation encountered unrecoverable error\n- **cancelled**: Task was cancelled by user or system\n\n**Polling Guidance:**\n- Check status every 10-30 seconds during generation\n- Most podcasts complete within 5-15 minutes\n- Monitor `progress_percentage` for completion estimates",
+        "operationId": "get_task_status_status__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodcastStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArtifactAvailability": {
+        "properties": {
+          "source_content_extracted": {
+            "type": "boolean",
+            "title": "Source Content Extracted",
+            "description": "Source materials downloaded and text extracted.",
+            "default": false
+          },
+          "source_analysis_complete": {
+            "type": "boolean",
+            "title": "Source Analysis Complete",
+            "description": "Source material analysis artifacts available.",
+            "default": false
+          },
+          "persona_research_complete": {
+            "type": "boolean",
+            "title": "Persona Research Complete",
+            "description": "Persona research artifacts available.",
+            "default": false
+          },
+          "podcast_outline_complete": {
+            "type": "boolean",
+            "title": "Podcast Outline Complete",
+            "description": "Podcast outline artifact available.",
+            "default": false
+          },
+          "dialogue_script_complete": {
+            "type": "boolean",
+            "title": "Dialogue Script Complete",
+            "description": "Full dialogue script artifact available.",
+            "default": false
+          },
+          "individual_audio_segments_complete": {
+            "type": "boolean",
+            "title": "Individual Audio Segments Complete",
+            "description": "Individual dialogue turn audio segments generated.",
+            "default": false
+          },
+          "final_podcast_audio_available": {
+            "type": "boolean",
+            "title": "Final Podcast Audio Available",
+            "description": "Final stitched podcast audio MP3 available.",
+            "default": false
+          },
+          "final_podcast_transcript_available": {
+            "type": "boolean",
+            "title": "Final Podcast Transcript Available",
+            "description": "Final full transcript (from dialogue) available.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ArtifactAvailability",
+        "description": "Tracks the availability of various intermediate and final artifacts generated during podcast creation."
+      },
+      "Body_process_pdf_endpoint_process_pdf__post": {
+        "properties": {
+          "pdf_file": {
+            "type": "string",
+            "format": "binary",
+            "title": "Pdf File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pdf_file"
+        ],
+        "title": "Body_process_pdf_endpoint_process_pdf__post"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "PodcastEpisode": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "transcript": {
+            "type": "string",
+            "title": "Transcript"
+          },
+          "audio_filepath": {
+            "type": "string",
+            "title": "Audio Filepath"
+          },
+          "source_attributions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Attributions"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "llm_source_analysis_paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Source Analysis Paths"
+          },
+          "llm_persona_research_paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Persona Research Paths"
+          },
+          "llm_podcast_outline_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Podcast Outline Path"
+          },
+          "llm_dialogue_turns_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Dialogue Turns Path"
+          },
+          "llm_transcript_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Transcript Path"
+          },
+          "dialogue_turn_audio_paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dialogue Turn Audio Paths"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "summary",
+          "transcript",
+          "audio_filepath",
+          "source_attributions",
+          "warnings"
+        ],
+        "title": "PodcastEpisode"
+      },
+      "PodcastRequest": {
+        "properties": {
+          "source_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Urls"
+          },
+          "source_pdf_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Pdf Path"
+          },
+          "prominent_persons": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prominent Persons"
+          },
+          "desired_podcast_length_str": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desired Podcast Length Str"
+          },
+          "custom_prompt_for_outline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Prompt For Outline"
+          },
+          "host_invented_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Invented Name"
+          },
+          "host_gender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host Gender"
+          },
+          "custom_prompt_for_dialogue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Prompt For Dialogue"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "type": "object",
+        "title": "PodcastRequest",
+        "description": "Request model for podcast generation."
+      },
+      "PodcastStatus": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id",
+            "description": "Unique identifier for the podcast generation task."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "preprocessing_sources",
+              "analyzing_sources",
+              "researching_personas",
+              "generating_outline",
+              "generating_dialogue",
+              "generating_audio_segments",
+              "stitching_audio",
+              "postprocessing_final_episode",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "description": "Current detailed status of the podcast generation task.",
+            "default": "queued"
+          },
+          "status_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Description",
+            "description": "Human-readable description of the current status or step."
+          },
+          "progress_percentage": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress Percentage",
+            "description": "Overall progress percentage (0-100).",
+            "default": 0.0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Timestamp when the task was created/queued (UTC)."
+          },
+          "last_updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Updated At",
+            "description": "Timestamp when the status was last updated (UTC)."
+          },
+          "request_data": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Data",
+            "description": "The original PodcastRequest data that initiated this task."
+          },
+          "result_episode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PodcastEpisode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The final PodcastEpisode object if generation is successful."
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message",
+            "description": "A summary of the error, if the task failed."
+          },
+          "error_details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Details",
+            "description": "Detailed error information (e.g., a traceback snippet), if the task failed."
+          },
+          "logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Logs",
+            "description": "A list of key log messages or events during the task execution."
+          },
+          "artifacts": {
+            "$ref": "#/components/schemas/ArtifactAvailability",
+            "description": "Status of various generated artifacts."
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id"
+        ],
+        "title": "PodcastStatus",
+        "description": "Comprehensive model for tracking the status and progress of an asynchronous podcast generation task."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "content",
+      "description": "Content processing operations"
+    },
+    {
+      "name": "generation",
+      "description": "Podcast generation operations"
+    },
+    {
+      "name": "playback",
+      "description": "Audio playback and access"
+    },
+    {
+      "name": "status",
+      "description": "Task status and monitoring"
+    }
+  ]
+}
