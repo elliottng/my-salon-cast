@@ -124,7 +124,7 @@ class GeminiService:
         # Store TTS service for voice profile lookup
         self.tts_service = tts_service
         
-        # Initialize Pydantic AI agent (always enabled after Phase 1 refactoring)
+        # Initialize Pydantic AI agent
         logger.info("Initializing Pydantic AI agent for Gemini service")
         # Create Pydantic AI model with standard approach
         pydantic_model = GeminiModel('gemini-2.0-flash-exp')
