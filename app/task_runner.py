@@ -62,6 +62,33 @@ class TaskRunner:
         
         logger.info(f"Task {task_id} submitted for background execution (total: {self._lifetime_submitted_count})")
     
+    async def submit_async_task(
+        self,
+        task_id: str,
+        async_func: Callable,
+        *args,
+        **kwargs
+    ) -> None:
+        """
+        Submit an async function to run in the background using asyncio.
+        
+        Args:
+            task_id: Unique identifier for the task
+            async_func: The async function to run
+            *args: Positional arguments for the function
+            **kwargs: Keyword arguments for the function
+        """
+        if task_id in self._running_tasks:
+            raise ValueError(f"Task {task_id} is already running")
+        
+        # Create an asyncio task that runs the async function directly
+        task = asyncio.create_task(self._monitor_async_task(task_id, async_func, *args, **kwargs))
+        
+        self._running_tasks[task_id] = task
+        self._lifetime_submitted_count += 1  # Increment the lifetime counter
+        
+        logger.info(f"Async task {task_id} submitted for background execution (total: {self._lifetime_submitted_count})")
+    
     async def _monitor_task(self, task_id: str, future: asyncio.Future) -> Any:
         """
         Monitor a running task and clean up when complete.
@@ -82,6 +109,29 @@ class TaskRunner:
             # Clean up task references
             self._running_tasks.pop(task_id, None)
             self._task_futures.pop(task_id, None)
+    
+    async def _monitor_async_task(self, task_id: str, async_func: Callable, *args, **kwargs) -> Any:
+        """
+        Monitor a running async task and clean up when complete.
+        
+        Args:
+            task_id: The task identifier
+            async_func: The async function to execute
+            *args: Positional arguments for the function
+            **kwargs: Keyword arguments for the function
+        """
+        try:
+            result = await async_func(*args, **kwargs)
+            logger.info(f"Async task {task_id} completed successfully")
+            return result
+        except Exception as e:
+            logger.error(f"Async task {task_id} failed with error: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
+        finally:
+            # Clean up task references
+            self._running_tasks.pop(task_id, None)
+            # Note: no need to pop from _task_futures since async tasks don't use futures
     
     def is_task_running(self, task_id: str) -> bool:
         """Check if a task is currently running."""
@@ -145,7 +195,7 @@ class TaskRunner:
             if not task.done():
                 active_tasks.append({
                     "task_id": task_id,
-                    "running": task.running(),
+                    "running": not task.done(),
                     "cancelled": task.cancelled()
                 })
         return active_tasks

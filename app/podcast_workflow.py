@@ -269,42 +269,18 @@ class PodcastGeneratorService:
             identifier=task_id
         )
 
-    def _run_podcast_generation_sync_wrapper(self, task_id: str, request_data: PodcastRequest) -> None:
-        """
-        Synchronous wrapper for _run_podcast_generation_async to be used by ThreadPoolExecutor.
-        Creates a new event loop in the thread to run the async function.
-        
-        Args:
-            task_id: The unique identifier for this generation task
-            request_data: The podcast generation request parameters
-        """
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            # Run the async function in the new event loop
-            loop.run_until_complete(self._run_podcast_generation_async(task_id, request_data))
-        finally:
-            # Clean up the event loop
-            loop.close()
-    
     def _check_cancellation(self, task_id: Optional[str] = None) -> None:
         """
         Check if the current task has been cancelled.
         Raises CancelledError if the task was cancelled.
         
         Args:
-            task_id: Optional task ID to check. If not provided, checks thread-local task_id.
+            task_id: Optional task ID to check. If not provided, checks current async task.
         """
         if not task_id:
-            # Try to get task_id from thread-local storage
-            import threading
-            current_thread = threading.current_thread()
-            if hasattr(current_thread, 'task_id'):
-                task_id = current_thread.task_id
-            else:
-                return  # No task_id, not a background task
+            # For async tasks, we'll need to get the task_id from context
+            # This is simplified since we're moving away from thread-based execution
+            return
         
         # Check if this task has been cancelled
         task_runner = get_task_runner()
@@ -347,7 +323,7 @@ class PodcastGeneratorService:
             return default_profile["voice_id"], {
                 "speaking_rate": default_profile["speaking_rate"]
             }
-    
+
     async def _generate_podcast_internal(
         self,
         request_data: PodcastRequest,
@@ -410,10 +386,10 @@ class PodcastGeneratorService:
             
             # Submit the task to run in the background
             try:
-                # Note: We need to pass the task_id to the async wrapper
-                await task_runner.submit_task(
+                # Submit async task directly without sync wrapper
+                await task_runner.submit_async_task(
                     task_id,
-                    self._run_podcast_generation_sync_wrapper,
+                    self._run_podcast_generation_async,
                     task_id,
                     request_data
                 )
