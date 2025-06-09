@@ -38,21 +38,27 @@ Remove 11 redundant REST API endpoints from app/main.py to create a minimal API 
 ### Implementation Tasks
 
 #### Remove These 11 Endpoints
-- [ ] Delete `process_url_endpoint()` function
-- [ ] Delete `process_youtube_endpoint()` function  
-- [ ] Delete `generate_podcast_elements_endpoint()` function
-- [ ] Delete `get_segment_audio()` function
-- [ ] Delete `delete_task_status()` function
-- [ ] Delete `cancel_task()` function
-- [ ] Delete `get_queue_status()` function
-- [ ] Delete `list_task_statuses()` function
-- [ ] Delete `root()` function
-- [ ] Delete `get_health()` function
-- [ ] Remove all corresponding `@app.post()`, `@app.get()`, `@app.delete()` decorators
+- [x] Delete `process_url_endpoint()` function
+- [x] Delete `process_youtube_endpoint()` function  
+- [x] Delete `generate_podcast_elements_endpoint()` function
+- [x] Delete `get_segment_audio()` function
+- [x] Delete `delete_task_status()` function
+- [x] Delete `cancel_task()` function
+- [x] Delete `get_queue_status()` function
+- [x] Delete `list_task_statuses()` function
+- [x] Delete `root()` function
+- [x] Delete `get_health()` function
+- [x] Remove all corresponding `@app.post()`, `@app.get()`, `@app.delete()` decorators
 
 #### Clean Up Imports
-- [ ] Remove unused imports after endpoint deletion
-- [ ] Remove unused models (`StatusListResponse` if not used elsewhere)
+- [x] Remove unused imports after endpoint deletion
+- [x] Remove unused models (`StatusListResponse` if not used elsewhere)
+
+### Validation
+- [x] Syntax check passed
+- [ ] Quick MCP server test (optional)
+- [ ] Commit Phase 2: "Remove unneeded REST API endpoints"
+- [ ] Tag: `phase2-rest-api-simplified`
 
 ## Phase 3: Remove Sync Wrapper ⚠️ (Medium Risk - Task Runner Changes)
 ### Files to Modify
