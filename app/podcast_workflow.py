@@ -18,7 +18,7 @@ from .database import PodcastStatusDB
 from .common_exceptions import PodcastGenerationError
 from .status_manager import get_status_manager
 from .storage_utils import ensure_directory_exists
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastRequest
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastRequest, PodcastDialogue
 from app.common_exceptions import LLMProcessingError, ExtractionError
 from app.content_extractor import (
     extract_content_from_url, 
@@ -32,6 +32,12 @@ from app.storage import CloudStorageManager
 from app.config import setup_environment
 from app.http_utils import send_webhook_with_retry, build_webhook_payload
 from app.validations import is_valid_youtube_url
+from app.utils.migration_helpers import (
+    parse_source_analyses_safe,
+    parse_persona_research_safe,
+    get_persona_by_id,
+    convert_legacy_dialogue_json
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -994,13 +1000,22 @@ class PodcastGeneratorService:
                         f"Processing {len(source_analyses_content)} source analyses and {len(persona_research_docs_content)} persona docs"
                     )
 
-                    # Convert JSON strings to Pydantic objects for generate_dialogue_async
+                    # Convert JSON strings to Pydantic objects using migration helpers for safe transition
                     source_analysis_objects = []
                     if source_analyses_content: # Should always be true if we reached here
+                        # Use migration helper for safe conversion
                         try:
-                            sa_data = json.loads(source_analyses_content[0]) # Expecting only one source analysis doc
-                            source_analysis_objects.append(SourceAnalysis(**sa_data))
-                        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+                            source_analysis_objects = parse_source_analyses_safe(source_analyses_content[0])
+                            if not source_analysis_objects:
+                                logger.warning("No valid source analyses found after parsing")
+                                warnings_list.append("Failed to process source analysis for dialogue generation.")
+                                status_manager.add_progress_log(
+                                    task_id,
+                                    "generating_dialogue",
+                                    "source_analysis_parse_warning",
+                                    "⚠ No valid source analyses found"
+                                )
+                        except Exception as e:
                             logger.error(f"Failed to parse source_analyses_content for dialogue generation: {e}", exc_info=True)
                             warnings_list.append("Failed to process source analysis for dialogue generation.")
                             status_manager.add_progress_log(
@@ -1009,14 +1024,15 @@ class PodcastGeneratorService:
                                 "source_analysis_parse_error",
                                 f"✗ Failed to parse source analysis: {e}"
                             )
-                            # Potentially raise or handle error to prevent proceeding with bad data
-                    
+                     
+                    # Use migration helper for safe persona research conversion
                     persona_research_objects_for_dialogue = []
                     for pr_json_str in persona_research_docs_content:
                         try:
-                            pr_data = json.loads(pr_json_str)
-                            persona_research_objects_for_dialogue.append(PersonaResearch(**pr_data))
-                        except (json.JSONDecodeError, TypeError, ValidationError) as e:
+                            # Use migration helper for individual persona research docs
+                            parsed_personas = parse_persona_research_safe(pr_json_str)
+                            persona_research_objects_for_dialogue.extend(parsed_personas)
+                        except Exception as e:
                             logger.error(f"Failed to parse a persona_research_doc for dialogue generation: {e}", exc_info=True)
                             warnings_list.append("Failed to process one or more persona research docs for dialogue.")
                             status_manager.add_progress_log(
@@ -1025,25 +1041,22 @@ class PodcastGeneratorService:
                                 "persona_parse_error",
                                 f"✗ Failed to parse persona research: {e}"
                             )
-                            # Potentially skip this persona or handle error
                     
                     status_manager.add_progress_log(
                         task_id,
                         "generating_dialogue",
                         "dialogue_llm_processing",
-                        "Sending outline and context to LLM for dialogue generation"
+                        f"Sending outline and context to LLM for dialogue generation with {len(source_analysis_objects)} sources and {len(persona_research_objects_for_dialogue)} personas"
                     )
 
-                    # TEMPORARY: Still passing persona_details_map while service methods require it
-                    # This will be removed once all methods are updated to use PersonaResearch exclusively
+                    # PHASE 3: Use new generate_with_fallback method for robust dialogue generation
                     dialogue_turns_list = await self.llm_service.generate_dialogue_async(
                         podcast_outline=podcast_outline_obj,
                         source_analyses=source_analysis_objects, 
                         persona_research_docs=persona_research_objects_for_dialogue,
-                        persona_details_map=persona_details_map,  # Use the newly created map
+                        persona_details_map=persona_details_map,  # Keep for backward compatibility during transition
                         user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
                     )
-
                     if dialogue_turns_list:
                         logger.info(f"Podcast dialogue turns generated successfully ({len(dialogue_turns_list)} turns).")
                         status_manager.add_progress_log(
@@ -1066,9 +1079,32 @@ class PodcastGeneratorService:
                             f"Dialogue saved: {os.path.basename(llm_dialogue_turns_filepath)}"
                         )
                         
-                        transcript_parts = [f"{turn.speaker_id}: {turn.text}" for turn in dialogue_turns_list]
-                        podcast_transcript = "\n".join(transcript_parts)
-                        logger.info("Transcript constructed from dialogue turns.")
+                        # Create PodcastDialogue object for better data management
+                        try:
+                            podcast_dialogue = PodcastDialogue(turns=dialogue_turns_list)
+                            logger.info(f"Created PodcastDialogue with {podcast_dialogue.turn_count} turns, {len(podcast_dialogue.speaker_list)} speakers")
+                            
+                            status_manager.add_progress_log(
+                                task_id,
+                                "generating_dialogue",
+                                "dialogue_object_created",
+                                f"✓ Created dialogue object: {podcast_dialogue.turn_count} turns, {podcast_dialogue.total_word_count} words, ~{podcast_dialogue.estimated_duration_seconds}s duration"
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to create PodcastDialogue object: {e}", exc_info=True)
+                            warnings_list.append(f"Failed to create dialogue object: {e}")
+                            # Fallback to legacy approach
+                            podcast_dialogue = None
+                        
+                        # Generate transcript using PodcastDialogue if available, fallback to legacy method
+                        if podcast_dialogue:
+                            podcast_transcript = podcast_dialogue.to_transcript()
+                            logger.info(f"Transcript generated using PodcastDialogue: {len(podcast_transcript)} characters")
+                        else:
+                            # Legacy fallback
+                            transcript_parts = [f"{turn.speaker_id}: {turn.text}" for turn in dialogue_turns_list]
+                            podcast_transcript = "\n".join(transcript_parts)
+                            logger.info("Transcript generated using legacy method")
                         
                         # Save transcript to file
                         llm_transcript_filepath = os.path.join(tmpdir_path, "transcript.txt")
@@ -1080,7 +1116,7 @@ class PodcastGeneratorService:
                             task_id,
                             "generating_dialogue",
                             "transcript_constructed",
-                            f"Constructed transcript with {len(transcript_parts)} dialogue turns"
+                            f"✓ Transcript created: {len(podcast_transcript)} characters, {'using PodcastDialogue' if podcast_dialogue else 'using legacy method'}"
                         )
                     else:
                         logger.error("Dialogue generation returned None or empty list of turns.")
@@ -1404,7 +1440,7 @@ class PodcastGeneratorService:
                                 outline_data, task_id
                             )
                             if outline_cloud_url:
-                                # Update episode with cloud URL
+                                # Update the final_audio_filepath to use the cloud URL
                                 podcast_episode.llm_podcast_outline_path = outline_cloud_url
                                 logger.info(f"Podcast outline uploaded to cloud storage: {outline_cloud_url}")
                                 status_manager.add_progress_log(
