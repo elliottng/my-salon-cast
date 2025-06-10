@@ -18,7 +18,7 @@ class PodcastRequest(BaseModel):
     @property
     def has_valid_sources(self) -> bool:
         """Check if the request has at least one valid source."""
-        return (self.source_urls and len(self.source_urls) > 0) or (self.source_pdf_path is not None)
+        return bool((self.source_urls and len(self.source_urls) > 0) or (self.source_pdf_path is not None))
 
 class SourceAnalysis(BaseModel):
     """
@@ -62,8 +62,43 @@ class DialogueTurn(BaseModel):
     turn_id: int = Field(..., description="Sequential ID for this turn of dialogue.")
     speaker_id: str = Field(..., description="Identifier for the speaker (e.g., 'Host', 'Persona_JohnDoe', 'Narrator').")
     speaker_gender: Optional[str] = Field(default=None, description="Gender of the speaker (e.g., 'Male', 'Female', 'Neutral'), used for TTS voice selection.")
-    text: str = Field(..., description="The dialogue text for this turn.")
+    text: str = Field(..., description="The actual dialogue text for this turn.")
     source_mentions: Optional[List[str]] = Field(default_factory=list, description="List of source materials or facts referenced in this turn, for attribution. Defaults to an empty list if not provided.")
+
+
+class PodcastDialogue(BaseModel):
+    """
+    Container for dialogue turns with helper methods.
+    Intermediate object that wraps dialogue turns and provides utility methods
+    before assembling the final PodcastEpisode.
+    """
+    turns: List[DialogueTurn] = Field(..., description="List of dialogue turns that make up the podcast conversation.")
+    
+    def to_transcript(self) -> str:
+        """Convert dialogue turns to simple speaker: text format"""
+        return "\n".join(f"{turn.speaker_id}: {turn.text}" for turn in self.turns)
+    
+    @property
+    def turn_count(self) -> int:
+        """Total number of dialogue turns"""
+        return len(self.turns)
+    
+    @property
+    def speaker_list(self) -> List[str]:
+        """List of unique speakers in the dialogue"""
+        return list(dict.fromkeys(turn.speaker_id for turn in self.turns))
+    
+    @property
+    def total_word_count(self) -> int:
+        """Total word count across all turns"""
+        return sum(len(turn.text.split()) for turn in self.turns)
+    
+    @property
+    def estimated_duration_seconds(self) -> int:
+        """Estimate duration based on average speaking rate"""
+        # Assuming 150 words per minute average speaking rate
+        return int((self.total_word_count / 150) * 60)
+
 
 class PodcastOutline(BaseModel):
     """
@@ -173,7 +208,7 @@ class PodcastEpisode(BaseModel):
     
     def has_cloud_outline(self) -> bool:
         """Check if podcast outline is stored in cloud storage."""
-        return self.llm_podcast_outline_path and self.is_cloud_path(self.llm_podcast_outline_path)
+        return bool(self.llm_podcast_outline_path and self.is_cloud_path(self.llm_podcast_outline_path))
     
     def has_cloud_persona_research(self) -> bool:
         """Check if any persona research files are stored in cloud storage."""

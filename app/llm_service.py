@@ -1134,6 +1134,73 @@ Reference these sources appropriately in the dialogue. Be factual and accurate t
             logger.error(f"Error generating dialogue for segment {segment.segment_id}: {e}")
             return []
 
+    async def generate_with_fallback(self, prompt: str, result_type: type, timeout_seconds: int = 180) -> Union[Any, str]:
+        """
+        Generate content with Pydantic AI structured output and JSON fallback.
+        
+        Args:
+            prompt: The prompt to send to the model
+            result_type: Pydantic model type for structured output
+            timeout_seconds: Timeout for the request
+            
+        Returns:
+            Structured output if successful, fallback JSON string otherwise
+        """
+        try:
+            # Try Pydantic AI structured output first
+            logger.info(f"Attempting Pydantic AI structured output for {result_type.__name__}")
+            return await self.generate_text_async(prompt, timeout_seconds, result_type)
+            
+        except ValidationError as e:
+            logger.warning(f"Pydantic validation failed for {result_type.__name__}: {e.errors()}")
+            logger.info("Falling back to JSON string generation")
+            
+            # Fallback to JSON string generation
+            try:
+                json_response = await self.generate_text_async(prompt, timeout_seconds)
+                logger.info(f"Fallback JSON generation successful, length: {len(json_response)}")
+                return json_response
+            except Exception as fallback_error:
+                logger.error(f"Both structured and JSON fallback failed: {fallback_error}")
+                raise LLMProcessingError(f"Failed to generate content with both structured and JSON fallback: {fallback_error}")
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in generate_with_fallback: {e}")
+            raise
+
+    def parse_json_with_validation(self, json_text: str, target_type: type) -> Union[Any, None]:
+        """
+        Parse JSON text and validate against a Pydantic model with error isolation.
+        
+        Args:
+            json_text: JSON string to parse
+            target_type: Pydantic model type for validation
+            
+        Returns:
+            Parsed and validated object, or None on failure
+        """
+        try:
+            # Clean and parse JSON
+            cleaned_json = self._clean_json_string_from_markdown(json_text)
+            parsed_data = json.loads(cleaned_json)
+            
+            # Validate with Pydantic model
+            if isinstance(parsed_data, list):
+                return [target_type(**item) for item in parsed_data]
+            else:
+                return target_type(**parsed_data)
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error for {target_type.__name__}: {e}")
+            return None
+        except ValidationError as e:
+            logger.error(f"Pydantic validation error for {target_type.__name__}: {e.errors()}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error parsing {target_type.__name__}: {e}")
+            return None
+
+
 async def main_test():
     """
     Example usage function for testing the GeminiService directly.
