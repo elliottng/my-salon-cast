@@ -723,26 +723,84 @@ class GeminiService:
 
         final_prompt: str
         if user_provided_custom_prompt:
-            # If user provides a custom prompt, we use it directly.
-            # Consider if/how to append standard context if the custom prompt expects it.
-            # For now, assuming custom prompt is self-contained or user includes placeholders.
-            final_prompt = user_provided_custom_prompt
-            # Example of appending context if needed:
-            # context_parts = ["### Supporting Context ###"]
-            # if source_analyses:
-            #     for i, doc in enumerate(source_analyses):
-            #         context_parts.append(f"Source Analysis Document {i+1}:\\n{doc}\\n---")
-            # if persona_research_docs:
-            #     for i, doc in enumerate(persona_research_docs):
-            #         context_parts.append(f"Persona Research Document {i+1}:\\n{doc}\\n---")
-            # formatted_context = "\\n".join(context_parts)
-            # final_prompt += f"\\n\\n--- Supporting Context ---\\n{formatted_context}"
+            # When custom prompt is provided, we need to:
+            # 1. Preserve all source analyses and persona research context
+            # 2. Maintain JSON output requirements
+            # 3. Incorporate the custom prompt as additional guidance
+            
+            # Format Source Analyses
+            formatted_source_analyses_str_parts = []
+            if source_analyses:
+                for i, doc in enumerate(source_analyses):
+                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\n{doc.model_dump()}\n---")
+            else:
+                formatted_source_analyses_str_parts.append("No source analysis documents provided.")
+            input_formatted_source_analyses_str = "\n".join(formatted_source_analyses_str_parts)
+            
+            # Format Persona Research Documents
+            formatted_persona_research_str_parts = []
+            if persona_research_docs:
+                for i, doc in enumerate(persona_research_docs):
+                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\n{doc.model_dump()}\n---")
+            else:
+                formatted_persona_research_str_parts.append("No persona research documents provided.")
+            input_formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
+            
+            # Calculate duration and word counts
+            calculated_total_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
+            calculated_total_words = int(calculated_total_seconds / 60 * 150)
+            
+            # Build the prompt that incorporates the custom prompt while preserving structure
+            final_prompt = f"""You are an AI assistant helping to create a podcast outline.
+
+## Custom Instructions from User:
+{user_provided_custom_prompt}
+
+## Context Information:
+
+### Source Analysis Documents:
+{input_formatted_source_analyses_str}
+
+### Persona Research Documents:
+{input_formatted_persona_research_str}
+
+### Target Duration: {desired_podcast_length_str} ({calculated_total_seconds} seconds, approximately {calculated_total_words} words)
+
+## CRITICAL REQUIREMENT: JSON Output Format
+
+Regardless of the custom instructions above, you MUST output your response as a valid JSON object that matches this exact schema:
+
+{{
+  "title_suggestion": "string (Suggested title for the podcast episode)",
+  "summary_suggestion": "string (Suggested brief summary for the podcast episode)",
+  "segments": [
+    {{
+      "segment_id": "string (Unique ID like seg_01_intro)",
+      "segment_title": "string (Title for this segment)",
+      "speaker_id": "string (Host, Narrator, or persona ID)",
+      "content_cue": "string (Detailed description of segment content - minimum 300 words)",
+      "target_word_count": integer (Number of words for this segment),
+      "estimated_duration_seconds": integer (Calculate as: target_word_count / 150 * 60)
+    }}
+  ]
+}}
+
+IMPORTANT RULES:
+1. The sum of all segment target_word_count values MUST equal {calculated_total_words} words
+2. Each segment must have a unique segment_id
+3. Content cues must be detailed (minimum 300 words each)
+4. Include intro, body segments, and conclusion
+5. Output ONLY valid JSON - no markdown formatting, no explanatory text
+6. Calculate estimated_duration_seconds as: target_word_count / 150 * 60
+
+Now create the podcast outline following both the custom instructions and the JSON format requirements."""
+            
         else:
             # Format Source Analyses for PRD prompt
             formatted_source_analyses_str_parts = []
             if source_analyses:
                 for i, doc in enumerate(source_analyses):
-                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\\n{doc.model_dump()}\\n---")
+                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\n{doc.model_dump()}\n---")
             else:
                 formatted_source_analyses_str_parts.append("No source analysis documents provided.")
             input_formatted_source_analyses_str = "\n".join(formatted_source_analyses_str_parts)
@@ -751,7 +809,7 @@ class GeminiService:
             formatted_persona_research_str_parts = []
             if persona_research_docs:
                 for i, doc in enumerate(persona_research_docs):
-                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\\n{doc.model_dump()}\\n---")
+                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\n{doc.model_dump()}\n---")
             else:
                 formatted_persona_research_str_parts.append("No persona research documents provided.")
             input_formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
