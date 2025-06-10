@@ -38,7 +38,7 @@ from google.api_core.exceptions import (
 from google.ai.generativelanguage_v1beta.types import GenerationConfig
 from pydantic import ValidationError
 
-from app.podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis, OutlineSegment
+from app.podcast_models import PersonaResearch, PodcastOutline, DialogueTurn, SourceAnalysis, OutlineSegment, PodcastDialogue
 from app.common_exceptions import LLMProcessingError
 
 # Lists for persona invented names by gender
@@ -254,8 +254,11 @@ class GeminiService:
             if "rate limit" in error_message or "quota" in error_message:
                 logger.error(f"Rate limit/quota error: {e}", exc_info=True)
                 raise ResourceExhausted(str(e)) from e
-            elif "timeout" in error_message or "deadline" in error_message:
-                logger.error(f"Timeout/deadline error: {e}", exc_info=True)
+            elif "timeout" in str(e).lower():
+                logger.error(f"Timeout error: {e}", exc_info=True)
+                raise DeadlineExceeded(str(e)) from e
+            elif "deadline" in str(e).lower():
+                logger.error(f"Deadline error: {e}", exc_info=True)
                 raise DeadlineExceeded(str(e)) from e
             else:
                 # General catch-all for any other errors
@@ -703,13 +706,13 @@ class GeminiService:
     
     async def generate_podcast_outline_async(
         self,
-        source_analyses: list[str],
-        persona_research_docs: list[str],
+        source_analyses: list[SourceAnalysis],  # Phase 5: Direct Pydantic objects
+        persona_research_docs: list[PersonaResearch],  # Phase 5: Direct Pydantic objects
         desired_podcast_length_str: str,
         num_prominent_persons: int,
         names_prominent_persons_list: list[str],
         persona_details_map: dict[str, dict[str, str]],
-        user_provided_custom_prompt: str = None
+        user_provided_custom_prompt: str = ""  # Phase 5: Default empty string instead of None
     ) -> PodcastOutline:
         """
         Generates a podcast outline based on source analyses, persona research,
@@ -739,7 +742,7 @@ class GeminiService:
             formatted_source_analyses_str_parts = []
             if source_analyses:
                 for i, doc in enumerate(source_analyses):
-                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\\n{doc}\\n---")
+                    formatted_source_analyses_str_parts.append(f"Source Analysis Document {i+1}:\\n{doc.model_dump()}\\n---")
             else:
                 formatted_source_analyses_str_parts.append("No source analysis documents provided.")
             input_formatted_source_analyses_str = "\n".join(formatted_source_analyses_str_parts)
@@ -748,7 +751,7 @@ class GeminiService:
             formatted_persona_research_str_parts = []
             if persona_research_docs:
                 for i, doc in enumerate(persona_research_docs):
-                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\\n{doc}\\n---")
+                    formatted_persona_research_str_parts.append(f"Persona Research Document {i+1}:\\n{doc.model_dump()}\\n---")
             else:
                 formatted_persona_research_str_parts.append("No persona research documents provided.")
             input_formatted_persona_research_str = "\n".join(formatted_persona_research_str_parts)
@@ -756,23 +759,10 @@ class GeminiService:
             # Extract Persona IDs for the prompt
             available_persona_ids_list = []
             if persona_research_docs:
-                for doc_json_str in persona_research_docs:
-                    try:
-                        # If it's already a PersonaResearch object
-                        if isinstance(doc_json_str, PersonaResearch):
-                            if doc_json_str.person_id:
-                                available_persona_ids_list.append(doc_json_str.person_id)
-                        # If it's a JSON string (backward compatibility)
-                        elif isinstance(doc_json_str, str):
-                            pr_data = json.loads(doc_json_str) # Assuming each doc is a JSON string of PersonaResearch
-                            if 'person_id' in pr_data:
-                                available_persona_ids_list.append(pr_data['person_id'])
-                    except json.JSONDecodeError:
-                        logger.warning(f"Could not parse PersonaResearch JSON string: {doc_json_str[:100]}...")
-                    except Exception as e:
-                        logger.warning(f"Error processing persona research: {e}")
-                        continue
-
+                for doc in persona_research_docs:
+                    if doc.person_id:
+                        available_persona_ids_list.append(doc.person_id)
+        
             # Calculate total seconds from desired podcast length string
             calculated_total_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
             # Calculate target word count based on 150 words per minute
@@ -846,32 +836,60 @@ class GeminiService:
                 total_duration_seconds = self._parse_duration_to_seconds(desired_podcast_length_str)
                 logger.info(f"Parsed desired podcast length '{desired_podcast_length_str}' to {total_duration_seconds} seconds")
                 
-                # Clean keys before parsing, as Gemini sometimes adds extra spaces
-                parsed_json_dict = json.loads(cleaned_response_text)
-                parsed_json_dict = self._clean_keys_recursive(parsed_json_dict) 
-
-                # Create the basic podcast outline from the LLM response
-                podcast_outline = PodcastOutline(**parsed_json_dict)
+                # Use Pydantic AI for structured PodcastOutline output
+                logger.info("Using Pydantic AI for structured PodcastOutline output")
+                podcast_outline = await self.generate_text_async(
+                    final_prompt, 
+                    result_type=PodcastOutline,
+                    timeout_seconds=360
+                )
                 logger.info(f"Successfully generated podcast outline: {podcast_outline.title_suggestion}")
                 
-                # Validate and adjust segment durations and structure
-                validated_podcast_outline = self._validate_and_adjust_segments(podcast_outline, total_duration_seconds)
-                
-                # Log the final segment structure
-                segment_info = [f"{s.segment_id}: {s.estimated_duration_seconds}s" for s in validated_podcast_outline.segments]
-                logger.info(f"Final podcast outline has {len(validated_podcast_outline.segments)} segments: {', '.join(segment_info)}")
-                
-                return validated_podcast_outline
-            except json.JSONDecodeError as e:
-                logger.error(f"LLM output for podcast outline was not valid JSON. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
-                raise LLMProcessingError(f"LLM output for podcast outline was not valid JSON: {e}")
             except ValidationError as e:
-                logger.error(f"LLM output for podcast outline did not match expected schema. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
-                logger.debug(f"Problematic JSON string for outline: '{cleaned_response_text}'")
-                raise LLMProcessingError(f"LLM output for podcast outline did not match expected schema: {e}")
+                logger.error(f"Structured output validation failed: {e.errors()}")
+                logger.info("Falling back to JSON parsing method")
+                
+                # Fallback to JSON parsing
+                try:
+                    json_response = await self.generate_text_async(final_prompt, timeout_seconds=360)
+                    
+                    # Clean markdown fences if present
+                    cleaned_response_text = json_response.strip()
+                    if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
+                        cleaned_response_text = cleaned_response_text[7:-3].strip()
+                    elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
+                        cleaned_response_text = cleaned_response_text[3:-3].strip()
+                    
+                    # Clean keys before parsing, as Gemini sometimes adds extra spaces
+                    parsed_json_dict = json.loads(cleaned_response_text)
+                    parsed_json_dict = self._clean_keys_recursive(parsed_json_dict) 
+                    
+                    # Create the podcast outline from JSON fallback
+                    podcast_outline = PodcastOutline(**parsed_json_dict)
+                    logger.info(f"Fallback JSON parsing successful: {podcast_outline.title_suggestion}")
+                    
+                except json.JSONDecodeError as json_e:
+                    logger.error(f"JSON fallback failed. Error: {json_e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
+                    raise LLMProcessingError(f"Both Pydantic AI and JSON parsing failed for podcast outline. Validation: {e}. JSON: {json_e}")
+                except ValidationError as val_e:
+                    logger.error(f"JSON fallback validation failed. Error: {val_e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
+                    raise LLMProcessingError(f"Both Pydantic AI and JSON validation failed for podcast outline. Original: {e}. Fallback: {val_e}")
+                except Exception as fallback_e:
+                    logger.error(f"Unexpected error in JSON fallback. Error: {fallback_e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
+                    raise LLMProcessingError(f"Pydantic AI failed and JSON fallback encountered unexpected error. Original: {e}. Fallback: {fallback_e}")
+                    
             except Exception as e:
-                logger.error(f"An unexpected error occurred during podcast outline generation. Error: {e}. Raw response: '{cleaned_response_text[:500]}...'", exc_info=True)
-                raise LLMProcessingError(f"An unexpected error occurred during podcast outline generation: {e}")
+                logger.error(f"Unexpected error during Pydantic AI outline generation: {e}", exc_info=True)
+                raise LLMProcessingError(f"Unexpected error during podcast outline generation: {e}")
+            
+            # Validate and adjust segment durations and structure
+            validated_podcast_outline = self._validate_and_adjust_segments(podcast_outline, total_duration_seconds)
+            
+            # Log the final segment structure
+            segment_info = [f"{s.segment_id}: {s.estimated_duration_seconds}s" for s in validated_podcast_outline.segments]
+            logger.info(f"Final podcast outline has {len(validated_podcast_outline.segments)} segments: {', '.join(segment_info)}")
+            
+            return validated_podcast_outline
     async def generate_dialogue_async(
         self,
         podcast_outline: PodcastOutline,
@@ -960,6 +978,126 @@ class GeminiService:
         
         logger.info(f"Successfully generated {len(all_dialogue_turns)} total dialogue turns across all segments")
         return all_dialogue_turns
+    
+    async def _generate_segment_dialogue(self, 
+                                      segment: OutlineSegment,
+                                      segment_dialogue_prompt: str,
+                                      current_turn_id: int,
+                                      persona_details_map: dict[str, dict[str, str]]) -> List[DialogueTurn]:
+        """
+        Generate dialogue turns for a specific segment using the LLM with Pydantic AI structured output.
+        """
+        try:
+            logger.debug(f"Sending segment dialogue prompt for segment {segment.segment_id}")
+            logger.info("Using Pydantic AI for structured PodcastDialogue output")
+            
+            # Use Pydantic AI for structured PodcastDialogue output
+            dialogue_response = await self.generate_text_async(
+                segment_dialogue_prompt,
+                result_type=PodcastDialogue,
+                timeout_seconds=360
+            )
+            
+            logger.info(f"Successfully generated PodcastDialogue with {len(dialogue_response.turns)} turns for segment {segment.segment_id}")
+            
+            # Process turns: assign sequential turn_ids and ensure speaker_gender is set
+            processed_turns = []
+            for i, turn in enumerate(dialogue_response.turns):
+                # Create a copy with updated turn_id
+                turn_data = turn.model_dump()
+                turn_data['turn_id'] = current_turn_id + i
+                
+                # Ensure speaker_gender is set
+                if not turn_data.get('speaker_gender') and 'speaker_id' in turn_data:
+                    speaker_id_from_llm = turn_data['speaker_id']
+                    # Look up in persona_details_map
+                    speaker_info = persona_details_map.get(speaker_id_from_llm)
+                    if speaker_info and 'gender' in speaker_info:
+                        turn_data['speaker_gender'] = speaker_info['gender']
+                    else:
+                        # Fallback if speaker_id not in map or gender not specified
+                        if speaker_id_from_llm.lower() == "host":
+                            turn_data['speaker_gender'] = "Male"  # Default Host gender
+                        elif speaker_id_from_llm.lower() == "narrator":
+                            turn_data['speaker_gender'] = "Neutral"  # Default Narrator gender
+                        else:
+                            logger.warning(f"Speaker ID '{speaker_id_from_llm}' not found in persona_details_map or gender missing. Defaulting to 'neutral'.")
+                            turn_data['speaker_gender'] = "neutral"
+                
+                processed_turns.append(DialogueTurn(**turn_data))
+            
+            return processed_turns
+            
+        except ValidationError as e:
+            logger.error(f"Dialogue generation validation failed for segment {segment.segment_id}: {e.errors()}")
+            logger.info("Falling back to JSON parsing method")
+            
+            # Fallback to JSON parsing
+            try:
+                json_response = await self.generate_text_async(segment_dialogue_prompt, timeout_seconds=360)
+                
+                # Clean the response
+                cleaned_response_text = json_response.strip()
+                if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
+                    cleaned_response_text = cleaned_response_text[7:-3].strip()
+                elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
+                    cleaned_response_text = cleaned_response_text[3:-3].strip()
+                
+                # Parse the response
+                parsed_json_list = json.loads(cleaned_response_text)
+                parsed_json_list = self._clean_keys_recursive(parsed_json_list)
+                
+                # Validate it's a list
+                if not isinstance(parsed_json_list, list):
+                    logger.error(f"LLM response for segment {segment.segment_id} dialogue was not a JSON list")
+                    return []
+                
+                # Create dialogue turns
+                dialogue_turns: List[DialogueTurn] = []
+                for i, item in enumerate(parsed_json_list):
+                    if not isinstance(item, dict):
+                        logger.error(f"Item {i} in dialogue list for segment {segment.segment_id} is not a dict")
+                        continue
+                    
+                    # Ensure the turn_id follows the sequence
+                    item['turn_id'] = current_turn_id + i
+                    
+                    # Add speaker gender if not present
+                    if 'speaker_gender' not in item and 'speaker_id' in item:
+                        speaker_id_from_llm = item['speaker_id']
+                        # Look up in persona_details_map
+                        speaker_info = persona_details_map.get(speaker_id_from_llm)
+                        if speaker_info and 'gender' in speaker_info:
+                            item['speaker_gender'] = speaker_info['gender']
+                        else:
+                            # Fallback if speaker_id not in map or gender not specified
+                            if speaker_id_from_llm.lower() == "host":
+                                item['speaker_gender'] = "Male"  # Default Host gender
+                            elif speaker_id_from_llm.lower() == "narrator":
+                                item['speaker_gender'] = "Neutral"  # Default Narrator gender
+                            else:
+                                logger.warning(f"Speaker ID '{speaker_id_from_llm}' not found in persona_details_map or gender missing. Defaulting to 'neutral'.")
+                                item['speaker_gender'] = "neutral"
+                    
+                    # Create the dialogue turn
+                    try:
+                        dialogue_turns.append(DialogueTurn(**item))
+                    except ValidationError as turn_e:
+                        logger.error(f"Failed to create DialogueTurn for item {i} in segment {segment.segment_id}: {turn_e}")
+                
+                logger.info(f"Fallback JSON parsing successful: {len(dialogue_turns)} turns for segment {segment.segment_id}")
+                return dialogue_turns
+                
+            except json.JSONDecodeError as json_e:
+                logger.error(f"JSON fallback failed for segment {segment.segment_id}: {json_e}")
+                return []
+            except Exception as fallback_e:
+                logger.error(f"Unexpected error in JSON fallback for segment {segment.segment_id}: {fallback_e}")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Unexpected error during Pydantic AI dialogue generation for segment {segment.segment_id}: {e}")
+            return []
     
     def _build_segment_dialogue_prompt(self, 
                                      segment: OutlineSegment,
@@ -1061,78 +1199,6 @@ Reference these sources appropriately in the dialogue. Be factual and accurate t
         )
 
         return segment_prompt
-
-    async def _generate_segment_dialogue(self, 
-                                      segment: OutlineSegment,
-                                      segment_dialogue_prompt: str,
-                                      current_turn_id: int,
-                                      persona_details_map: dict[str, dict[str, str]]) -> List[DialogueTurn]:
-        """
-        Generate dialogue turns for a specific segment using the LLM.
-        """
-        try:
-            logger.debug(f"Sending segment dialogue prompt for segment {segment.segment_id}")
-            raw_response_text = await self.generate_text_async(segment_dialogue_prompt, timeout_seconds=360)
-            
-            # Clean the response
-            cleaned_response_text = raw_response_text.strip()
-            if cleaned_response_text.startswith("```json") and cleaned_response_text.endswith("```"):
-                cleaned_response_text = cleaned_response_text[7:-3].strip()
-            elif cleaned_response_text.startswith("```") and cleaned_response_text.endswith("```"):
-                cleaned_response_text = cleaned_response_text[3:-3].strip()
-            
-            # Parse the response
-            parsed_json_list = json.loads(cleaned_response_text)
-            parsed_json_list = self._clean_keys_recursive(parsed_json_list)
-            
-            # Validate it's a list
-            if not isinstance(parsed_json_list, list):
-                logger.error(f"LLM response for segment {segment.segment_id} dialogue was not a JSON list")
-                return []
-            
-            # Create dialogue turns
-            dialogue_turns: List[DialogueTurn] = []
-            for i, item in enumerate(parsed_json_list):
-                if not isinstance(item, dict):
-                    logger.error(f"Item {i} in dialogue list for segment {segment.segment_id} is not a dict")
-                    continue
-                
-                # Ensure the turn_id follows the sequence
-                item['turn_id'] = current_turn_id + i
-                
-                # Add speaker gender if not present
-                if 'speaker_gender' not in item and 'speaker_id' in item:
-                    speaker_id_from_llm = item['speaker_id']
-                    # Look up in persona_details_map
-                    speaker_info = persona_details_map.get(speaker_id_from_llm)
-                    if speaker_info and 'gender' in speaker_info:
-                        item['speaker_gender'] = speaker_info['gender']
-                    else:
-                        # Fallback if speaker_id not in map or gender not specified
-                        # For "Host" or "Narrator", if not in map, assign a default
-                        if speaker_id_from_llm.lower() == "host":
-                            item['speaker_gender'] = "Male"  # Default Host gender
-                        elif speaker_id_from_llm.lower() == "narrator":
-                            item['speaker_gender'] = "Neutral"  # Default Narrator gender
-                        else:
-                            # Fallback for any other unexpected speaker_id
-                            logger.warning(f"Speaker ID '{speaker_id_from_llm}' not found in persona_details_map or gender missing. Defaulting to 'neutral'.")
-                            item['speaker_gender'] = "neutral"
-                
-                # Create the dialogue turn
-                try:
-                    dialogue_turns.append(DialogueTurn(**item))
-                except ValidationError as e:
-                    logger.error(f"Failed to create DialogueTurn for item {i} in segment {segment.segment_id}: {e}")
-            
-            return dialogue_turns
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON for segment {segment.segment_id} dialogue: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Error generating dialogue for segment {segment.segment_id}: {e}")
-            return []
 
     async def generate_with_fallback(self, prompt: str, result_type: type, timeout_seconds: int = 180) -> Union[Any, str]:
         """

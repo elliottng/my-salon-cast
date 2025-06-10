@@ -33,8 +33,6 @@ from app.config import setup_environment
 from app.http_utils import send_webhook_with_retry, build_webhook_payload
 from app.validations import is_valid_youtube_url
 from app.utils.migration_helpers import (
-    parse_source_analyses_safe,
-    parse_persona_research_safe,
     get_persona_by_id,
     convert_legacy_dialogue_json
 )
@@ -446,16 +444,13 @@ class PodcastGeneratorService:
             status_manager.set_episode(task_id, error_episode)
             return task_id, error_episode
 
-        llm_source_analysis_filepath: Optional[str] = None
-        llm_persona_research_filepaths: List[str] = []
+        # Initialize containers for intermediate data - use Pydantic objects directly (Phase 5)
+        source_analysis_obj: Optional[SourceAnalysis] = None  # Direct Pydantic object storage
+        persona_research_objects: List[PersonaResearch] = []  # Direct Pydantic object storage
         llm_podcast_outline_filepath: Optional[str] = None
-        llm_dialogue_script_filepath: Optional[str] = None # Path for the full dialogue script
         llm_dialogue_turns_filepath: Optional[str] = None
         llm_transcript_filepath: Optional[str] = None
         individual_turn_audio_paths: List[str] = [] # NEW: To hold paths to individual dialogue turn audio files
-
-        source_analyses_content: List[str] = []
-        persona_research_docs_content: List[str] = []
 
         podcast_title = "Generation Incomplete"
         podcast_summary = "Full generation pending or failed at an early stage."
@@ -557,7 +552,6 @@ class PodcastGeneratorService:
             
             # 3. LLM - Source Analysis
             logger.info("STEP: Starting Source Analysis...")
-            source_analysis_obj: Optional[SourceAnalysis] = None
             
             status_manager.add_progress_log(
                 task_id,
@@ -587,18 +581,13 @@ class PodcastGeneratorService:
                         f"✓ Generated analysis with {len(source_analysis_obj.summary_points)} points"
                     )
                     
-                    source_analyses_content.append(source_analysis_obj.model_dump_json()) # For LLM input
-                    llm_source_analysis_filepath = os.path.join(tmpdir_path, "source_analysis.json")
-                    with open(llm_source_analysis_filepath, 'w') as f:
-                        json.dump(source_analysis_obj.model_dump(), f, indent=2) # Save the model dump
-                    logger.info(f"Source analysis saved to {llm_source_analysis_filepath}")
-                    logger.info(f"STEP: Source Analysis object created successfully: {source_analysis_obj is not None}")
+                    logger.info(f"Source analysis created successfully: {source_analysis_obj is not None}")
                     
                     status_manager.add_progress_log(
                         task_id,
                         "analyzing_sources",
                         "analysis_saved",
-                        f"Analysis saved to file: {os.path.basename(llm_source_analysis_filepath)}"
+                        f"Analysis saved to memory"
                     )
                 else:
                     # This case should ideally not be reached if analyze_source_text_async raises an error on failure or returns None
@@ -660,7 +649,6 @@ class PodcastGeneratorService:
             
             # 4. LLM - Persona Research (Iterative)
             logger.info("STEP: Starting Persona Research...")
-            persona_research_objects: List[PersonaResearch] = []
             if request_data.prominent_persons and extracted_text:
                 status_manager.add_progress_log(
                     task_id,
@@ -691,39 +679,16 @@ class PodcastGeneratorService:
                                 f"✓ Generated persona research for {person_name}"
                             )
                             
-                            persona_research_docs_content.append(persona_research_obj.model_dump_json())
-                            # Save persona research to file
-                            persona_research_filepath = os.path.join(tmpdir_path, f"persona_research_{persona_research_obj.person_id}.json")
-                            with open(persona_research_filepath, "w") as f:
-                                json.dump(json.loads(persona_research_obj.model_dump_json()), f, indent=2)
-                            llm_persona_research_filepaths.append(persona_research_filepath)
-                            logger.info(f"Persona research for {person_name} saved to {persona_research_filepath}")
+                            persona_research_objects.append(persona_research_obj)
+                            logger.info(f"Persona research for {person_name} saved to memory")
+                            logger.info(f"STEP: Persona Research object created successfully: {persona_research_obj is not None}")
                             
                             status_manager.add_progress_log(
                                 task_id,
                                 "researching_personas",
                                 "persona_saved",
-                                f"Research saved: {os.path.basename(persona_research_filepath)}"
+                                f"Research saved to memory: {person_name}"
                             )
-                            
-                            # Print detailed information about the PersonaResearch object
-                            print(f"\n============ PersonaResearch for {person_name} ============")
-                            print(f"Person ID: {persona_research_obj.person_id}")
-                            print(f"Name: {persona_research_obj.name}")
-                            # Print the first 500 characters of the detailed profile, then first 50 chars of each additional 1000 chars
-                            profile = persona_research_obj.detailed_profile
-                            print(f"Detailed Profile (first 500 chars):\n{profile[:500]}...")
-                            
-                            # For very long profiles, print previews of each section
-                            if len(profile) > 500:
-                                sections = ["PART 1:", "PART 2:", "PART 3:", "PART 4:", "PART 5:"]
-                                for section in sections:
-                                    pos = profile.find(section)
-                                    if pos > -1:
-                                        print(f"\n{section} Preview: {profile[pos:pos+100]}...")
-                            
-                            print(f"Full PersonaResearch saved to: {persona_research_filepath}")
-                            print("="*60 + "\n")
                         else:
                             logger.error(f"Persona research for {person_name} returned None.")
                             warnings_list.append(f"Persona research for {person_name} failed to produce a result.")
@@ -746,13 +711,13 @@ class PodcastGeneratorService:
             else:
                 logger.info("No prominent persons requested or no extracted text for persona research.")
 
-            logger.info(f"STEP: Persona Research complete. Found {len(persona_research_docs_content)} personas researched.")
+            logger.info(f"STEP: Persona Research complete. Found {len(persona_research_objects)} personas researched.")
 
             # Update status after persona research
             status_manager.update_status(
                 task_id,
                 "generating_outline",
-                f"Researched {len(persona_research_docs_content)} personas, generating outline",
+                f"Researched {len(persona_research_objects)} personas, generating outline",
                 45.0
             )
             status_manager.update_artifacts(
@@ -769,30 +734,19 @@ class PodcastGeneratorService:
             # Create a map of PersonaResearch objects for easy lookup by person_id
             persona_research_map: dict[str, PersonaResearch] = {}
             
-            for idx, pr_json_str in enumerate(persona_research_docs_content):
-                try:
-                    pr_data = json.loads(pr_json_str)
-                    persona_research_obj_temp = PersonaResearch(**pr_data)
-                    person_id = persona_research_obj_temp.person_id
-                    real_name = persona_research_obj_temp.name
-                    
-                    # Use LLM service assignments (service layer provides reliable fallbacks)
-                    assigned_gender = persona_research_obj_temp.gender
-                    invented_name = persona_research_obj_temp.invented_name
+            for pr in persona_research_objects:
+                person_id = pr.person_id
+                real_name = pr.name
+                
+                # Use LLM service assignments (service layer provides reliable fallbacks)
+                assigned_gender = pr.gender
+                invented_name = pr.invented_name
 
-                    logger.info(f"Using persona assignments for {real_name}: gender='{assigned_gender}', invented_name='{invented_name}'")
-                    
-                    # Add to persona_research_map for efficient lookups by ID
-                    persona_research_map[person_id] = persona_research_obj_temp
-                    
-                    # Replace the original JSON string with the updated one - use model_dump_json for proper serialization
-                    persona_research_docs_content[idx] = persona_research_obj_temp.model_dump_json()
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse PersonaResearch JSON for name/gender assignment: {e}. Content: {pr_json_str[:100]}")
-                except Exception as e:
-                    logger.error(f"Error processing persona for name/gender assignment: {e}. Persona data: {pr_json_str[:100]}")
-            
+                logger.info(f"Using persona assignments for {real_name}: gender='{assigned_gender}', invented_name='{invented_name}'")
+                
+                # Add to persona_research_map for efficient lookups by ID
+                persona_research_map[person_id] = pr
+                
             # Now create the Host persona using the TTS voice cache
             used_voice_ids = {
                 details.tts_voice_id
@@ -817,7 +771,7 @@ class PodcastGeneratorService:
             
             # Add Host to maps
             persona_research_map["Host"] = host_persona
-            persona_research_docs_content.append(host_persona.model_dump_json())
+            persona_research_objects.append(host_persona)
             logger.info(
                 f"Assigned to Host (Host): Invented Name='{request_data.host_invented_name or 'Bridgette'}', Gender='{request_data.host_gender or 'Female'}', Voice='{host_voice_id}', Params: {host_voice_params}"
             )
@@ -841,7 +795,7 @@ class PodcastGeneratorService:
             podcast_outline_obj: Optional[PodcastOutline] = None
             if extracted_text:
                 # Check if we have source analysis data
-                has_source_analysis = bool(source_analyses_content)
+                has_source_analysis = bool(source_analysis_obj)
                 if not has_source_analysis:
                     logger.warning("Source analysis failed, but continuing with outline generation using extracted text only")
                     warnings_list.append("Outline generated without source analysis due to LLM processing errors")
@@ -850,7 +804,7 @@ class PodcastGeneratorService:
                     task_id,
                     "generating_outline",
                     "outline_generation_start",
-                    f"Generating outline from {len(source_analyses_content)} sources and {len(persona_research_docs_content)} personas"
+                    f"Generating outline from {len(persona_research_objects)} personas"
                 )
                 
                 try:
@@ -867,18 +821,15 @@ class PodcastGeneratorService:
                     )
 
                     # If source analysis is missing, create a minimal fallback analysis from extracted text
-                    fallback_source_analyses = source_analyses_content
+                    fallback_source_analyses = [source_analysis_obj] if source_analysis_obj else None
                     if not has_source_analysis and extracted_text:
                         logger.info("Creating fallback source analysis for outline generation")
                         # Create a simple analysis structure that the outline generation can use
-                        fallback_analysis = {
-                            "summary_points": ["Content extracted from provided sources"],
-                            "key_themes": ["General discussion topics"],
-                            "main_arguments": ["Analysis of provided content"],
-                            "factual_claims": [],
-                            "source_reliability": "moderate"
-                        }
-                        fallback_source_analyses = [json.dumps(fallback_analysis)]
+                        fallback_analysis = SourceAnalysis(
+                            summary_points=["Content extracted from provided sources"],
+                            detailed_analysis="Analysis of provided content extracted from available sources"
+                        )
+                        fallback_source_analyses = [fallback_analysis]
                         
                         status_manager.add_progress_log(
                             task_id,
@@ -887,16 +838,15 @@ class PodcastGeneratorService:
                             "⚠ Created fallback analysis for outline generation"
                         )
 
-                    # TEMPORARY: Still passing persona_details_map while service methods require it
-                    # This will be removed once all methods are updated to use PersonaResearch exclusively
+                    # Fix None parameter passing issues for generate_podcast_outline_async method call
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
                         source_analyses=fallback_source_analyses, 
-                        persona_research_docs=persona_research_docs_content,
+                        persona_research_docs=persona_research_objects,
                         desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,
-                        names_prominent_persons_list=request_data.prominent_persons,
-                        persona_details_map=persona_details_map,  # Use the newly created map
-                        user_provided_custom_prompt=request_data.custom_prompt_for_outline
+                        names_prominent_persons_list=request_data.prominent_persons or [],
+                        persona_details_map=persona_details_map,
+                        user_provided_custom_prompt=request_data.custom_prompt_for_outline or ""
                     )
                     if podcast_outline_obj:
                         logger.info("Podcast outline generated successfully.")
@@ -997,15 +947,15 @@ class PodcastGeneratorService:
                         task_id,
                         "generating_dialogue",
                         "dialogue_preprocessing",
-                        f"Processing {len(source_analyses_content)} source analyses and {len(persona_research_docs_content)} persona docs"
+                        f"Processing {len(persona_research_objects)} persona docs"
                     )
 
                     # Convert JSON strings to Pydantic objects using migration helpers for safe transition
                     source_analysis_objects = []
-                    if source_analyses_content: # Should always be true if we reached here
+                    if source_analysis_obj: # Should always be true if we reached here
                         # Use migration helper for safe conversion
                         try:
-                            source_analysis_objects = parse_source_analyses_safe(source_analyses_content[0])
+                            source_analysis_objects = [source_analysis_obj]
                             if not source_analysis_objects:
                                 logger.warning("No valid source analyses found after parsing")
                                 warnings_list.append("Failed to process source analysis for dialogue generation.")
@@ -1026,21 +976,7 @@ class PodcastGeneratorService:
                             )
                      
                     # Use migration helper for safe persona research conversion
-                    persona_research_objects_for_dialogue = []
-                    for pr_json_str in persona_research_docs_content:
-                        try:
-                            # Use migration helper for individual persona research docs
-                            parsed_personas = parse_persona_research_safe(pr_json_str)
-                            persona_research_objects_for_dialogue.extend(parsed_personas)
-                        except Exception as e:
-                            logger.error(f"Failed to parse a persona_research_doc for dialogue generation: {e}", exc_info=True)
-                            warnings_list.append("Failed to process one or more persona research docs for dialogue.")
-                            status_manager.add_progress_log(
-                                task_id,
-                                "generating_dialogue",
-                                "persona_parse_error",
-                                f"✗ Failed to parse persona research: {e}"
-                            )
+                    persona_research_objects_for_dialogue = persona_research_objects
                     
                     status_manager.add_progress_log(
                         task_id,
@@ -1414,8 +1350,8 @@ class PodcastGeneratorService:
                 audio_filepath=final_audio_filepath, 
                 source_attributions=source_attributions,  # Now includes all source URLs
                 warnings=warnings_list,
-                llm_source_analysis_path=llm_source_analysis_filepath,
-                llm_persona_research_paths=llm_persona_research_filepaths if llm_persona_research_filepaths else None,
+                llm_source_analysis_path=None,
+                llm_persona_research_paths=None,
                 llm_podcast_outline_path=llm_podcast_outline_filepath,
                 llm_dialogue_turns_path=llm_dialogue_turns_filepath,
                 llm_transcript_path=llm_transcript_filepath,
@@ -1454,35 +1390,25 @@ class PodcastGeneratorService:
                             warnings_list.append(f"Error uploading podcast outline to cloud storage: {e}")
                     
                     # Upload persona research files
-                    if llm_persona_research_filepaths:
+                    if persona_research_objects:
                         updated_research_paths = []
-                        for research_path in llm_persona_research_filepaths:
-                            if os.path.exists(research_path):
-                                try:
-                                    # Read the research data
-                                    with open(research_path, 'r') as f:
-                                        research_data = json.load(f)
-                                    
-                                    # Extract person_id from the research data or filename
-                                    person_id = research_data.get('person_id') or os.path.basename(research_path).replace('persona_research_', '').replace('.json', '')
-                                    
-                                    # Upload to cloud storage
-                                    research_cloud_url = await self.cloud_storage_manager.upload_persona_research_async(
-                                        research_data, task_id, person_id
-                                    )
-                                    if research_cloud_url:
-                                        updated_research_paths.append(research_cloud_url)
-                                        logger.info(f"Persona research for {person_id} uploaded to cloud storage: {research_cloud_url}")
-                                    else:
-                                        updated_research_paths.append(research_path)  # Keep local path as fallback
-                                except Exception as e:
-                                    logger.error(f"Error uploading persona research {research_path} to cloud storage: {e}")
-                                    warnings_list.append(f"Error uploading persona research to cloud storage: {e}")
-                                    updated_research_paths.append(research_path)  # Keep local path as fallback
-                            else:
-                                updated_research_paths.append(research_path)  # Keep path even if file doesn't exist
-                        
-                        # Update episode with cloud URLs
+                        for pr in persona_research_objects:
+                            try:
+                                # Extract person_id from the research data or filename
+                                person_id = pr.person_id
+                                
+                                # Upload to cloud storage
+                                research_cloud_url = await self.cloud_storage_manager.upload_persona_research_async(
+                                    pr.model_dump(), task_id, person_id
+                                )
+                                if research_cloud_url:
+                                    updated_research_paths.append(research_cloud_url)
+                                    logger.info(f"Persona research for {person_id} uploaded to cloud storage: {research_cloud_url}")
+                                else:
+                                    logger.warning(f"Failed to upload persona research for {person_id} to cloud storage")
+                            except Exception as e:
+                                logger.error(f"Error uploading persona research to cloud storage: {e}")
+                                warnings_list.append(f"Error uploading persona research to cloud storage: {e}")
                         if updated_research_paths:
                             podcast_episode.llm_persona_research_paths = updated_research_paths
                             
@@ -1490,7 +1416,7 @@ class PodcastGeneratorService:
                             task_id,
                             "postprocessing_final_episode",
                             "research_cloud_upload_success",
-                            f"✓ {len([p for p in updated_research_paths if p.startswith(('http', 'gs:'))])} persona research files uploaded to cloud storage"
+                            f"✓ {len([p for p in updated_research_paths if p])} persona research files uploaded to cloud storage"
                         )
                 
                 except Exception as e:
