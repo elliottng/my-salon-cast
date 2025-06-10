@@ -9,11 +9,6 @@ Remove all synchronous podcast generation support, making the system purely asyn
 
   - [ ] Ensure all current changes are committed first
   
-- [ ] **Document current behavior**
-  - [ ] Save current method signatures and their relationships
-  - [ ] Document the circular dependency flow for reference
-  - [ ] Take screenshots of current API docs if needed
-
 - [ ] **Create integration test baseline**
   - [ ] Write a test that captures current async behavior: `tests/test_async_generation_baseline.py`
   - [ ] Test should verify: task_id generation, status updates, background execution, webhook notifications
