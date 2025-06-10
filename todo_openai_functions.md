@@ -1,4 +1,4 @@
-# OpenAI Responses API Function Calling Integration for MySalonCast
+# UNDER REVIEW: (Don't implement yet!) OpenAI Responses API Function Calling Integration for MySalonCast
 
 You are tasked with implementing OpenAI Responses API function calling integration for MySalonCast. Create a clean, minimal interface that allows external applications (like Bridgette.app) to generate podcasts through OpenAI's stateful Responses API with real-time progress tracking.
 

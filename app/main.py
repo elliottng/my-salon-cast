@@ -19,64 +19,38 @@ logger = logging.getLogger(__name__)
 # Enhanced FastAPI app with comprehensive OpenAPI metadata
 app = FastAPI(
     title="MySalonCast API",
-    description="""
-    **MySalonCast** is an AI-powered podcast generation platform that creates engaging podcasts from your content sources.
-    
-    ## Features
-    
-    * **PDF Text Extraction** - Extract text content from PDF documents
-    * **Async Podcast Generation** - Generate podcasts with multiple personas and custom outlines
-    * **Status Tracking** - Real-time tracking of podcast generation progress
-    * **Audio Playback** - Stream generated podcasts directly in your browser
-    
-    ## Workflow
-    
-    1. **Submit Content** - Provide URLs, PDFs, or custom prompts
-    2. **Generate Podcast** - Our AI creates engaging dialogue between personas
-    3. **Track Progress** - Monitor generation through detailed status updates
-    4. **Listen & Download** - Access your completed podcast via audio endpoint
-    
-    ## Authentication
-    
-    This API currently operates without authentication for development purposes.
-    
-    For production deployments, appropriate authentication should be implemented.
-    """,
+    description="""AI-powered podcast generation platform. Extract text from PDFs, generate engaging podcasts with multiple personas, track progress, and stream audio. Perfect for content creators and educators.""",
     version="1.0.0",
     contact={
         "name": "MySalonCast Support",
-        "email": "support@mysaloncast.com",
+        "email": "support@mysaloncast.com"
     },
     license_info={
         "name": "MIT",
-        "url": "https://opensource.org/licenses/MIT",
+        "url": "https://opensource.org/licenses/MIT"
     },
     servers=[
         {
-            "url": "http://localhost:8002",
-            "description": "Development server"
-        },
-        {
-            "url": "https://api.mysaloncast.com",
+            "url": "https://elliottng.pagekite.me",
             "description": "Production server"
         }
     ],
     openapi_tags=[
         {
             "name": "content",
-            "description": "Content processing operations"
+            "description": "Content processing endpoints"
         },
         {
-            "name": "generation",
-            "description": "Podcast generation operations"
+            "name": "generation", 
+            "description": "Podcast generation endpoints"
         },
         {
             "name": "playback",
-            "description": "Audio playback and access"
+            "description": "Audio streaming endpoints"
         },
         {
             "name": "status",
-            "description": "Task status and monitoring"
+            "description": "Status tracking endpoints"
         }
     ]
 )
@@ -104,23 +78,10 @@ else:
 @app.post("/process/pdf/", tags=["content"], summary="Extract Text from PDF")
 async def process_pdf_endpoint(pdf_file: UploadFile = File(...)):
     """
-    **Extract text content from a PDF document**
+    Extract text content from a PDF document for podcast generation.
     
-    This endpoint accepts a PDF file upload and extracts all readable text content.
-    The extracted text can then be used as source material for podcast generation.
-    
-    **Parameters:**
-    - **pdf_file**: PDF document to process (max file size varies by server configuration)
-    
-    **Returns:**
-    - **filename**: Original filename of the uploaded PDF
-    - **message**: Status message indicating success or failure
-    - **extracted_text_snippet**: First 500 characters of extracted text (for preview)
-    - **total_extracted_characters**: Total number of characters extracted
-    
-    **Error Responses:**
-    - **400 Bad Request**: Invalid PDF file or corrupted document
-    - **500 Internal Server Error**: Text extraction failure
+    Upload a PDF file to extract readable text content. Returns filename, 
+    extraction status, text snippet preview, and total character count.
     """
     if not await is_valid_pdf(pdf_file):
         raise HTTPException(status_code=400, detail="Invalid PDF file. Please upload a valid PDF document.")
@@ -144,37 +105,10 @@ async def process_pdf_endpoint(pdf_file: UploadFile = File(...)):
 @app.post("/generate/podcast_async/", tags=["generation"], summary="Start Podcast Generation")
 async def generate_podcast_async_endpoint(request: PodcastRequest):
     """
-    **Start asynchronous podcast generation**
+    Start asynchronous podcast generation with AI-powered content creation.
     
-    Initiates the AI-powered podcast generation process using your provided content sources.
-    Returns immediately with a task ID for tracking progress.
-    
-    **Process Overview:**
-    1. **Source Analysis** - AI analyzes your content sources
-    2. **Persona Research** - Creates detailed persona profiles for dialogue participants  
-    3. **Outline Generation** - Structures the podcast with engaging segments
-    4. **Dialogue Creation** - Generates natural conversation between personas
-    5. **Audio Synthesis** - Converts dialogue to high-quality speech
-    6. **Final Assembly** - Combines all segments into polished podcast
-    
-    **Request Body:**
-    - **source_urls**: List of web URLs to extract content from
-    - **source_pdf_path**: Path to PDF file for content extraction
-    - **prominent_persons**: List of personas to include in dialogue
-    - **desired_podcast_length_str**: Target duration (e.g., "15-20 minutes")
-    - **custom_prompt_for_outline**: Optional custom instructions for structure
-    - **host_invented_name**: Optional custom name for podcast host
-    - **host_gender**: Host gender preference ("male", "female", "neutral")
-    - **custom_prompt_for_dialogue**: Optional custom dialogue instructions
-    - **webhook_url**: Optional webhook for completion notifications
-    
-    **Returns:**
-    - **task_id**: Unique identifier for tracking this generation task
-    - **message**: Confirmation message
-    - **status_url**: Endpoint URL for checking progress
-    
-    **Usage:**
-    Use the returned task_id with the `/status/{task_id}` endpoint to monitor progress.
+    Initiates podcast generation using provided content sources. Returns task ID 
+    for tracking progress and status URL for monitoring.
     """
     try:
         generator_service = PodcastGeneratorService()
@@ -194,31 +128,9 @@ async def generate_podcast_async_endpoint(request: PodcastRequest):
 @app.get("/podcast/{podcast_id}/audio", tags=["playback"], summary="Stream Podcast Audio")
 async def get_podcast_audio(podcast_id: str):
     """
-    **Stream or download completed podcast audio**
+    Stream or download completed podcast audio with embedded web player.
     
-    Provides access to the final generated podcast audio file with an embedded web player.
-    The audio file can be streamed directly in the browser or downloaded for offline listening.
-    
-    **Parameters:**
-    - **podcast_id**: Unique identifier of the completed podcast (same as task_id from generation)
-    
-    **Returns:**
-    - **HTML Response**: Web page with embedded audio player and download link
-    - **Audio Format**: MP3 format optimized for podcast consumption
-    - **Quality**: High-quality speech synthesis with natural intonation
-    
-    **Features:**
-    - **Browser Playback**: Embedded HTML5 audio player with controls
-    - **Download Option**: Direct download link for offline access
-    - **Responsive Design**: Works on desktop and mobile browsers
-    
-    **Error Responses:**
-    - **404 Not Found**: Podcast audio file not available (generation may still be in progress)
-    
-    **Usage Tips:**
-    - Ensure podcast generation is completed before accessing this endpoint
-    - Check task status first using `/status/{task_id}` endpoint
-    - Audio files are typically 10-50MB depending on podcast length
+    Provides access to final generated podcast audio file with playback controls.
     """
     audio_path = f"./outputs/audio/{podcast_id}/final.mp3"
     
@@ -256,50 +168,28 @@ async def get_podcast_audio(podcast_id: str):
     return HTMLResponse(content=html_content)
 
 
+@app.get("/privacy-policy", tags=["content"], summary="View Privacy Policy")
+async def get_privacy_policy():
+    """
+    View the MySalonCast privacy policy.
+    
+    Returns the full text of the privacy policy.
+    """
+    try:
+        with open("./templates/privacy_policy.html", "r") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Privacy policy not found")
+
+
 # Status management endpoints
 @app.get("/status/{task_id}", response_model=PodcastStatus, tags=["status"], summary="Get Task Status")
 async def get_task_status(task_id: str):
     """
-    **Get detailed status of podcast generation task**
+    Get detailed status of podcast generation task with progress updates.
     
-    Provides comprehensive information about the current state of a podcast generation task,
-    including progress percentage, current phase, available artifacts, and any errors.
-    
-    **Parameters:**
-    - **task_id**: Unique identifier returned from the generation endpoint
-    
-    **Returns:**
-    - **task_id**: Echo of the requested task identifier
-    - **status**: Current phase (queued, analyzing_sources, generating_dialogue, etc.)
-    - **status_description**: Human-readable description of current activity
-    - **progress_percentage**: Overall completion percentage (0-100)
-    - **created_at**: When the task was initially queued
-    - **last_updated_at**: Most recent status update timestamp
-    - **request_data**: Original generation request parameters
-    - **result_episode**: Complete podcast data (when finished)
-    - **error_message**: Summary of any errors encountered
-    - **error_details**: Detailed error information for debugging
-    - **logs**: Chronological list of key events and milestones
-    - **artifacts**: Availability status of intermediate files (outline, transcript, etc.)
-    
-    **Status Values:**
-    - **queued**: Task accepted and waiting to start
-    - **preprocessing_sources**: Downloading and validating content sources
-    - **analyzing_sources**: AI analysis of source material
-    - **researching_personas**: Creating detailed persona profiles
-    - **generating_outline**: Structuring podcast segments and flow
-    - **generating_dialogue**: Creating natural conversation between personas
-    - **generating_audio_segments**: Converting text to speech
-    - **stitching_audio**: Combining segments into final audio file
-    - **postprocessing_final_episode**: Final quality checks and packaging
-    - **completed**: Podcast ready for playback
-    - **failed**: Generation encountered unrecoverable error
-    - **cancelled**: Task was cancelled by user or system
-    
-    **Polling Guidance:**
-    - Check status every 10-30 seconds during generation
-    - Most podcasts complete within 5-15 minutes
-    - Monitor `progress_percentage` for completion estimates
+    Provides current phase, progress percentage, and available artifacts.
     """
     status_manager = get_status_manager()
     status = status_manager.get_status(task_id)
