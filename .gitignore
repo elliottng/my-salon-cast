@@ -35,6 +35,9 @@ podcast_status.db
 # Temporary files directory
 temp_files/
 
+# Generated podcast files
+generated_podcasts/
+
 # Terraform
 .terraform/
 *.tfstate
