@@ -18,7 +18,7 @@ from .database import PodcastStatusDB
 from .common_exceptions import PodcastGenerationError
 from .status_manager import get_status_manager
 from .storage_utils import ensure_directory_exists
-from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastTaskCreationResponse, PodcastRequest, PodcastDialogue
+from app.podcast_models import SourceAnalysis, PersonaResearch, OutlineSegment, DialogueTurn, PodcastOutline, PodcastEpisode, BaseModel, PodcastRequest, PodcastDialogue
 from app.common_exceptions import LLMProcessingError, ExtractionError
 from app.content_extractor import (
     extract_content_from_url, 
@@ -42,6 +42,27 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 class PodcastGeneratorService:
+    """
+    Asynchronous podcast generation service for MySalonCast.
+    
+    This service provides a fully async-only architecture for generating podcasts from various content sources.
+    It uses background task processing with status tracking, cancellation support, and webhook notifications.
+    
+    Key Features:
+    - Async-only podcast generation with immediate task_id return
+    - Background processing with real-time status updates
+    - Support for multiple content sources (URLs, PDFs)
+    - AI-powered persona research and dialogue generation
+    - Text-to-speech with voice differentiation
+    - Audio segment stitching for final podcast creation
+    - Cancellation support and error handling
+    - Cloud storage integration for artifacts
+    
+    Usage:
+        service = PodcastGeneratorService()
+        task_id = await service.generate_podcast_async(request_data)
+        # Track progress via status API using task_id
+    """
     def __init__(self):
         # Initialize configuration
         try:
