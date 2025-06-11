@@ -118,28 +118,6 @@ class PodcastGeneratorService:
             logger.error(f"Error during audio stitching: {e}")
             return None
 
-    async def generate_podcast_from_source(
-        self,
-        request_data: PodcastRequest
-    ) -> PodcastEpisode:
-        """
-        Main orchestration method to generate a podcast episode synchronously.
-        Maintains backwards compatibility with existing REST API.
-        
-        Returns:
-            PodcastEpisode - The completed podcast episode
-        """
-        # Generate a task ID for tracking
-        task_id = str(uuid.uuid4())
-        status_manager = get_status_manager()
-        
-        # Create initial status
-        status_manager.create_status(task_id, request_data.dict())
-        
-        # Call the core processing method directly
-        podcast_episode = await self._execute_podcast_generation_core(task_id, request_data)
-        return podcast_episode
-    
     async def generate_podcast_async(
         self,
         request_data: PodcastRequest
@@ -438,7 +416,7 @@ class PodcastGeneratorService:
         logger.info(f"Created NON-CLEANING temporary directory for podcast job: {tmpdir_path}")
         
         try:
-            logger.info(f"STEP_ENTRY: generate_podcast_from_source for request_data.source_urls: {request_data.source_urls}, request_data.source_pdf_path: {request_data.source_pdf_path}")
+            logger.info(f"STEP_ENTRY: Core processing for request_data.source_urls: {request_data.source_urls}, request_data.source_pdf_path: {request_data.source_pdf_path}")
             
             # Add cancellation checkpoint before content extraction
             self._check_cancellation(task_id)
@@ -1437,7 +1415,7 @@ class PodcastGeneratorService:
             return podcast_episode
 
         except Exception as main_e:
-            logger.critical(f"STEP_CRITICAL_FAILURE: Unhandled exception in generate_podcast_from_source: {main_e}", exc_info=True)
+            logger.critical(f"STEP_CRITICAL_FAILURE: Unhandled exception in core processing: {main_e}", exc_info=True)
             warnings_list.append(f"CRITICAL FAILURE: {main_e}")
             
             # Update status to failed

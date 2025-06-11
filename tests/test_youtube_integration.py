@@ -101,7 +101,7 @@ async def test_youtube_workflow_integration():
             # Create a simple test request with YouTube URL
             test_request = PodcastRequest(
                 source_urls=[youtube_url],
-                personas=["Tech Expert", "AI Researcher"],
+                prominent_persons=["Tech Expert", "AI Researcher"],
                 desired_podcast_length_str="5 minutes",
                 host_invented_name="Bridgette",
                 host_gender="Female"
@@ -111,26 +111,28 @@ async def test_youtube_workflow_integration():
             start_time = time.time()
             
             # Generate podcast (this will test the full pipeline)
-            episode = await generator.generate_podcast_from_source(test_request)
+            task_id = await generator.generate_podcast_async(test_request)
             
             end_time = time.time()
             duration = end_time - start_time
             
-            # Check if episode was created successfully (episode object doesn't have status attribute)
-            if episode and hasattr(episode, 'title') and episode.title:
-                logger.info(f"✅ Podcast generation completed successfully in {duration:.1f}s")
-                logger.info(f"   Title: {episode.title}")
-                if hasattr(episode, 'audio_filepath'):
-                    logger.info(f"   Audio: {episode.audio_filepath}")
-                if hasattr(episode, 'llm_transcript_path'):
-                    logger.info(f"   Transcript: {episode.llm_transcript_path}")
-                return True
-            else:
-                logger.warning(f"⚠️ Podcast generation failed for {youtube_url}. Episode: {episode}")
-                if hasattr(episode, 'warnings') and episode.warnings:
-                    logger.warning(f"   Warnings: {episode.warnings}")
-                continue
+            # Check if task was created successfully 
+            if task_id:
+                logger.info(f"✅ Podcast generation task started successfully in {duration:.1f}s")
+                logger.info(f"   Task ID: {task_id}")
                 
+                # Check task status to validate the system is working
+                from app.status_manager import get_status_manager
+                status_manager = get_status_manager()
+                status = status_manager.get_status(task_id)
+                
+                if status:
+                    logger.info(f"   Status: {status.status}")
+                    logger.info(f"   Progress: {status.progress_percentage}%")
+                    return True
+                else:
+                    logger.warning(f"   Could not get status for task {task_id}")
+                    return False
         except Exception as e:
             logger.warning(f"⚠️ Workflow test failed for {youtube_url}: {e}")
             continue

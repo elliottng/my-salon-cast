@@ -50,10 +50,10 @@ Remove all synchronous podcast generation support, making the system purely asyn
 
 ### File: `app/podcast_workflow.py`
 
-- [ ] **Delete `generate_podcast_from_source()` method entirely**
-  - [ ] Remove the complete method definition (lines ~45-55 approximately)
-  - [ ] Remove all associated docstrings and comments
-  - **NOTE:** Kept for backward compatibility with REST API, but updated to call new core method
+- [x] **Delete `generate_podcast_from_source()` method entirely**
+  - [x] Remove the complete method definition (lines ~45-55 approximately)
+  - [x] Remove all associated docstrings and comments
+  - **COMPLETED:** Removed to create a fully async-only API with 22 lines eliminated
 
 - [x] **Delete `_generate_podcast_internal()` method entirely**
   - [x] Remove the complete method definition (this eliminates the circular dependency)
@@ -64,6 +64,11 @@ Remove all synchronous podcast generation support, making the system purely asyn
   - [x] Remove `main_workflow_test()` function entirely
   - [x] Remove the `if __name__ == "__main__":` block at the end of the file
   - [x] Remove associated imports if they become unused
+
+- [x] **Update tests to use async-only methods**
+  - [x] Fixed `tests/test_youtube_integration.py` to use `generate_podcast_async()` instead of `generate_podcast_from_source()`
+  - [x] Fixed parameter names (`personas` → `prominent_persons`, `progress` → `progress_percentage`)
+  - [x] Updated test logic to validate task creation instead of blocking for completion
 
 ## Phase 3: Implement New `generate_podcast_async()` Logic
 
