@@ -129,9 +129,16 @@ class PodcastGeneratorService:
         Returns:
             PodcastEpisode - The completed podcast episode
         """
-        # Use the async method internally but only return the episode
-        task_id, episode = await self._generate_podcast_internal(request_data, async_mode=False)
-        return episode
+        # Generate a task ID for tracking
+        task_id = str(uuid.uuid4())
+        status_manager = get_status_manager()
+        
+        # Create initial status
+        status_manager.create_status(task_id, request_data.dict())
+        
+        # Call the core processing method directly
+        podcast_episode = await self._execute_podcast_generation_core(task_id, request_data)
+        return podcast_episode
     
     async def generate_podcast_async(
         self,
@@ -140,12 +147,60 @@ class PodcastGeneratorService:
         """
         Generate a podcast episode asynchronously.
         Returns immediately with a task_id for status tracking.
+        This is the single entry point for async podcast generation.
         
         Returns:
             str - The task_id for status tracking
         """
-        task_id, _ = await self._generate_podcast_internal(request_data, async_mode=True)
-        return task_id
+        # Generate new task ID
+        task_id = str(uuid.uuid4())
+        status_manager = get_status_manager()
+        
+        # Create initial status with request data
+        status = status_manager.create_status(task_id, request_data.dict())
+        logger.info(f"Created podcast generation task with ID: {task_id}")
+        
+        # Update status to preprocessing
+        status_manager.update_status(
+            task_id,
+            "preprocessing_sources",
+            "Validating request and preparing sources",
+            5.0
+        )
+        
+        # Check if we can accept a new task
+        task_runner = get_task_runner()
+        if not task_runner.can_accept_new_task():
+            logger.warning(f"Task runner at capacity, cannot accept task {task_id}")
+            status_manager.set_error(
+                task_id,
+                "System at capacity",
+                f"Maximum concurrent podcast generations ({task_runner.max_workers}) reached. Please try again later."
+            )
+            # Task ID is still returned but with error status
+            return task_id
+        
+        # Submit the task to run in the background
+        try:
+            # Submit async task directly to core processing method
+            await task_runner.submit_async_task(
+                task_id,
+                self._run_podcast_generation_async,
+                task_id,
+                request_data
+            )
+            logger.info(f"Task {task_id} submitted for background processing")
+            return task_id
+            
+        except Exception as e:
+            logger.error(f"Failed to submit task {task_id} for background processing: {str(e)}")
+            status_manager.set_error(
+                task_id,
+                "Failed to start background processing",
+                str(e)
+            )
+            # Return task ID even on submission failure so user can check status
+            return task_id
         
     async def _run_podcast_generation_async(self, task_id: str, request_data: PodcastRequest) -> None:
         """
@@ -166,11 +221,10 @@ class PodcastGeneratorService:
             logger.info(f"Starting background podcast generation for task {task_id}")
             
             # Set the task_id in a thread-local variable so we can check for cancellation
-            current_thread.task_id = task_id
+            current_thread.task_id = task_id  # type: ignore  # Dynamic attribute assignment for task tracking
             
-            # Call the existing _generate_podcast_internal with async_mode=False
-            # We set async_mode=False here because we're already running asynchronously via the task runner
-            _, podcast_episode = await self._generate_podcast_internal(request_data, async_mode=False, background_task_id=task_id)
+            # Call the new core processing method directly
+            podcast_episode = await self._execute_podcast_generation_core(task_id, request_data)
             
             logger.info(f"Background generation complete for task {task_id}")
             
@@ -189,7 +243,7 @@ class PodcastGeneratorService:
                 task_id,
                 "cancelled",
                 "Task was cancelled by user request",
-                progress_percentage=None
+                progress=None  # Fixed: use 'progress' instead of 'progress_percentage'
             )
             
             # Send webhook notification for cancellation
@@ -324,107 +378,29 @@ class PodcastGeneratorService:
                 "speaking_rate": default_profile["speaking_rate"]
             }
 
-    async def _generate_podcast_internal(
-        self,
-        request_data: PodcastRequest,
-        async_mode: bool = False,
-        background_task_id: Optional[str] = None
-    ) -> Tuple[str, PodcastEpisode]:
+    async def _execute_podcast_generation_core(self, task_id: str, request_data: PodcastRequest) -> PodcastEpisode:
         """
-        Internal method that handles both sync and async podcast generation.
+        Core processing logic for podcast generation without task submission logic.
+        This method does the actual work: content extraction, LLM analysis, persona research, 
+        outline generation, dialogue generation, TTS, audio stitching.
         
         Args:
-            request_data: The podcast generation request
-            async_mode: If True, will return immediately and process in background (future implementation)
-            background_task_id: The task ID for background tasks, used for cancellation checks
-        
+            task_id: Task identifier for status tracking and cancellation
+            request_data: The podcast generation request parameters
+            
         Returns:
-            Tuple of (task_id, PodcastEpisode)
+            PodcastEpisode: The completed podcast episode
         """
-        # Use provided task_id for background tasks, otherwise create a new one
-        task_id = background_task_id if background_task_id else str(uuid.uuid4())
         status_manager = get_status_manager()
         
-        # Only create initial status if this is a new task (not a background continuation)
-        if not background_task_id:
-            # Create initial status with request data
-            status = status_manager.create_status(task_id, request_data.dict())
-            logger.info(f"Created podcast generation task with ID: {task_id}")
-        else:
-            logger.info(f"Continuing background task with ID: {task_id}")
+        # Initialize variables used in exception handling
+        source_attributions: List[str] = []  # Initialize to prevent unbound variable errors
+        warnings_list: List[str] = []  # Initialize warnings list
         
-        # Update status to preprocessing
-        status_manager.update_status(
-            task_id,
-            "preprocessing_sources",
-            "Validating request and preparing sources",
-            5.0
-        )
+        # Check for cancellation at the start
+        self._check_cancellation(task_id)
         
-        # In async_mode, spawn a background task and return immediately
-        if async_mode:
-            logger.info(f"Async mode enabled for task {task_id}, spawning background task")
-            task_runner = get_task_runner()
-            
-            # Check if we can accept a new task
-            if not task_runner.can_accept_new_task():
-                logger.warning(f"Task runner at capacity, cannot accept task {task_id}")
-                status_manager.set_error(
-                    task_id,
-                    "System at capacity",
-                    f"Maximum concurrent podcast generations ({task_runner.max_workers}) reached. Please try again later."
-                )
-                error_episode = PodcastEpisode(
-                    title="Error", 
-                    summary="System at capacity", 
-                    transcript="", 
-                    audio_filepath="",
-                    source_attributions=[], 
-                    warnings=["Maximum concurrent podcast generations reached."]
-                )
-                return task_id, error_episode
-            
-            # Submit the task to run in the background
-            try:
-                # Submit async task directly without sync wrapper
-                await task_runner.submit_async_task(
-                    task_id,
-                    self._run_podcast_generation_async,
-                    task_id,
-                    request_data
-                )
-                logger.info(f"Task {task_id} submitted for background processing")
-                
-                # Return immediately with an empty episode placeholder
-                # The actual episode will be available via the status API
-                placeholder_episode = PodcastEpisode(
-                    title="Processing",
-                    summary="Podcast generation in progress",
-                    transcript="",
-                    audio_filepath="",
-                    source_attributions=[],
-                    warnings=[]
-                )
-                return task_id, placeholder_episode
-                
-            except Exception as e:
-                logger.error(f"Failed to submit task {task_id} for background processing: {str(e)}")
-                status_manager.set_error(
-                    task_id,
-                    "Failed to start background processing",
-                    str(e)
-                )
-                error_episode = PodcastEpisode(
-                    title="Error", 
-                    summary="Failed to start background processing", 
-                    transcript="", 
-                    audio_filepath="",
-                    source_attributions=[], 
-                    warnings=[f"Background processing error: {str(e)}"]
-                )
-                return task_id, error_episode
-        
-        # Continue with synchronous generation (existing code)
+        # Continue with processing logic 
         if not self.llm_service:
             logger.error("LLMService not available. Cannot generate podcast.")
             status_manager.set_error(
@@ -442,7 +418,7 @@ class PodcastGeneratorService:
             )
             # Update the status with the error episode
             status_manager.set_episode(task_id, error_episode)
-            return task_id, error_episode
+            return error_episode
 
         # Initialize containers for intermediate data - use Pydantic objects directly (Phase 5)
         source_analysis_obj: Optional[SourceAnalysis] = None  # Direct Pydantic object storage
@@ -455,7 +431,6 @@ class PodcastGeneratorService:
         podcast_title = "Generation Incomplete"
         podcast_summary = "Full generation pending or failed at an early stage."
         podcast_transcript = "Transcript generation pending."
-        warnings_list: List[str] = []
         podcast_episode_data: dict = {} # Initialize the dictionary
 
         # Create a non-cleaning temporary directory for testing
@@ -465,10 +440,13 @@ class PodcastGeneratorService:
         try:
             logger.info(f"STEP_ENTRY: generate_podcast_from_source for request_data.source_urls: {request_data.source_urls}, request_data.source_pdf_path: {request_data.source_pdf_path}")
             
+            # Add cancellation checkpoint before content extraction
+            self._check_cancellation(task_id)
+            
             # 2. Content Extraction
             logger.info("STEP: Starting Content Extraction...")
             extracted_texts: List[str] = []
-            source_attributions: List[str] = []
+            source_attributions = []
             
             # Process multiple URLs if provided
             if request_data.source_urls:
@@ -521,7 +499,7 @@ class PodcastGeneratorService:
                 # Update status to failed before returning
                 status_manager.set_error(task_id, error_msg)
                 
-                return task_id, PodcastEpisode(
+                return PodcastEpisode(
                     title="Error", 
                     summary="No Content Extracted", 
                     transcript="", 
@@ -547,8 +525,8 @@ class PodcastGeneratorService:
             )
             
             # Check for cancellation after content extraction
-            if background_task_id:
-                self._check_cancellation(background_task_id)
+            if task_id:
+                self._check_cancellation(task_id)
             
             # 3. LLM - Source Analysis
             logger.info("STEP: Starting Source Analysis...")
@@ -570,7 +548,10 @@ class PodcastGeneratorService:
                 )
                 
                 # llm_service.analyze_source_text_async now returns a SourceAnalysis object directly or raises an error
-                source_analysis_obj = await self.llm_service.analyze_source_text_async(extracted_text)
+                source_analysis_obj = await self.llm_service.analyze_source_text_async(
+                    extracted_text, 
+                    analysis_instructions=""  # Using empty string as default analysis instructions
+                )
                 
                 if source_analysis_obj:
                     logger.info("Source analysis successful.")
@@ -644,8 +625,8 @@ class PodcastGeneratorService:
                 )
             
             # Check for cancellation after source analysis
-            if background_task_id:
-                self._check_cancellation(background_task_id)
+            if task_id:
+                self._check_cancellation(task_id)
             
             # 4. LLM - Persona Research (Iterative)
             logger.info("STEP: Starting Persona Research...")
@@ -726,8 +707,8 @@ class PodcastGeneratorService:
             )
 
             # Check for cancellation after persona research
-            if background_task_id:
-                self._check_cancellation(background_task_id)
+            if task_id:
+                self._check_cancellation(task_id)
             
             # 4.5. Assign Invented Names and Genders to Personas
             logger.info("STEP: Assigning invented names and genders to personas...")
@@ -766,7 +747,8 @@ class PodcastGeneratorService:
                 gender=request_data.host_gender or "Female",
                 tts_voice_id=host_voice_id,
                 tts_voice_params=host_voice_params,
-                creation_date=datetime.now().isoformat()
+                source_context="Host persona created for podcast generation",  # Added missing parameter
+                creation_date=datetime.now()  # Added missing parameter
             )
             
             # Add Host to maps
@@ -821,7 +803,7 @@ class PodcastGeneratorService:
                     )
 
                     # If source analysis is missing, create a minimal fallback analysis from extracted text
-                    fallback_source_analyses = [source_analysis_obj] if source_analysis_obj else None
+                    fallback_source_analyses = [source_analysis_obj] if source_analysis_obj else []
                     if not has_source_analysis and extracted_text:
                         logger.info("Creating fallback source analysis for outline generation")
                         # Create a simple analysis structure that the outline generation can use
@@ -840,7 +822,7 @@ class PodcastGeneratorService:
 
                     # Fix None parameter passing issues for generate_podcast_outline_async method call
                     podcast_outline_obj = await self.llm_service.generate_podcast_outline_async(
-                        source_analyses=fallback_source_analyses, 
+                        source_analyses=fallback_source_analyses or [],  # Ensure never None
                         persona_research_docs=persona_research_objects,
                         desired_podcast_length_str=desired_length_str or "5-7 minutes",
                         num_prominent_persons=num_persons,
@@ -918,8 +900,8 @@ class PodcastGeneratorService:
                 )
             
             # Check for cancellation after outline generation
-            if background_task_id:
-                self._check_cancellation(background_task_id)
+            if task_id:
+                self._check_cancellation(task_id)
             
             # 6. LLM - Dialogue Turns Generation
             logger.info("STEP: Starting Dialogue Turns Generation...")
@@ -991,7 +973,7 @@ class PodcastGeneratorService:
                         source_analyses=source_analysis_objects, 
                         persona_research_docs=persona_research_objects_for_dialogue,
                         persona_details_map=persona_details_map,  # Keep for backward compatibility during transition
-                        user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue
+                        user_custom_prompt_for_dialogue=request_data.custom_prompt_for_dialogue or ""
                     )
                     if dialogue_turns_list:
                         logger.info(f"Podcast dialogue turns generated successfully ({len(dialogue_turns_list)} turns).")
@@ -1105,8 +1087,8 @@ class PodcastGeneratorService:
                 )
             
             # Check for cancellation after dialogue generation
-            if background_task_id:
-                self._check_cancellation(background_task_id)
+            if task_id:
+                self._check_cancellation(task_id)
             
             # 7. TTS Generation for Dialogue Turns
             logger.info("STEP: Starting TTS generation for dialogue turns...")
@@ -1186,9 +1168,9 @@ class PodcastGeneratorService:
                         success = await self.tts_service.text_to_audio_async(
                             text_input=turn.text,
                             output_filepath=turn_audio_filepath,
-                            speaker_gender=speaker_gender,
-                            voice_name=voice_name,
-                            voice_params=voice_params
+                            speaker_gender=speaker_gender or "Neutral",  # Provide default
+                            voice_name=voice_name or "",  # Provide default
+                            voice_params=voice_params or {}  # Provide default
                         )
                         if success:
                             individual_turn_audio_paths.append(turn_audio_filepath)
@@ -1248,8 +1230,8 @@ class PodcastGeneratorService:
                 )
             
             # Check for cancellation after TTS generation
-            if background_task_id:
-                self._check_cancellation(background_task_id)
+            if task_id:
+                self._check_cancellation(task_id)
             
             # 8. Audio Stitching
             logger.info("STEP: Starting audio stitching...")
@@ -1350,7 +1332,7 @@ class PodcastGeneratorService:
                 audio_filepath=final_audio_filepath, 
                 source_attributions=source_attributions,  # Now includes all source URLs
                 warnings=warnings_list,
-                llm_source_analysis_path=None,
+                llm_source_analysis_paths=None,  # Fixed parameter name
                 llm_persona_research_paths=None,
                 llm_podcast_outline_path=llm_podcast_outline_filepath,
                 llm_dialogue_turns_path=llm_dialogue_turns_filepath,
@@ -1452,7 +1434,7 @@ class PodcastGeneratorService:
             # Update the result in the status
             status_manager.set_episode(task_id, podcast_episode)
             
-            return task_id, podcast_episode
+            return podcast_episode
 
         except Exception as main_e:
             logger.critical(f"STEP_CRITICAL_FAILURE: Unhandled exception in generate_podcast_from_source: {main_e}", exc_info=True)
@@ -1462,12 +1444,12 @@ class PodcastGeneratorService:
             status_manager.set_error(task_id, str(main_e))
             
             # Return a minimal error episode with safe defaults
-            return task_id, PodcastEpisode(
+            return PodcastEpisode(
                 title="Critical Generation Error",
                 summary=f"A critical error occurred: {main_e}",
                 transcript="",
                 audio_filepath="placeholder_error.mp3",  # Safe default
-                source_attributions=source_attributions if 'source_attributions' in locals() else [],
+                source_attributions=source_attributions,
                 warnings=warnings_list
             )
         finally:
@@ -1475,35 +1457,4 @@ class PodcastGeneratorService:
                 logger.info(f"STEP_FINALLY: Temporary directory (NOT cleaned up): {tmpdir_path}")
             # Note: We're NOT removing tmpdir_path for debugging purposes
 
-# Example usage (for development testing purposes)
-async def main_workflow_test():
-    """A development testing function to validate the podcast generation workflow."""
-    logger.info("Initializing PodcastGeneratorService for test run...")
-    generator = PodcastGeneratorService()
-    
-    logger.info("Defining sample request data...")
-    sample_request = PodcastRequest(
-        source_urls=[
-            "https://www.whitehouse.gov/articles/2025/05/fact-one-big-beautiful-bill-cuts-spending-fuels-growth/",
-            "https://thehill.com/opinion/finance/5320248-the-bond-market-is-missing-the-real-big-beautiful-story/",
-            "https://www.ronjohnson.senate.gov/2025/5/the-ugly-truth-about-the-big-beautiful-bill"
-        ],
-        prominent_persons=["Jason Calacanis", "David O. Sacks", "Chamath Palihapitiya", "David Friedberg"],
-        desired_podcast_length_str="15 minutes"
-    )
-    
-    try:
-        episode = await generator.generate_podcast_from_source(sample_request)
-        logger.info(f"Test generation complete.")
-        logger.info(f"Title: {episode.title}, Audio: {episode.audio_filepath}")
-        return episode
-    except Exception as e:
-        logger.error(f"Test workflow error: {e}", exc_info=True)
-        return None
-
-if __name__ == "__main__":
-    # This module is not meant to be run directly in production
-    # This code is only for development testing purposes
-    logger.info("Running podcast workflow in development test mode")
-    asyncio.run(main_workflow_test())
-    logger.info("Test complete")
+# Example usage (for development testing)
