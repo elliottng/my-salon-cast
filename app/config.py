@@ -4,6 +4,10 @@ import os
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file at module import time
+load_dotenv()
 
 class Config:
     """Configuration class with environment detection and environment variable management."""
@@ -242,6 +246,18 @@ class Config:
         # Warn about deprecated environment variables
         if os.getenv("GOOGLE_TTS_API_KEY"):
             warnings.append("GOOGLE_TTS_API_KEY is deprecated and no longer used")
+        
+        # Check Firecrawl configuration
+        firecrawl_enabled = os.getenv("FIRECRAWL_ENABLED", "").lower() == "true"
+        if firecrawl_enabled:
+            if not os.getenv("FIRECRAWL_API_KEY"):
+                warnings.append("FIRECRAWL_ENABLED is true but FIRECRAWL_API_KEY is not set")
+            
+            # Check if firecrawl-py is installed
+            try:
+                import firecrawl
+            except ImportError:
+                warnings.append("FIRECRAWL_ENABLED is true but firecrawl-py is not installed")
         
         return {
             "valid": len(issues) == 0,
