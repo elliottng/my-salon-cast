@@ -67,6 +67,9 @@ dependencies = [
     "rich>=14.0.0",
     "typer>=0.16.0",
     "tenacity>=9.1.0",
+    
+    # Content Extraction
+    "firecrawl-py>=0.0.16",
 ]
 
 [project.optional-dependencies]
