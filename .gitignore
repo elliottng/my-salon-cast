@@ -71,4 +71,4 @@ deployment-env.yaml
 # AI Working Docs
 DRAFT_COMMITMSG.md
 DRAFT_*
-working/
+.aidocs/
