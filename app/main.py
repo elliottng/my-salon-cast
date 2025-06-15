@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import os
 import logging
+from datetime import datetime
 from app.validations import is_valid_pdf
 from app.content_extractor import extract_text_from_pdf, ExtractionError
 from app.podcast_workflow import PodcastGeneratorService
@@ -41,7 +42,7 @@ app = FastAPI(
             "description": "Content processing endpoints"
         },
         {
-            "name": "generation", 
+            "name": "generation",
             "description": "Podcast generation endpoints"
         },
         {
@@ -79,23 +80,23 @@ else:
 async def process_pdf_endpoint(pdf_file: UploadFile = File(...)):
     """
     Extract text content from a PDF document for podcast generation.
-    
-    Upload a PDF file to extract readable text content. Returns filename, 
+
+    Upload a PDF file to extract readable text content. Returns filename,
     extraction status, text snippet preview, and total character count.
     """
     if not await is_valid_pdf(pdf_file):
         raise HTTPException(status_code=400, detail="Invalid PDF file. Please upload a valid PDF document.")
-    
+
     extracted_text = await extract_text_from_pdf(pdf_file)
-    
+
     if not extracted_text:
         return {"filename": pdf_file.filename, "message": "PDF validated, but no text could be extracted or an error occurred during extraction.", "extracted_text_snippet": ""}
 
     snippet_length = 500
     text_snippet = extracted_text[:snippet_length] + ("..." if len(extracted_text) > snippet_length else "")
-    
+
     return {
-        "filename": pdf_file.filename, 
+        "filename": pdf_file.filename,
         "message": "PDF received, validated, and text extracted successfully.",
         "extracted_text_snippet": text_snippet,
         "total_extracted_characters": len(extracted_text)
@@ -106,14 +107,14 @@ async def process_pdf_endpoint(pdf_file: UploadFile = File(...)):
 async def generate_podcast_async_endpoint(request: PodcastRequest):
     """
     Start asynchronous podcast generation with AI-powered content creation.
-    
-    Initiates podcast generation using provided content sources. Returns task ID 
+
+    Initiates podcast generation using provided content sources. Returns task ID
     for tracking progress and status URL for monitoring.
     """
     try:
         generator_service = PodcastGeneratorService()
         task_id = await generator_service.generate_podcast_async(request)
-        
+
         return {
             "task_id": task_id,
             "message": "Podcast generation started",
@@ -129,14 +130,14 @@ async def generate_podcast_async_endpoint(request: PodcastRequest):
 async def get_podcast_audio(podcast_id: str):
     """
     Stream or download completed podcast audio with embedded web player.
-    
+
     Provides access to final generated podcast audio file with playback controls.
     """
     audio_path = f"./outputs/audio/{podcast_id}/final.mp3"
-    
+
     if not os.path.exists(audio_path):
         raise HTTPException(status_code=404, detail="Podcast audio not found")
-    
+
     # Return HTML with audio player
     html_content = f"""
     <!DOCTYPE html>
@@ -164,7 +165,7 @@ async def get_podcast_audio(podcast_id: str):
     </body>
     </html>
     """
-    
+
     return HTMLResponse(content=html_content)
 
 
@@ -172,7 +173,7 @@ async def get_podcast_audio(podcast_id: str):
 async def get_privacy_policy():
     """
     View the MySalonCast privacy policy.
-    
+
     Returns the full text of the privacy policy.
     """
     try:
@@ -188,13 +189,29 @@ async def get_privacy_policy():
 async def get_task_status(task_id: str):
     """
     Get detailed status of podcast generation task with progress updates.
-    
+
     Provides current phase, progress percentage, and available artifacts.
     """
     status_manager = get_status_manager()
     status = status_manager.get_status(task_id)
-    
+
     if not status:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-    
+
     return status
+
+
+# Health check endpoint
+@app.get("/health", tags=["status"], summary="Health Check")
+async def health_check():
+    """
+    Health check endpoint for monitoring and load balancer probes.
+
+    Returns service status and basic system information.
+    """
+    return {
+        "status": "healthy",
+        "service": "MySalonCast API",
+        "version": "1.0.0",
+        "timestamp": datetime.now().isoformat()
+    }

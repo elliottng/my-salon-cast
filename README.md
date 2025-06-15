@@ -4,12 +4,17 @@ Convert PDF documents and web content into conversational audio podcasts using A
 
 ## 🚀 Quick Start
 
-### For Claude.ai Users (Recommended)
-**No setup required!** Connect directly to our production server:
-1. Go to [Claude.ai Settings > Integrations](https://claude.ai/settings/integrations)
-2. Click "Add custom integration"
-3. Enter: `https://mcp-server-production-644248751086.us-west1.run.app`
-4. Start chatting: *"Create a podcast from this URL with Einstein and Marie Curie"*
+### Quick API Test
+**Test the deployed service:**
+```bash
+# Check if service is running
+curl https://YOUR_SERVICE_URL/health
+
+# Generate a simple podcast (example)
+curl -X POST https://YOUR_SERVICE_URL/generate-podcast \
+  -H "Content-Type: application/json" \
+  -d '{"content": "Your content here", "personas": ["Host", "Expert"]}'
+```
 
 ### Local Development
 
@@ -47,72 +52,88 @@ The server will be available at `http://localhost:8000`
 
 ## 🏗️ Architecture
 
-MySalonCast uses a **dual-server architecture** to provide flexible integration options:
-
-### Server Architecture
-- **MCP Server** (`app/mcp_server.py`): Primary interface for Claude/AI clients via Model Context Protocol
-- **REST API** (`app/main.py`): Minimal HTTP API (4 endpoints) for web/mobile integrations
-- **Shared Services**: Both servers share the same podcast generation pipeline and configuration
+MySalonCast provides a **FastAPI REST API server** for podcast generation:
 
 ### Core Components
-- **FastMCP Server**: Powers Claude integration with OAuth 2.0
+- **FastAPI Server** (`app/main.py`): HTTP API for podcast generation
 - **Podcast Generation Pipeline**: Multi-step AI-powered audio creation
-- **Google Cloud Integration**: TTS, Gemini LLM, and Cloud Storage
-- **Unified Configuration**: Single config system for both servers
+- **Google Cloud Integration**: Gemini LLM for content generation
+- **Local SQLite Database**: Simple data persistence
 
 ```
-Claude.ai ──── MCP Protocol ──── MCP Server ──── Podcast Pipeline
-                                      │               │
-Web/Mobile ─── HTTP/REST ────── REST API ─────────────┘
-                                      │
-                                 Shared Services:
-                                 ├── Google Cloud TTS
-                                 ├── Google Gemini LLM
-                                 ├── Cloud Storage (GCS)
-                                 └── Local SQLite Database
+Web/Mobile/CLI ─── HTTP/REST ─── FastAPI Server ─── Podcast Pipeline
+                                        │
+                                   Core Services:
+                                   ├── Google Gemini LLM
+                                   ├── Audio Processing (ffmpeg)
+                                   └── Local SQLite Database
 ```
 
 ### Local Development
 
-**MCP Server (Primary - for Claude integration):**
-```bash
-uv run python app/mcp_server.py
-# Available at: http://localhost:8000
-```
-
-**REST API (Secondary - for other integrations):**
+**REST API Server:**
 ```bash
 uv run python -m uvicorn app.main:app --reload
 # Available at: http://localhost:8000
 ```
 
-**Both servers simultaneously (different ports):**
+**Health Check:**
 ```bash
-# Terminal 1: MCP Server
-PORT=8001 uv run python app/mcp_server.py
-
-# Terminal 2: REST API  
-PORT=8002 uv run python -m uvicorn app.main:app --reload --port 8002
+curl http://localhost:8000/health
 ```
 
-## 🚀 Deployment
+## 🚀 Google Cloud Deployment
 
-### Staging
+### Prerequisites
+1. **Google Cloud Project** with billing enabled
+2. **APIs enabled**: Cloud Run, Cloud Build, Container Registry
+3. **Environment Variables**: Configured in `.env` file
+
+### Step 1: Configure Environment Variables
 ```bash
-export GEMINI_API_KEY=your_key
-export CLAUDE_CLIENT_SECRET=your_secret
-export WEBAPP_CLIENT_SECRET=your_secret
+# Copy the template and configure your API keys
+cp .env.template .env
 
+# Edit .env with your actual values
+# Required:
+#   GEMINI_API_KEY=your-actual-gemini-api-key
+# Optional:
+#   FIRECRAWL_API_KEY=your-firecrawl-key
+#   FIRECRAWL_ENABLED=true
+```
+
+### Step 2: Deploy Using Helper Script (Recommended)
+```bash
+# Deploy (automatically loads .env file)
+./scripts/deploy.sh
+```
+
+### Step 3: Manual Deployment (Alternative)
+```bash
+# Load environment variables manually
+source .env
+
+# Deploy with Cloud Build
 gcloud builds submit --config cloudbuild.yaml \
-  --substitutions=_ENV=staging,_GEMINI_API_KEY="$GEMINI_API_KEY",_CLAUDE_CLIENT_SECRET="$CLAUDE_CLIENT_SECRET",_WEBAPP_CLIENT_SECRET="$WEBAPP_CLIENT_SECRET"
+  --machine-type=e2-highcpu-8 \
+  --substitutions=_GEMINI_API_KEY="$GEMINI_API_KEY",_FIRECRAWL_API_KEY="$FIRECRAWL_API_KEY",_FIRECRAWL_ENABLED="$FIRECRAWL_ENABLED"
 ```
 
-### Production
+### Step 4: Verify Deployment
 ```bash
-# Same command with _ENV=production
+# Get service URL
+gcloud run services describe mysaloncast-api --region=us-west1 --format='value(status.url)'
+
+# Test health endpoint
+curl https://YOUR_SERVICE_URL/health
 ```
 
-**📖 Detailed Deployment**: See [OAUTH_DEPLOYMENT_SUMMARY.md](./archive/OAUTH_DEPLOYMENT_SUMMARY.md) for complete deployment guide.
+**📖 Deployment Files:** 
+- `Dockerfile` - Unified container for REST API
+- `cloudbuild.yaml` - Streamlined build pipeline with environment variable support
+- `scripts/deploy.sh` - Automated deployment helper script
+- `.env.template` - Environment variable template
+- `terraform/simple.tf` - Minimal infrastructure setup
 
 ## 🧪 Testing
 
@@ -140,20 +161,24 @@ uv run pytest tests/test_generate_text_async.py
 - **[CORS Configuration](./archive/CORS_CONFIGURATION.md)** - Cross-origin setup
 - **[Production Readiness](./archive/production_readiness_checklist.md)** - Production deployment checklist
 
-## 🌐 Production URLs
+## 🌐 API Endpoints
 
-- **Production**: https://mcp-server-production-644248751086.us-west1.run.app
-- **Staging**: https://mcp-server-staging-644248751086.us-west1.run.app
+After deployment, your REST API will be available at:
+- **Service URL**: `https://mysaloncast-api-[hash].us-west1.run.app`
 
-Both environments support MCP connections from Claude.ai, OAuth 2.0 authentication, and comprehensive health monitoring.
+### Key Endpoints
+- `GET /health` - Health check
+- `POST /generate-podcast` - Generate podcast from content
+- `GET /status/{task_id}` - Check generation status
+- `GET /audio/{task_id}` - Stream generated audio
 
 ## 🔐 Security Features
 
-- OAuth 2.0 compliance with PKCE support
-- Domain-based authentication with auto-approval for Claude.ai
 - Container security with non-root user
-- Environment isolation for staging/production
-- Secure token management with proper expiration
+- Environment variable based configuration
+- Google Cloud IAM integration
+- Public API access (suitable for prototype)
+- Secure API key management
 
 ## 🤝 Contributing
 
