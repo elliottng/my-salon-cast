@@ -26,10 +26,9 @@ venv.bak/
 *~
 
 # Documentation and development files
-README.md
-*.md
 docs/
 .readme/
+# Note: README.md is needed by pyproject.toml, so not excluded
 
 # Test files
 tests/

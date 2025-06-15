@@ -1,120 +1,107 @@
-# MySalonCast MCP Server - Cloud Build Configuration
-# Automated build and deployment pipeline for staging and production
+# MySalonCast API - Unified Cloud Build Configuration
+# Streamlined deployment with environment variable support
 
 steps:
   # Step 1: Build the Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: [
-      'build',
-      '-t', '${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}',
-      '-t', '${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:latest',
-      '.'
-    ]
-    id: 'build-image'
-
-  # Step 2: Push the Docker image to registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: [
-      'push', 
-      '${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}'
-    ]
-    id: 'push-image'
-    waitFor: ['build-image']
-
-  # Step 3: Push latest tag
-  - name: 'gcr.io/cloud-builders/docker'
-    args: [
-      'push', 
-      '${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:latest'
-    ]
-    id: 'push-latest'
-    waitFor: ['build-image']
-
-  # Step 4: Deploy to Cloud Run (conditionally based on environment)
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'bash'
+  - name: "gcr.io/cloud-builders/docker"
     args:
-      - '-c'
+      - "build"
+      - "-t"
+      - "gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}"
+      - "-t"
+      - "gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:latest"
+      - "."
+    id: "build-image"
+
+  # Step 2: Push the Docker image with BUILD_ID tag
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}"]
+    id: "push-image"
+    waitFor: ["build-image"]
+
+  # Step 3: Push the latest tag
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:latest"]
+    id: "push-latest"
+    waitFor: ["build-image"]
+
+  # Step 4: Deploy to Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "gcloud"
+    args:
+      - "run"
+      - "deploy"
+      - "${_SERVICE_NAME}"
+      - "--image=gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}"
+      - "--region=${_REGION}"
+      - "--platform=managed"
+      - "--allow-unauthenticated"
+      - "--port=8000"
+      - "--memory=${_MEMORY}"
+      - "--cpu=${_CPU}"
+      - "--concurrency=${_CONCURRENCY}"
+      - "--max-instances=${_MAX_INSTANCES}"
+      - "--timeout=${_TIMEOUT}"
+      - "--set-env-vars=PROJECT_ID=${PROJECT_ID},ENVIRONMENT=${_ENVIRONMENT},REGION=${_REGION}"
+      - "--set-env-vars=GEMINI_API_KEY=${_GEMINI_API_KEY}"
+      - "--set-env-vars=FIRECRAWL_API_KEY=${_FIRECRAWL_API_KEY}"
+      - "--set-env-vars=FIRECRAWL_ENABLED=${_FIRECRAWL_ENABLED}"
+    id: "deploy-cloud-run"
+    waitFor: ["push-image"]
+
+  # Step 5: Verify deployment with health check
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
       - |
-        if [[ "${_ENVIRONMENT}" == "staging" || "${_ENVIRONMENT}" == "production" ]]; then
-          echo "Deploying to Cloud Run service: ${_SERVICE_NAME}-${_ENVIRONMENT}"
-          gcloud run deploy ${_SERVICE_NAME}-${_ENVIRONMENT} \
-            --image=${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID} \
-            --region=${_REGION} \
-            --platform=managed \
-            --set-env-vars="PROJECT_ID=${PROJECT_ID},ENVIRONMENT=${_ENVIRONMENT}" \
-            --set-env-vars="GEMINI_API_KEY=${_GEMINI_API_KEY}" \
-            --set-env-vars="CLAUDE_CLIENT_SECRET=${_CLAUDE_CLIENT_SECRET}" \
-            --set-env-vars="WEBAPP_CLIENT_SECRET=${_WEBAPP_CLIENT_SECRET}" \
-            --allow-unauthenticated \
-            --port=8000 \
-            --memory=2Gi \
-            --cpu=2 \
-            --concurrency=10 \
-            --max-instances=5 \
-            --timeout=3600s \
-            --service-account=${_SERVICE_ACCOUNT} \
-            --format='value(status.url)'
+        echo "🚀 Getting service URL..."
+        SERVICE_URL=$$(gcloud run services describe ${_SERVICE_NAME} \
+          --region=${_REGION} \
+          --format='value(status.url)')
+
+        echo "📡 Service URL: $$SERVICE_URL"
+        echo "⏳ Waiting for service to be ready..."
+        sleep 30
+
+        echo "🔍 Running health check..."
+        if curl -f -s "$$SERVICE_URL/health"; then
+          echo "✅ Service deployed successfully!"
+          echo "📚 API Documentation: $$SERVICE_URL/docs"
+          echo "🎯 Health Check: $$SERVICE_URL/health"
         else
-          echo "Skipping deployment for environment: ${_ENVIRONMENT}"
+          echo "❌ Health check failed"
+          echo "📋 Checking service logs..."
+          gcloud run logs read --service=${_SERVICE_NAME} --region=${_REGION} --limit=10
+          exit 1
         fi
-    id: 'deploy-cloud-run'
-    waitFor: ['push-image']
-
-  # Step 5: Run health check on deployed service
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        if [[ "${_ENVIRONMENT}" == "staging" || "${_ENVIRONMENT}" == "production" ]]; then
-          echo "Running health check for ${_SERVICE_NAME}-${_ENVIRONMENT}"
-          SERVICE_URL=$$(gcloud run services describe ${_SERVICE_NAME}-${_ENVIRONMENT} \
-            --region=${_REGION} \
-            --format='value(status.url)')
-          
-          echo "Service URL: $$SERVICE_URL"
-          
-          # Wait for service to be ready
-          sleep 30
-          
-          # Health check with retry
-          for i in {1..5}; do
-            echo "Health check attempt $$i/5"
-            if curl -f -s "$$SERVICE_URL/health"; then
-              echo "✅ Health check passed!"
-              break
-            else
-              echo "❌ Health check failed, retrying in 10s..."
-              sleep 10
-            fi
-          done
-        fi
-    id: 'health-check'
-    waitFor: ['deploy-cloud-run']
+    id: "health-check"
+    waitFor: ["deploy-cloud-run"]
 
 # Build configuration
 options:
   logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
-  substitutionOption: 'ALLOW_LOOSE'
 
-# Substitution variables with defaults
+# Substitution variables with sensible defaults
 substitutions:
-  _SERVICE_NAME: 'mcp-server'
-  _ENVIRONMENT: 'staging'
-  _REGION: 'us-west1'
-  _REGISTRY: 'gcr.io'
-  _SERVICE_ACCOUNT: 'mcp-server@my-salon-cast.iam.gserviceaccount.com'
-  # These will be provided during build trigger setup
-  _GEMINI_API_KEY: ''
-  _CLAUDE_CLIENT_SECRET: ''
-  _WEBAPP_CLIENT_SECRET: ''
+  _SERVICE_NAME: "mysaloncast-api"
+  _ENVIRONMENT: "production"
+  _REGION: "us-west1"
+  _MEMORY: "1Gi"
+  _CPU: "1"
+  _CONCURRENCY: "80"
+  _MAX_INSTANCES: "10"
+  _TIMEOUT: "3600s"
 
-# Image will be stored in Google Container Registry
+  # API Keys - must be provided during build
+  _GEMINI_API_KEY: ""
+  _FIRECRAWL_API_KEY: ""
+  _FIRECRAWL_ENABLED: "false"
+
+# Store built images in Google Container Registry
 images:
-  - '${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}'
-  - '${_REGISTRY}/${PROJECT_ID}/${_SERVICE_NAME}:latest'
+  - "gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:${BUILD_ID}"
+  - "gcr.io/${PROJECT_ID}/${_SERVICE_NAME}:latest"
 
-# Timeout for entire build
-timeout: '1200s'
+# Build timeout
+timeout: "600s"

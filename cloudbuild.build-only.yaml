@@ -1,0 +1,62 @@
+# MySalonCast REST API - Build-Only Cloud Build Configuration
+# Builds and pushes Docker image without deployment
+
+steps:
+  # Step 1: Build the Docker image
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      [
+        "build",
+        "-f",
+        "Dockerfile.simple",
+        "-t",
+        "gcr.io/${PROJECT_ID}/mysaloncast-api:${BUILD_ID}",
+        "-t",
+        "gcr.io/${PROJECT_ID}/mysaloncast-api:latest",
+        ".",
+      ]
+    id: "build-image"
+
+  # Step 2: Push the tagged image
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/${PROJECT_ID}/mysaloncast-api:${BUILD_ID}"]
+    id: "push-tagged-image"
+    waitFor: ["build-image"]
+
+  # Step 3: Push the latest tag
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/${PROJECT_ID}/mysaloncast-api:latest"]
+    id: "push-latest-image"
+    waitFor: ["build-image"]
+
+  # Step 4: Display build results
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        echo "✅ Build completed successfully!"
+        echo "📦 Images pushed to Container Registry:"
+        echo "   - gcr.io/${PROJECT_ID}/mysaloncast-api:${BUILD_ID}"
+        echo "   - gcr.io/${PROJECT_ID}/mysaloncast-api:latest"
+        echo ""
+        echo "🚀 To deploy manually, run:"
+        echo "   gcloud run deploy mysaloncast-api \\"
+        echo "     --image=gcr.io/${PROJECT_ID}/mysaloncast-api:${BUILD_ID} \\"
+        echo "     --region=us-west1 \\"
+        echo "     --allow-unauthenticated \\"
+        echo "     --set-env-vars=\"GEMINI_API_KEY=YOUR_API_KEY\""
+    id: "build-summary"
+    waitFor: ["push-tagged-image", "push-latest-image"]
+
+# Build options
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# Store images in Google Container Registry
+images:
+  - "gcr.io/${PROJECT_ID}/mysaloncast-api:${BUILD_ID}"
+  - "gcr.io/${PROJECT_ID}/mysaloncast-api:latest"
+
+# Build timeout (shorter since no deployment)
+timeout: "300s"

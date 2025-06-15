@@ -1,69 +1,54 @@
-# MySalonCast MCP Server - Production Dockerfile
-# Modernized with uv for fast, reliable dependency management
+# MySalonCast API - Unified Dockerfile
+# Optimized for Cloud Run deployment with FastAPI
 
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for audio processing and GCP services
+# Install system dependencies for audio processing and health checks
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Enable bytecode compilation for faster startup
+# Environment variables for build optimization
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
 
-# Install dependencies first (better Docker layer caching)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-editable
+# Copy dependency files first for better Docker layer caching
+COPY uv.lock pyproject.toml ./
 
-# Copy the project into the image
-COPY . /app
+# Install dependencies (no cache mounts for Cloud Build compatibility)
+RUN uv sync --locked --no-install-project --no-editable
 
-# Install the project itself
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable
+# Copy application code
+COPY . .
 
-# Production stage
-FROM python:3.11-slim AS production
+# Install the project
+RUN uv sync --locked --no-editable
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies for audio processing and GCP services
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the virtual environment from builder stage
-COPY --from=builder --chown=app:app /app/.venv /app/.venv
-
-# Create necessary directories
+# Create necessary directories for temporary files
 RUN mkdir -p /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
 
-# Set environment variables for production
+# Runtime environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Health check for Cloud Run
+# Create non-root user for security
+RUN groupadd -r app && useradd -r -g app app
+RUN chown -R app:app /app /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
+USER app
+
+# Health check for Cloud Run monitoring
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Expose port
 EXPOSE 8000
 
-# Create a non-root user for security
-RUN groupadd -r app && useradd -r -g app app
-RUN chown -R app:app /app /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
-USER app
-
-# Start the MCP server directly (not through uv)
-CMD ["python", "-m", "app.mcp_server"]
+# Start FastAPI server by default
+# Can be overridden at runtime: docker run ... python -m app.mcp_server
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
