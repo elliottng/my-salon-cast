@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MySalonCast API",
-    "description": "\n    **MySalonCast** is an AI-powered podcast generation platform that creates engaging podcasts from your content sources.\n    \n    ## Features\n    \n    * **PDF Text Extraction** - Extract text content from PDF documents\n    * **Async Podcast Generation** - Generate podcasts with multiple personas and custom outlines\n    * **Status Tracking** - Real-time tracking of podcast generation progress\n    * **Audio Playback** - Stream generated podcasts directly in your browser\n    \n    ## Workflow\n    \n    1. **Submit Content** - Provide URLs, PDFs, or custom prompts\n    2. **Generate Podcast** - Our AI creates engaging dialogue between personas\n    3. **Track Progress** - Monitor generation through detailed status updates\n    4. **Listen & Download** - Access your completed podcast via audio endpoint\n    \n    ## Authentication\n    \n    This API currently operates without authentication for development purposes.\n    \n    For production deployments, appropriate authentication should be implemented.\n    ",
+    "description": "AI-powered podcast generation platform. Extract text from PDFs, generate engaging podcasts with multiple personas, track progress, and stream audio. Perfect for content creators and educators.",
     "contact": {
       "name": "MySalonCast Support",
       "email": "support@mysaloncast.com"
@@ -15,11 +15,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8002",
-      "description": "Development server"
-    },
-    {
-      "url": "https://api.mysaloncast.com",
+      "url": "https://mcp-server-production-644248751086.us-west1.run.app",
       "description": "Production server"
     }
   ],
@@ -30,7 +26,7 @@
           "content"
         ],
         "summary": "Extract Text from PDF",
-        "description": "**Extract text content from a PDF document**\n\nThis endpoint accepts a PDF file upload and extracts all readable text content.\nThe extracted text can then be used as source material for podcast generation.\n\n**Parameters:**\n- **pdf_file**: PDF document to process (max file size varies by server configuration)\n\n**Returns:**\n- **filename**: Original filename of the uploaded PDF\n- **message**: Status message indicating success or failure\n- **extracted_text_snippet**: First 500 characters of extracted text (for preview)\n- **total_extracted_characters**: Total number of characters extracted\n\n**Error Responses:**\n- **400 Bad Request**: Invalid PDF file or corrupted document\n- **500 Internal Server Error**: Text extraction failure",
+        "description": "Extract text content from a PDF document for podcast generation.\n\nUpload a PDF file to extract readable text content. Returns filename,\nextraction status, text snippet preview, and total character count.",
         "operationId": "process_pdf_endpoint_process_pdf__post",
         "requestBody": {
           "content": {
@@ -70,7 +66,7 @@
           "generation"
         ],
         "summary": "Start Podcast Generation",
-        "description": "**Start asynchronous podcast generation**\n\nInitiates the AI-powered podcast generation process using your provided content sources.\nReturns immediately with a task ID for tracking progress.\n\n**Process Overview:**\n1. **Source Analysis** - AI analyzes your content sources\n2. **Persona Research** - Creates detailed persona profiles for dialogue participants  \n3. **Outline Generation** - Structures the podcast with engaging segments\n4. **Dialogue Creation** - Generates natural conversation between personas\n5. **Audio Synthesis** - Converts dialogue to high-quality speech\n6. **Final Assembly** - Combines all segments into polished podcast\n\n**Request Body:**\n- **source_urls**: List of web URLs to extract content from\n- **source_pdf_path**: Path to PDF file for content extraction\n- **prominent_persons**: List of personas to include in dialogue\n- **desired_podcast_length_str**: Target duration (e.g., \"15-20 minutes\")\n- **custom_prompt_for_outline**: Optional custom instructions for structure\n- **host_invented_name**: Optional custom name for podcast host\n- **host_gender**: Host gender preference (\"male\", \"female\", \"neutral\")\n- **custom_prompt_for_dialogue**: Optional custom dialogue instructions\n- **webhook_url**: Optional webhook for completion notifications\n\n**Returns:**\n- **task_id**: Unique identifier for tracking this generation task\n- **message**: Confirmation message\n- **status_url**: Endpoint URL for checking progress\n\n**Usage:**\nUse the returned task_id with the `/status/{task_id}` endpoint to monitor progress.",
+        "description": "Start asynchronous podcast generation with AI-powered content creation.\n\nInitiates podcast generation using provided content sources. Returns task ID\nfor tracking progress and status URL for monitoring.",
         "operationId": "generate_podcast_async_endpoint_generate_podcast_async__post",
         "requestBody": {
           "content": {
@@ -110,7 +106,7 @@
           "playback"
         ],
         "summary": "Stream Podcast Audio",
-        "description": "**Stream or download completed podcast audio**\n\nProvides access to the final generated podcast audio file with an embedded web player.\nThe audio file can be streamed directly in the browser or downloaded for offline listening.\n\n**Parameters:**\n- **podcast_id**: Unique identifier of the completed podcast (same as task_id from generation)\n\n**Returns:**\n- **HTML Response**: Web page with embedded audio player and download link\n- **Audio Format**: MP3 format optimized for podcast consumption\n- **Quality**: High-quality speech synthesis with natural intonation\n\n**Features:**\n- **Browser Playback**: Embedded HTML5 audio player with controls\n- **Download Option**: Direct download link for offline access\n- **Responsive Design**: Works on desktop and mobile browsers\n\n**Error Responses:**\n- **404 Not Found**: Podcast audio file not available (generation may still be in progress)\n\n**Usage Tips:**\n- Ensure podcast generation is completed before accessing this endpoint\n- Check task status first using `/status/{task_id}` endpoint\n- Audio files are typically 10-50MB depending on podcast length",
+        "description": "Stream or download completed podcast audio with embedded web player.\n\nProvides access to final generated podcast audio file with playback controls.",
         "operationId": "get_podcast_audio_podcast__podcast_id__audio_get",
         "parameters": [
           {
@@ -145,13 +141,33 @@
         }
       }
     },
+    "/privacy-policy": {
+      "get": {
+        "tags": [
+          "content"
+        ],
+        "summary": "View Privacy Policy",
+        "description": "View the MySalonCast privacy policy.\n\nReturns the full text of the privacy policy.",
+        "operationId": "get_privacy_policy_privacy_policy_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/status/{task_id}": {
       "get": {
         "tags": [
           "status"
         ],
         "summary": "Get Task Status",
-        "description": "**Get detailed status of podcast generation task**\n\nProvides comprehensive information about the current state of a podcast generation task,\nincluding progress percentage, current phase, available artifacts, and any errors.\n\n**Parameters:**\n- **task_id**: Unique identifier returned from the generation endpoint\n\n**Returns:**\n- **task_id**: Echo of the requested task identifier\n- **status**: Current phase (queued, analyzing_sources, generating_dialogue, etc.)\n- **status_description**: Human-readable description of current activity\n- **progress_percentage**: Overall completion percentage (0-100)\n- **created_at**: When the task was initially queued\n- **last_updated_at**: Most recent status update timestamp\n- **request_data**: Original generation request parameters\n- **result_episode**: Complete podcast data (when finished)\n- **error_message**: Summary of any errors encountered\n- **error_details**: Detailed error information for debugging\n- **logs**: Chronological list of key events and milestones\n- **artifacts**: Availability status of intermediate files (outline, transcript, etc.)\n\n**Status Values:**\n- **queued**: Task accepted and waiting to start\n- **preprocessing_sources**: Downloading and validating content sources\n- **analyzing_sources**: AI analysis of source material\n- **researching_personas**: Creating detailed persona profiles\n- **generating_outline**: Structuring podcast segments and flow\n- **generating_dialogue**: Creating natural conversation between personas\n- **generating_audio_segments**: Converting text to speech\n- **stitching_audio**: Combining segments into final audio file\n- **postprocessing_final_episode**: Final quality checks and packaging\n- **completed**: Podcast ready for playback\n- **failed**: Generation encountered unrecoverable error\n- **cancelled**: Task was cancelled by user or system\n\n**Polling Guidance:**\n- Check status every 10-30 seconds during generation\n- Most podcasts complete within 5-15 minutes\n- Monitor `progress_percentage` for completion estimates",
+        "description": "Get detailed status of podcast generation task with progress updates.\n\nProvides current phase, progress percentage, and available artifacts.",
         "operationId": "get_task_status_status__task_id__get",
         "parameters": [
           {
@@ -182,6 +198,26 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Health Check",
+        "description": "Health check endpoint for monitoring and load balancer probes.\n\nReturns service status and basic system information.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -666,19 +702,19 @@
   "tags": [
     {
       "name": "content",
-      "description": "Content processing operations"
+      "description": "Content processing endpoints"
     },
     {
       "name": "generation",
-      "description": "Podcast generation operations"
+      "description": "Podcast generation endpoints"
     },
     {
       "name": "playback",
-      "description": "Audio playback and access"
+      "description": "Audio streaming endpoints"
     },
     {
       "name": "status",
-      "description": "Task status and monitoring"
+      "description": "Status tracking endpoints"
     }
   ]
 }
