@@ -81,12 +81,12 @@ class GeminiService:
         """Get or create the shared LLM thread pool executor."""
         if cls._llm_executor is None or cls._llm_executor._shutdown:
             cls._llm_executor = ThreadPoolExecutor(
-                max_workers=20, 
+                max_workers=4, 
                 thread_name_prefix="llm_worker"
             )
             # Register shutdown handler
             atexit.register(cls._llm_executor.shutdown)
-            logger.info("Created shared LLM thread pool executor with 20 workers")
+            logger.info("Created shared LLM thread pool executor with 4 workers")
         return cls._llm_executor
 
     @staticmethod
