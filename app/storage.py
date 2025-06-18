@@ -28,8 +28,12 @@ class StorageManager:
         self.config = get_config()
         self.client = None
         
-        # Initialize storage client if available and in cloud environment
-        if STORAGE_AVAILABLE and self.config.is_cloud_environment:
+        # Initialize storage client if available and credentials are configured
+        # This supports both cloud environments and local environments with cloud credentials
+        if STORAGE_AVAILABLE and (
+            self.config.is_cloud_environment or 
+            (self.config.project_id and self.config.audio_bucket and os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
+        ):
             try:
                 self.client = storage.Client(project=self.config.project_id)
                 logging.info("Google Cloud Storage client initialized")
@@ -83,12 +87,17 @@ class StorageManager:
                 content_type = "audio/mpeg" if filename.endswith(".mp3") else "audio/wav"
                 blob.upload_from_filename(local_path, content_type=content_type)
                 
-                # Make blob publicly readable
+                # Make blob publicly readable for both cloud and local environments
                 blob.make_public()
-                
                 public_url = blob.public_url
-                logging.info(f"Uploaded audio file to Cloud Storage: {blob_path}")
-                return public_url
+                
+                if not self.config.is_local_environment:
+                    logging.info(f"Uploaded audio file to Cloud Storage: {blob_path}")
+                    return public_url
+                else:
+                    # For local development, return the public URL for browser compatibility
+                    logging.info(f"Uploaded audio file to Cloud Storage (local dev): {blob_path}")
+                    return public_url
                 
             except Exception as e:
                 logging.error(f"Failed to upload to Cloud Storage: {e}")
@@ -340,17 +349,17 @@ class CloudStorageManager(StorageManager):
                 content_type = "audio/mpeg" if local_path.endswith(".mp3") else "audio/wav"
                 blob.upload_from_filename(local_path, content_type=content_type)
                 
-                # Make blob publicly readable for cloud environments
+                # Make blob publicly readable for both cloud and local environments
+                blob.make_public()
+                public_url = blob.public_url
+                
                 if not self.config.is_local_environment:
-                    blob.make_public()
-                    public_url = blob.public_url
                     logging.info(f"Uploaded audio file to Cloud Storage: {cloud_path}")
                     return public_url
                 else:
-                    # For local development, return the GS URL for consistency
-                    gs_url = f"gs://{self.config.audio_bucket}/{cloud_path}"
+                    # For local development, return the public URL for browser compatibility
                     logging.info(f"Uploaded audio file to Cloud Storage (local dev): {cloud_path}")
-                    return gs_url
+                    return public_url
                     
             except Exception as e:
                 logging.error(f"Failed to upload audio file to Cloud Storage: {e}")
