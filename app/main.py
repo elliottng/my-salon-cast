@@ -32,7 +32,7 @@ app = FastAPI(
     },
     servers=[
         {
-            "url": "https://mysaloncast-api-644248751086.us-west1.run.app",
+            "url": "https://mysaloncast-api-ttvealhkuq-uw.a.run.app",
             "description": "Production server"
         }
     ],
