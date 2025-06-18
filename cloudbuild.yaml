@@ -46,6 +46,7 @@ steps:
       - "--set-env-vars=GEMINI_API_KEY=${_GEMINI_API_KEY}"
       - "--set-env-vars=FIRECRAWL_API_KEY=${_FIRECRAWL_API_KEY}"
       - "--set-env-vars=FIRECRAWL_ENABLED=${_FIRECRAWL_ENABLED}"
+      - "--set-env-vars=AUDIO_BUCKET=${_AUDIO_BUCKET}"
     id: "deploy-cloud-run"
     waitFor: ["push-image"]
 
@@ -97,6 +98,7 @@ substitutions:
   _GEMINI_API_KEY: ""
   _FIRECRAWL_API_KEY: ""
   _FIRECRAWL_ENABLED: "false"
+  _AUDIO_BUCKET: "mysaloncast-production-audio"
 
 # Store built images in Google Container Registry
 images:

@@ -113,7 +113,7 @@ class GoogleCloudTtsService:
     def _get_executor(cls):
         """Get or create a shared thread pool executor for TTS operations."""
         if cls._executor is None or cls._executor._shutdown:
-            cls._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix="tts_worker")
+            cls._executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="tts_worker")
             logger.info("Created shared TTS thread pool executor")
             
             # Register shutdown handler only once
