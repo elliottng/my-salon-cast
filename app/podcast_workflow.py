@@ -1283,6 +1283,34 @@ class PodcastGeneratorService:
                                 "cloud_upload_failed",
                                 f"✗ Failed to upload to cloud storage: {e}"
                             )
+                    else:
+                        # For local environments, copy the audio file to the static serving directory
+                        try:
+                            local_audio_dir = f"./outputs/audio/{task_id}"
+                            os.makedirs(local_audio_dir, exist_ok=True)
+                            local_audio_path = os.path.join(local_audio_dir, "final.mp3")
+                            
+                            import shutil
+                            shutil.copy2(final_audio_filepath, local_audio_path)
+                            
+                            # Update the final_audio_filepath to use the local serving path
+                            final_audio_filepath = local_audio_path
+                            logger.info(f"Copied final audio to local serving directory: {local_audio_path}")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "stitching_audio",
+                                "local_copy_success",
+                                f"✓ Final podcast copied to local serving directory"
+                            )
+                        except Exception as e:
+                            logger.error(f"Error copying audio to local serving directory: {e}")
+                            warnings_list.append(f"Error copying audio to local serving directory: {e}")
+                            status_manager.add_progress_log(
+                                task_id,
+                                "stitching_audio",
+                                "local_copy_failed",
+                                f"✗ Failed to copy to local serving directory: {e}"
+                            )
                 else:
                     logger.error("STEP: Audio stitching FAILED or produced no output.")
                     logger.error("Audio stitching failed or no audio segments were available.")

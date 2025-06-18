@@ -74,7 +74,7 @@ Ask your CustomGPT:
 - `POST /process/pdf/` - Extract text from PDF documents
 - `POST /generate/podcast_async/` - Start podcast generation  
 - `GET /status/{task_id}` - Check generation progress
-- `GET /podcast/{podcast_id}/audio` - Stream completed podcast
+- `GET /podcast/{task_id}/audio` - Stream completed podcast
 - `GET /privacy-policy` - View privacy policy (required for ChatGPT)
 
 ### **Server Configuration:**

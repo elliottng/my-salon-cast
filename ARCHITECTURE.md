@@ -117,8 +117,8 @@ In addition to the MCP interface, MySalonCast provides a traditional REST API fo
 #### Podcast Generation Endpoints
 - **POST /generate/elements** - Generate podcast outline and research (sync)
 - **POST /generate/async** - Start async podcast generation, returns task_id
-- **GET /podcast/{podcast_id}/audio** - Stream complete podcast audio with HTML player
-- **GET /podcast/{podcast_id}/segment/{segment_id}** - Stream individual audio segments
+- **GET /podcast/{task_id}/audio** - Stream complete podcast audio with HTML player
+- **GET /podcast/{task_id}/segment/{segment_id}** - Stream individual audio segments
 
 #### Task Management Endpoints
 - **GET /status/{task_id}** - Get detailed task status and progress

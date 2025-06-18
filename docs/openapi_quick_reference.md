@@ -32,11 +32,11 @@ POST /generate/podcast_async/
 
 ### 3. **Audio Streaming**
 ```
-GET /podcast/{podcast_id}/audio
+GET /podcast/{task_id}/audio
 ```
 - **Tag**: `playback`
 - **Purpose**: Stream completed podcast audio
-- **Input**: Podcast ID from generation process
+- **Input**: Task ID from generation process (same as status tracking)
 - **Output**: HTML page with audio player
 - **Use Case**: Listen to or download generated podcasts
 
@@ -170,7 +170,7 @@ print(status_response.json())
 
 4. **Access Results**
    ```
-   GET /podcast/{podcast_id}/audio → Stream/download
+   GET /podcast/{task_id}/audio → Stream/download
    ```
 
 ## 📚 Additional Resources

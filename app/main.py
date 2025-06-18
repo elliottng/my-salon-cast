@@ -126,17 +126,61 @@ async def generate_podcast_async_endpoint(request: PodcastRequest):
         raise HTTPException(status_code=500, detail=f"Failed to start podcast generation: {str(e)}")
 
 
-@app.get("/podcast/{podcast_id}/audio", tags=["playback"], summary="Stream Podcast Audio")
-async def get_podcast_audio(podcast_id: str):
+@app.get("/podcast/{task_id}/audio", tags=["playback"], summary="Stream Podcast Audio")
+async def get_podcast_audio(task_id: str):
     """
     Stream or download completed podcast audio with embedded web player.
 
     Provides access to final generated podcast audio file with playback controls.
     """
-    audio_path = f"./outputs/audio/{podcast_id}/final.mp3"
-
-    if not os.path.exists(audio_path):
+    # Get the task status to retrieve the audio file path
+    status_manager = get_status_manager()
+    status = status_manager.get_status(task_id)
+    
+    if not status:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    
+    if status.status != "completed":
+        raise HTTPException(status_code=400, detail=f"Podcast generation not completed. Current status: {status.status}")
+    
+    if not status.result_episode or not status.result_episode.audio_filepath:
         raise HTTPException(status_code=404, detail="Podcast audio not found")
+    
+    audio_filepath = status.result_episode.audio_filepath
+    
+    # Check if it's a cloud URL
+    if audio_filepath.startswith(('http://', 'https://', 'gs://')):
+        # For cloud URLs, redirect to the actual URL or embed it directly
+        if audio_filepath.startswith('gs://'):
+            # Convert gs:// URL to public HTTPS URL
+            # gs://bucket/path -> https://storage.googleapis.com/bucket/path
+            gs_path = audio_filepath[5:]  # Remove 'gs://' prefix
+            audio_url = f"https://storage.googleapis.com/{gs_path}"
+            logger.info(f"Converted gs:// URL to public URL: {audio_url}")
+        else:
+            # For HTTP/HTTPS URLs, we can embed them directly
+            audio_url = audio_filepath
+    else:
+        # For local files, verify the file exists
+        if not os.path.exists(audio_filepath):
+            # Try the old path structure as fallback
+            fallback_path = f"./outputs/audio/{task_id}/final.mp3"
+            if os.path.exists(fallback_path):
+                audio_url = f"/audio/{task_id}/final.mp3"
+            else:
+                raise HTTPException(status_code=404, detail=f"Podcast audio file not found at {audio_filepath}")
+        else:
+            # Extract the relative path for serving via static files
+            # The audio_filepath might be something like ./outputs/audio/<task_id>/final.mp3
+            if audio_filepath.startswith("./outputs/audio/"):
+                relative_path = audio_filepath.replace("./outputs/audio/", "")
+                audio_url = f"/audio/{relative_path}"
+            else:
+                # If it's a different local path, we can't serve it via static files
+                raise HTTPException(
+                    status_code=503, 
+                    detail=f"Cannot serve audio from path: {audio_filepath}"
+                )
 
     # Return HTML with audio player
     html_content = f"""
@@ -147,21 +191,28 @@ async def get_podcast_audio(podcast_id: str):
         <style>
             body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
             h1 {{ color: #333; }}
+            .info {{ background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0; }}
             .player-container {{ margin: 20px 0; }}
             audio {{ width: 100%; }}
             .download-link {{ display: inline-block; margin-top: 10px; padding: 8px 16px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; }}
             .download-link:hover {{ background-color: #45a049; }}
+            .error {{ color: #d32f2f; background-color: #ffebee; padding: 10px; border-radius: 4px; margin: 10px 0; }}
         </style>
     </head>
     <body>
         <h1>MySalonCast Podcast Player</h1>
+        <div class="info">
+            <strong>Title:</strong> {status.result_episode.title}<br>
+            <strong>Task ID:</strong> {task_id}<br>
+            <strong>Status:</strong> {status.status}
+        </div>
         <div class="player-container">
             <audio controls>
-                <source src="/audio/{podcast_id}/final.mp3" type="audio/mpeg">
+                <source src="{audio_url}" type="audio/mpeg">
                 Your browser does not support the audio element.
             </audio>
         </div>
-        <a class="download-link" href="/audio/{podcast_id}/final.mp3" download>Download Audio</a>
+        <a class="download-link" href="{audio_url}" download>Download Audio</a>
     </body>
     </html>
     """
