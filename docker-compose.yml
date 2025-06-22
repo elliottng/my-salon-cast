@@ -1,13 +1,10 @@
-version: '3.8'
-
 services:
   cloud-sql-proxy:
     image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:latest
-    command: [
-      'cloud-sql-proxy',
-      '--unix-socket', '/cloudsql',
-      'my-salon-cast:us-west1:mysaloncast-db'
-    ]
+    command: 
+      - cloud-sql-proxy
+      - --unix-socket=/cloudsql
+      - my-salon-cast:us-west1:mysaloncast-db
     volumes:
       - ./gcp-credentials.json:/config/gcp-credentials.json:ro
       - cloudsql:/cloudsql
@@ -22,10 +19,9 @@ services:
       - ./gcp-credentials.json:/app/gcp-credentials.json:ro
       - cloudsql:/cloudsql
     environment:
-      - GCP_JSON_B64
       - DATABASE_URL
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
-    command: /bin/sh -c 'echo "$GCP_JSON_B64" | base64 -d > /app/gcp-credentials.json && uvicorn app.main:app --host 0.0.0.0 --port 8000'
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
 
