@@ -1,8 +1,8 @@
 services:
   cloud-sql-proxy:
     image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:latest
-    command: 
-      - cloud-sql-proxy
+    user: "root"
+    command:
       - --unix-socket=/cloudsql
       - my-salon-cast:us-west1:mysaloncast-db
     volumes:
@@ -18,8 +18,9 @@ services:
     volumes:
       - ./gcp-credentials.json:/app/gcp-credentials.json:ro
       - cloudsql:/cloudsql
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL
       - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-credentials.json
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:

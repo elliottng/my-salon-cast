@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 import os
 import logging
 from datetime import datetime
+from sqlalchemy import func
 from app.validations import is_valid_pdf
 from app.content_extractor import extract_text_from_pdf, ExtractionError
 from app.podcast_workflow import PodcastGeneratorService
@@ -12,6 +13,7 @@ from app.podcast_models import PodcastEpisode, PodcastStatus, PodcastRequest
 from app.status_manager import get_status_manager
 from app.task_runner import get_task_runner
 from app.config import setup_environment, get_config
+from app.database import init_db
 
 # Setup configuration and environment
 config = setup_environment("REST API")
@@ -75,6 +77,14 @@ if config.is_local_environment:
 else:
     # In cloud environment, audio files are served from Cloud Storage
     logger.info("Cloud environment detected - audio files served from Cloud Storage")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables on application startup."""
+    init_db()
+    logger.info("Database tables initialized on startup")
+
 
 @app.post("/process/pdf/", tags=["content"], summary="Extract Text from PDF")
 async def process_pdf_endpoint(pdf_file: UploadFile = File(...)):
@@ -268,16 +278,25 @@ async def health_check():
     }
 
 
-@app.get("/db_health", tags=["status"], summary="Database Health Check")
+@app.get("/db_health", tags=["status"], summary="Database Health and Schema Check")
 def db_health_check():
-    """Simple query to verify database connectivity."""
+    """Verify database connectivity and that the schema is created."""
     try:
-        from .db import get_cursor
+        from app.database import get_session, PodcastStatusDB
+        from sqlmodel import select
 
-        with get_cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.fetchone()
-        return {"status": "ok"}
+        with get_session() as session:
+            # A simple query to count rows in the main table.
+            # This confirms the table exists and is queryable.
+            statement = select(func.count()).select_from(PodcastStatusDB)
+            result = session.exec(statement).one()
+            
+        return {
+            "status": "ok",
+            "message": "Database connection successful and podcast_status table is accessible.",
+            "podcast_status_table_rows": result
+        }
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
-        raise HTTPException(status_code=500, detail="Database connection failed")
+        # Return a 503 Service Unavailable error if the DB is not ready
+        raise HTTPException(status_code=503, detail=f"Database connection failed: {e}")

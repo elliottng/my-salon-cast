@@ -68,11 +68,17 @@ dmypy.json
 .env.development
 *.local
 
+# Obsolete database files
+podcast_status.db
+
 # Audio and text output files (use Cloud Storage in production)
 /tmp/mysaloncast_audio_files/*
 /tmp/mysaloncast_text_files/*
 audio_output/
 text_output/
+outputs/
+generated_podcasts/
+archive/
 
 # Jupyter notebooks
 *.ipynb

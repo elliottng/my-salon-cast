@@ -23,10 +23,7 @@ COPY uv.lock pyproject.toml ./
 RUN uv sync --locked --no-install-project --no-editable
 
 # Copy application code
-COPY . .
-
-# Install the project
-RUN uv sync --locked --no-editable
+COPY app/ ./app
 
 # Create necessary directories for temporary files
 RUN mkdir -p /tmp/mysaloncast_audio_files /tmp/mysaloncast_text_files
