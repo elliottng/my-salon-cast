@@ -74,3 +74,4 @@ DRAFT_*
 .aidocs/
 db_password.txt
 .env.cloud
+gcp_json_b64.txt
