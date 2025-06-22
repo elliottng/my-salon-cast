@@ -7,8 +7,6 @@ import httpx # For making async HTTP requests
 from bs4 import BeautifulSoup # For parsing HTML
 import re # For YouTube video ID extraction
 import asyncio # For running blocking calls in a separate thread
-from youtube_transcript_api._api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import os
 from .common_exceptions import ExtractionError
 import logging
@@ -273,47 +271,60 @@ async def extract_content_from_url(url: str) -> str:
             print(err_msg)
             raise ExtractionError(err_msg)
 
-async def extract_transcript_from_youtube(url: str) -> str:
-    """
-    Extracts the transcript from a YouTube video URL.
-
-    Args:
-        url: The YouTube video URL.
-
-    Returns:
-        A string containing the transcript, or an error message if extraction fails.
-    """
-    match = YOUTUBE_VIDEO_ID_REGEX.search(url)
-    if not match:
-        raise ExtractionError("Could not extract YouTube video ID from URL.")
-    video_id = match.group(1)
-
-    def _fetch_and_process_transcript_sync(vid_id: str) -> str:
-        try:
-            # Try with language preference first (more reliable)
-            transcript_list = YouTubeTranscriptApi.get_transcript(vid_id, languages=['en', 'en-US', 'en-GB'])
-            full_transcript = " ".join([item['text'] for item in transcript_list])
-            return full_transcript
-        except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable) as e:
-            # These are expected YouTube API exceptions
-            raise ExtractionError(f"YouTube transcript unavailable for video ID {vid_id}: {e}")
-        except Exception as e:
-            # Try fallback method without language specification
-            try:
-                transcript_list = YouTubeTranscriptApi.get_transcript(vid_id)
-                full_transcript = " ".join([item['text'] for item in transcript_list])
-                return full_transcript
-            except Exception as fallback_e:
-                err_msg = f"Error fetching transcript for video ID {vid_id}: {e} (fallback also failed: {fallback_e})"
-                print(err_msg)
-                raise ExtractionError(err_msg)
-
+async def _extract_with_assemblyai(url: str) -> str:
+    """Extract YouTube transcript using AssemblyAI async API (direct fetch via audio_url)."""
+    if os.environ.get("ASSEMBLYAI_ENABLED", "true").lower() != "true":
+        raise ExtractionError("AssemblyAI disabled")
+    api_key = os.environ.get("ASSEMBLYAI_API_KEY")
+    if not api_key:
+        raise ExtractionError("ASSEMBLYAI_API_KEY not set")
+    headers = {"authorization": api_key, "content-type": "application/json"}
+        # Resolve YouTube URL to a direct audio stream via yt_dlp
+    # Step 1: resolve YouTube link to a direct audio stream URL
     try:
-        # Run the synchronous blocking call in a separate thread
-        transcript = await asyncio.to_thread(_fetch_and_process_transcript_sync, video_id)
-        return transcript
+        import yt_dlp
+        ydl_opts = {"format": "bestaudio/best", "quiet": True, "noplaylist": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            audio_src = info["url"]
     except Exception as e:
-        # Catch potential errors from asyncio.to_thread itself or other unforeseen issues
-        err_msg = f"Asyncio error or other issue processing YouTube URL {url} for video ID {video_id}: {e}"
-        print(err_msg)
-        raise ExtractionError(err_msg)
+        raise ExtractionError(f"Failed to extract audio stream from YouTube link: {e}")
+
+    async with httpx.AsyncClient(timeout=180) as client:
+        # Step 2: download the audio data into memory (works for typical <50 MB videos)
+        audio_resp = await client.get(audio_src)
+        audio_resp.raise_for_status()
+
+        # Step 3: upload to AssemblyAI
+        upload_resp = await client.post(
+            "https://api.assemblyai.com/v2/upload",
+            headers={"authorization": api_key},
+            content=audio_resp.content,
+        )
+        upload_resp.raise_for_status()
+        upload_url = upload_resp.json()["upload_url"]
+
+        # Step 4: create transcription job
+        create_resp = await client.post(
+            "https://api.assemblyai.com/v2/transcript",
+            headers=headers,
+            json={"audio_url": upload_url},
+        )
+        create_resp.raise_for_status()
+        tid = create_resp.json()["id"]
+        poll_seconds = int(os.environ.get("ASSEMBLYAI_POLL_SECONDS", 5))
+        while True:
+            await asyncio.sleep(poll_seconds)
+            status_resp = await client.get(
+                f"https://api.assemblyai.com/v2/transcript/{tid}", headers=headers
+            )
+            status_resp.raise_for_status()
+            data = status_resp.json()
+            if data["status"] == "completed":
+                return data["text"]
+            if data["status"] in {"error", "failed"}:
+                raise ExtractionError(f"AssemblyAI error: {data.get('error', 'unknown')}")
+
+async def extract_transcript_from_youtube(url: str) -> str:
+    """Extract transcript from a YouTube video using AssemblyAI only."""
+    return await _extract_with_assemblyai(url)

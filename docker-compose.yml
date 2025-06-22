@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  cloud-sql-proxy:
+    image: gcr.io/cloudsql-docker/gce-proxy:1.33.7
+    command: [
+      '/cloud_sql_proxy',
+      '--address', '0.0.0.0', '--port', '5432',
+      'my-salon-cast:us-west1:mysaloncast-db'
+    ]
+    volumes:
+      - ./gcp-credentials.json:/config/gcp-credentials.json:ro
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/config/gcp-credentials.json
+    ports:
+      - "5432:5432"
+
+  app:
+    build: .
+    depends_on:
+      - cloud-sql-proxy
+    volumes:
+      - ./gcp-credentials.json:/app/gcp-credentials.json:ro
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
