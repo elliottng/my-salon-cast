@@ -54,14 +54,12 @@ class Config:
         return os.getenv("AUDIO_BUCKET")
     
     @property
-    def database_bucket(self) -> Optional[str]:
-        """Get the database storage bucket name."""
-        return os.getenv("DATABASE_BUCKET")
-    
-    @property
     def database_url(self) -> str:
         """Get the database URL."""
-        return os.getenv("DATABASE_URL", "sqlite:///podcast_status.db")
+        url = os.getenv("DATABASE_URL")
+        if not url:
+            raise RuntimeError("DATABASE_URL not configured")
+        return url
     
     @property
     def server_host(self) -> str:
@@ -227,10 +225,12 @@ class Config:
         """
         issues = []
         warnings = []
-        
+
         # Check API keys
         if not self.gemini_api_key:
             issues.append("GEMINI_API_KEY not configured")
+        if not os.getenv("DATABASE_URL"):
+            issues.append("DATABASE_URL not configured")
         
         # Check cloud storage configuration for cloud environments
         if self.is_cloud_environment:
@@ -240,8 +240,6 @@ class Config:
             if not self.audio_bucket:
                 warnings.append("AUDIO_BUCKET not configured")
             
-            if not self.database_bucket:
-                warnings.append("DATABASE_BUCKET not configured")
         
         # Warn about deprecated environment variables
         if os.getenv("GOOGLE_TTS_API_KEY"):

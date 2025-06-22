@@ -58,7 +58,7 @@ MySalonCast provides a **FastAPI REST API server** for podcast generation:
 - **FastAPI Server** (`app/main.py`): HTTP API for podcast generation
 - **Podcast Generation Pipeline**: Multi-step AI-powered audio creation
 - **Google Cloud Integration**: Gemini LLM for content generation
-- **Local SQLite Database**: Simple data persistence
+- **PostgreSQL Database**: Managed with Cloud SQL
 
 ```
 Web/Mobile/CLI ─── HTTP/REST ─── FastAPI Server ─── Podcast Pipeline
@@ -66,7 +66,7 @@ Web/Mobile/CLI ─── HTTP/REST ─── FastAPI Server ─── Podcast Pi
                                    Core Services:
                                    ├── Google Gemini LLM
                                    ├── Audio Processing (ffmpeg)
-                                   └── Local SQLite Database
+                                   └── Cloud SQL PostgreSQL
 ```
 
 ### Local Development
@@ -77,9 +77,17 @@ uv run python -m uvicorn app.main:app --reload
 # Available at: http://localhost:8000
 ```
 
+**Docker Compose (PostgreSQL via Cloud SQL Proxy):**
+```bash
+docker-compose up -d
+# Create tables if first run
+psql "$DATABASE_URL" -f schema.sql
+```
+
 **Health Check:**
 ```bash
 curl http://localhost:8000/health
+curl http://localhost:8000/db_health
 ```
 
 ## 🚀 Google Cloud Deployment

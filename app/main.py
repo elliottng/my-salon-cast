@@ -266,3 +266,18 @@ async def health_check():
         "version": "1.0.0",
         "timestamp": datetime.now().isoformat()
     }
+
+
+@app.get("/db_health", tags=["status"], summary="Database Health Check")
+def db_health_check():
+    """Simple query to verify database connectivity."""
+    try:
+        from .db import get_cursor
+
+        with get_cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        raise HTTPException(status_code=500, detail="Database connection failed")
