@@ -73,3 +73,4 @@ DRAFT_COMMITMSG.md
 DRAFT_*
 .aidocs/
 db_password.txt
+.env.cloud
