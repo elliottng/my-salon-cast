@@ -60,6 +60,7 @@ dependencies = [
     # Content Extraction
     "firecrawl-py>=0.0.16",
     "yt-dlp>=2024.4.9",
+    "assemblyai>=0.24.0",
     "psycopg2-binary>=2.9.10",
     "alembic>=1.16.2",
 ]

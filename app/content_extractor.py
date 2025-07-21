@@ -272,58 +272,47 @@ async def extract_content_from_url(url: str) -> str:
             raise ExtractionError(err_msg)
 
 async def _extract_with_assemblyai(url: str) -> str:
-    """Extract YouTube transcript using AssemblyAI async API (direct fetch via audio_url)."""
+    """Extract YouTube transcript using AssemblyAI async API (direct YouTube URL support)."""
     if os.environ.get("ASSEMBLYAI_ENABLED", "true").lower() != "true":
         raise ExtractionError("AssemblyAI disabled")
     api_key = os.environ.get("ASSEMBLYAI_API_KEY")
     if not api_key:
         raise ExtractionError("ASSEMBLYAI_API_KEY not set")
+    
     headers = {"authorization": api_key, "content-type": "application/json"}
-        # Resolve YouTube URL to a direct audio stream via yt_dlp
-    # Step 1: resolve YouTube link to a direct audio stream URL
-    try:
-        import yt_dlp
-        ydl_opts = {"format": "bestaudio/best", "quiet": True, "noplaylist": True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            audio_src = info["url"]
-    except Exception as e:
-        raise ExtractionError(f"Failed to extract audio stream from YouTube link: {e}")
-
+    
     async with httpx.AsyncClient(timeout=180) as client:
-        # Step 2: download the audio data into memory (works for typical <50 MB videos)
-        audio_resp = await client.get(audio_src)
-        audio_resp.raise_for_status()
-
-        # Step 3: upload to AssemblyAI
-        upload_resp = await client.post(
-            "https://api.assemblyai.com/v2/upload",
-            headers={"authorization": api_key},
-            content=audio_resp.content,
-        )
-        upload_resp.raise_for_status()
-        upload_url = upload_resp.json()["upload_url"]
-
-        # Step 4: create transcription job
+        # AssemblyAI supports YouTube URLs directly - no need for yt-dlp!
+        # Step 1: Create transcription job directly with YouTube URL
         create_resp = await client.post(
             "https://api.assemblyai.com/v2/transcript",
             headers=headers,
-            json={"audio_url": upload_url},
+            json={"audio_url": url},  # AssemblyAI accepts YouTube URLs directly
         )
         create_resp.raise_for_status()
         tid = create_resp.json()["id"]
+        
+        # Step 2: Poll for completion
         poll_seconds = int(os.environ.get("ASSEMBLYAI_POLL_SECONDS", 5))
-        while True:
+        max_attempts = 60  # Max 5 minutes of polling
+        attempts = 0
+        
+        while attempts < max_attempts:
             await asyncio.sleep(poll_seconds)
             status_resp = await client.get(
                 f"https://api.assemblyai.com/v2/transcript/{tid}", headers=headers
             )
             status_resp.raise_for_status()
             data = status_resp.json()
+            
             if data["status"] == "completed":
                 return data["text"]
             if data["status"] in {"error", "failed"}:
                 raise ExtractionError(f"AssemblyAI error: {data.get('error', 'unknown')}")
+            
+            attempts += 1
+        
+        raise ExtractionError("AssemblyAI transcription timed out after 5 minutes")
 
 async def extract_transcript_from_youtube(url: str) -> str:
     """Extract transcript from a YouTube video using AssemblyAI only."""

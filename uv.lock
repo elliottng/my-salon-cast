@@ -160,6 +160,21 @@ wheels = [
 ]
 
 [[package]]
+name = "assemblyai"
+version = "0.41.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/3a/5a6b3ddee24f03089bd7ccbc1906cacd055f8f0ed60babca14580a0fbe6b/assemblyai-0.41.5.tar.gz", hash = "sha256:6f9b1696b10dbc7813c267bd1075fd606c3d77dfa63ed0bb2a05e9a57aec4052", size = 53587, upload-time = "2025-06-17T22:17:52.394Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/45/1f4760af9e8bf99b8baaa121fac4f61a6d0edc2380521e31c9e830ba1ffd/assemblyai-0.41.5-py3-none-any.whl", hash = "sha256:13f0e21b8cd11f38ccd03d326ca8e37223a17d659686b6b9b8bd34ff726313b9", size = 49608, upload-time = "2025-06-17T22:17:50.896Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1397,6 +1412,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "alembic" },
+    { name = "assemblyai" },
     { name = "beautifulsoup4" },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -1442,6 +1458,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "alembic", specifier = ">=1.16.2" },
+    { name = "assemblyai", specifier = ">=0.24.0" },
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fastmcp", specifier = ">=2.0.0" },

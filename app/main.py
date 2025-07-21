@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import os
 import logging
+import asyncio
 from datetime import datetime
 from sqlalchemy import func
 from app.validations import is_valid_pdf
@@ -276,6 +277,41 @@ async def health_check():
         "version": "1.0.0",
         "timestamp": datetime.now().isoformat()
     }
+
+
+# Test endpoint for background task debugging
+@app.post("/test/background-task", tags=["status"], summary="Test Background Task")
+async def test_background_task():
+    """
+    Test endpoint to verify background task execution in production.
+    This creates a simple background task that just logs messages.
+    """
+    import uuid
+    task_id = str(uuid.uuid4())
+    
+    async def simple_background_task(test_task_id: str):
+        logger.critical(f"[TEST_BACKGROUND] Task {test_task_id} started")
+        await asyncio.sleep(1)
+        logger.critical(f"[TEST_BACKGROUND] Task {test_task_id} after 1 second")
+        await asyncio.sleep(2)
+        logger.critical(f"[TEST_BACKGROUND] Task {test_task_id} completed after 3 seconds")
+    
+    try:
+        task_runner = get_task_runner()
+        await task_runner.submit_async_task(
+            task_id,
+            simple_background_task,
+            task_id
+        )
+        logger.critical(f"[TEST_BACKGROUND] Task {task_id} submitted successfully")
+        return {
+            "task_id": task_id,
+            "message": "Test background task submitted",
+            "check_logs": "Look for [TEST_BACKGROUND] entries in Cloud Run logs"
+        }
+    except Exception as e:
+        logger.error(f"[TEST_BACKGROUND] Failed to submit task: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit test task: {str(e)}")
 
 
 @app.get("/db_health", tags=["status"], summary="Database Health and Schema Check")

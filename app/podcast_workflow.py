@@ -181,12 +181,14 @@ class PodcastGeneratorService:
         
         # Submit the task to run in the background
         try:
+            # Convert Pydantic model to dict to ensure proper serialization
+            request_dict = request_data.dict()
             # Submit async task directly to core processing method
             await task_runner.submit_async_task(
                 task_id,
                 self._run_podcast_generation_async,
                 task_id,
-                request_data
+                request_dict  # Pass dict instead of Pydantic model
             )
             logger.info(f"Task {task_id} submitted for background processing")
             return task_id
@@ -201,7 +203,7 @@ class PodcastGeneratorService:
             # Return task ID even on submission failure so user can check status
             return task_id
         
-    async def _run_podcast_generation_async(self, task_id: str, request_data: PodcastRequest) -> None:
+    async def _run_podcast_generation_async(self, task_id: str, request_data: Dict) -> None:
         """
         Wrapper function that runs podcast generation in a background task.
         This function is designed to be executed by the TaskRunner in a separate thread.
@@ -210,10 +212,24 @@ class PodcastGeneratorService:
             task_id: The unique identifier for this generation task
             request_data: The podcast generation request parameters
         """
+        import threading
+        # CRITICAL DEBUG: Log immediately upon function entry
+        logger.critical(f"[BACKGROUND_TASK_DEBUG] _run_podcast_generation_async STARTED for task {task_id}")
+        logger.critical(f"[BACKGROUND_TASK_DEBUG] Thread: {threading.current_thread().name}")
+        logger.critical(f"[BACKGROUND_TASK_DEBUG] Request data: {request_data}")
+        
+        # Reconstruct PodcastRequest from dict for proper validation
+        from app.podcast_models import PodcastRequest
+        try:
+            request_obj = PodcastRequest(**request_data)
+        except Exception as e:
+            logger.error(f"Failed to reconstruct PodcastRequest from dict: {e}")
+            logger.error(f"Request data was: {request_data}")
+            raise
+        
         status_manager = get_status_manager()
         
         # Initialize variables that will be used in finally block
-        import threading
         current_thread = threading.current_thread()
         
         try:
@@ -223,14 +239,14 @@ class PodcastGeneratorService:
             current_thread.task_id = task_id  # type: ignore  # Dynamic attribute assignment for task tracking
             
             # Call the new core processing method directly
-            podcast_episode = await self._execute_podcast_generation_core(task_id, request_data)
+            podcast_episode = await self._execute_podcast_generation_core(task_id, request_obj)
             
             logger.info(f"Background generation complete for task {task_id}")
             
             # Send webhook notification if configured
-            if request_data.webhook_url:
+            if request_obj.webhook_url:
                 await self._send_webhook_notification(
-                    request_data.webhook_url,
+                    request_obj.webhook_url,
                     task_id,
                     "completed",
                     podcast_episode
@@ -246,9 +262,9 @@ class PodcastGeneratorService:
             )
             
             # Send webhook notification for cancellation
-            if request_data.webhook_url:
+            if request_obj.webhook_url:
                 await self._send_webhook_notification(
-                    request_data.webhook_url,
+                    request_obj.webhook_url,
                     task_id,
                     "cancelled",
                     None
@@ -263,9 +279,9 @@ class PodcastGeneratorService:
             logger.exception("Exception details:")
             
             # Send webhook notification for failure
-            if request_data.webhook_url:
+            if request_obj.webhook_url:
                 await self._send_webhook_notification(
-                    request_data.webhook_url,
+                    request_obj.webhook_url,
                     task_id,
                     "failed",
                     None,
